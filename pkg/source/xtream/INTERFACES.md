@@ -13,6 +13,7 @@
 | `source.VODProvider` | `SupportsVOD() bool` | Returns true |
 | `source.VODProvider` | `VODTypes() []string` | Returns ["movie", "series"] |
 | `source.Clearable` | `Clear(ctx) error` | Deletes streams and resets internal state |
+| `source.AccountInfoProvider` | `GetAccountInfo(ctx) (any, error)` | Fetches account info: status, connections, live/VOD/series counts |
 
 ## Dependencies
 
@@ -40,3 +41,4 @@
 | POST | /api/sources/xtream | Admin | handleCreateXtreamSource |
 | PUT | /api/sources/xtream/{id} | Admin | handleUpdateXtreamSource |
 | DELETE | /api/sources/xtream/{id} | Admin | handleDeleteXtreamSource |
+| GET | /api/sources/xtream/{id}/info | Admin | handleXtreamAccountInfo |

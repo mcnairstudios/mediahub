@@ -43,3 +43,11 @@ func SetBrowserHeaders(req *http.Request, userAgent string)
 ```
 
 Set User-Agent, Accept, Accept-Language, and Connection headers to mimic a browser.
+
+### RequestBaseURL
+
+```go
+func RequestBaseURL(r *http.Request) string
+```
+
+Derive the base URL from the incoming request, respecting X-Forwarded-Proto and X-Forwarded-Host headers for reverse proxy setups.

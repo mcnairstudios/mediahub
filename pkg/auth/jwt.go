@@ -141,6 +141,27 @@ func (s *JWTService) ListUsers(ctx context.Context) ([]*User, error) {
 	return s.store.List(ctx)
 }
 
+func (s *JWTService) UpdateUser(ctx context.Context, id string, username string, role Role) (*User, error) {
+	user, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if username != "" {
+		user.Username = username
+	}
+	if role != "" {
+		user.Role = role
+		user.IsAdmin = role == RoleAdmin
+	}
+
+	if err := s.store.Update(ctx, user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
 func (s *JWTService) DeleteUser(ctx context.Context, id string) error {
 	return s.store.Delete(ctx, id)
 }

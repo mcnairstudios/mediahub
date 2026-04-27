@@ -474,6 +474,38 @@ func (s *Server) handleDeleteXtreamSource(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleXtreamAccountInfo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil || sc == nil || sc.Type != "xtream" {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	src, err := s.deps.SourceReg.Create(r.Context(), "xtream", id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if provider, ok := src.(source.AccountInfoProvider); ok {
+		info, err := provider.GetAccountInfo(r.Context())
+		if err != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		httputil.RespondJSON(w, http.StatusOK, info)
+		return
+	}
+
+	httputil.RespondError(w, http.StatusNotImplemented, "source does not support account info")
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

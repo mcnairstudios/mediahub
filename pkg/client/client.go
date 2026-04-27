@@ -1,28 +1,37 @@
 package client
 
+import "context"
+
 type Client struct {
-	ID              string
-	Name            string
-	Priority        int
-	ListenPort      int
-	StreamProfileID string
-	IsEnabled       bool
-	MatchRules      []MatchRule
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	Priority   int         `json:"priority"`
+	ListenPort int         `json:"listen_port,omitempty"`
+	IsEnabled  bool        `json:"is_enabled"`
+	IsSystem   bool        `json:"is_system"`
+	MatchRules []MatchRule `json:"match_rules,omitempty"`
+	Profile    Profile     `json:"profile"`
 }
 
 type MatchRule struct {
-	HeaderName string
-	MatchType  string
-	MatchValue string
+	HeaderName string `json:"header_name"`
+	MatchType  string `json:"match_type"`
+	MatchValue string `json:"match_value"`
 }
 
 type Profile struct {
-	Name         string
-	Delivery     string
-	VideoCodec   string
-	AudioCodec   string
-	Container    string
-	HWAccel      string
-	OutputHeight int
-	Deinterlace  bool
+	Delivery     string `json:"delivery"`
+	VideoCodec   string `json:"video_codec"`
+	AudioCodec   string `json:"audio_codec"`
+	Container    string `json:"container"`
+	HWAccel      string `json:"hwaccel"`
+	OutputHeight int    `json:"output_height,omitempty"`
+}
+
+type Store interface {
+	Get(ctx context.Context, id string) (*Client, error)
+	List(ctx context.Context) ([]Client, error)
+	Create(ctx context.Context, c *Client) error
+	Update(ctx context.Context, c *Client) error
+	Delete(ctx context.Context, id string) error
 }

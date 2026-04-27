@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -37,12 +38,15 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
+	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	recscheduler "github.com/mcnairstudios/mediahub/pkg/scheduler"
 	"github.com/mcnairstudios/mediahub/pkg/store"
+	"github.com/mcnairstudios/mediahub/pkg/tmdb"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 	"github.com/mcnairstudios/mediahub/pkg/worker"
@@ -75,6 +79,7 @@ func main() {
 	userStore := db.UserStore()
 	sourceConfigStore := db.SourceConfigStore()
 	favoriteStore := db.FavoriteStore()
+	clientStore := db.ClientStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
@@ -93,6 +98,10 @@ func main() {
 	}
 
 	seedDefaults(ctx, settingsStore)
+
+	if err := client.SeedDefaults(ctx, clientStore); err != nil {
+		log.Printf("warning: failed to seed default clients: %v", err)
+	}
 
 	wgService := wg.NewService(settingsStore)
 
@@ -197,11 +206,65 @@ func main() {
 		}
 		return xstreamsource.New(xtCfg), nil
 	})
-	sourceReg.Register("hdhr", func(_ context.Context, _ string) (source.Source, error) {
-		return nil, errors.New("hdhr sources are created via API with their config")
+	sourceReg.Register("hdhr", func(ctx context.Context, sourceID string) (source.Source, error) {
+		if sourceID == "" {
+			return hdhrsource.New(hdhrsource.Config{
+				StreamStore: streamStore,
+			}), nil
+		}
+		sc, err := sourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		var devices []hdhrsource.Device
+		if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
+			if jsonErr := json.Unmarshal([]byte(devicesJSON), &devices); jsonErr != nil {
+				log.Printf("hdhr: failed to parse devices for %s: %v", sc.Name, jsonErr)
+			}
+		}
+		hdhrCfg := hdhrsource.Config{
+			ID:          sc.ID,
+			Name:        sc.Name,
+			IsEnabled:   sc.IsEnabled,
+			Devices:     devices,
+			StreamStore: streamStore,
+		}
+		return hdhrsource.New(hdhrCfg), nil
 	})
-	sourceReg.Register("satip", func(_ context.Context, _ string) (source.Source, error) {
-		return nil, errors.New("satip sources are created via API with their config")
+	sourceReg.Register("satip", func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := sourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		httpPort := 8875
+		if v := sc.Config["http_port"]; v != "" {
+			if n, pErr := strconv.Atoi(v); pErr == nil {
+				httpPort = n
+			}
+		}
+		maxStreams := 0
+		if v := sc.Config["max_streams"]; v != "" {
+			if n, pErr := strconv.Atoi(v); pErr == nil {
+				maxStreams = n
+			}
+		}
+		satipCfg := satipsource.Config{
+			ID:              sc.ID,
+			Name:            sc.Name,
+			Host:            sc.Config["host"],
+			HTTPPort:        httpPort,
+			IsEnabled:       sc.IsEnabled,
+			MaxStreams:       maxStreams,
+			TransmitterFile: sc.Config["transmitter_file"],
+			StreamStore:     streamStore,
+		}
+		return satipsource.New(satipCfg), nil
 	})
 
 	outputReg := output.NewRegistry()
@@ -231,7 +294,11 @@ func main() {
 	cacheReg := cache.NewRegistry()
 	cacheReg.Register(tmdbCache)
 
-	detector := client.NewDetector(nil)
+	var detectorClients []client.Client
+	if storedClients, err := clientStore.List(ctx); err == nil {
+		detectorClients = storedClients
+	}
+	detector := client.NewDetector(detectorClients)
 
 	sessionMgr := session.NewManager(cfg.RecordDir)
 
@@ -272,6 +339,7 @@ func main() {
 		SessionMgr:     sessionMgr,
 		RecordingStore: recordingStore,
 		OutputReg:      outputReg,
+		RecordDir:      cfg.RecordDir,
 	}
 	recScheduler.SetStartFunc(func(streamID, title string) error {
 		return orchestrator.StartRecording(ctx, recDeps, streamID, title, "system", false)
@@ -287,6 +355,12 @@ func main() {
 
 	activityService := activity.New()
 
+	tmdbClient := tmdb.NewClient(func() string {
+		key, _ := settingsStore.Get(ctx, "tmdb_api_key")
+		return key
+	}, tmdbCache)
+	tmdbImages := tmdb.NewImageCache(filepath.Join(cfg.DataDir, "tmdb_images"))
+
 	apiServer := api.NewServer(api.OrchestratorDeps{
 		StreamStore:       streamStore,
 		ChannelStore:      channelStore,
@@ -298,6 +372,7 @@ func main() {
 		OutputReg:         outputReg,
 		SourceReg:         sourceReg,
 		RecordingStore:    recordingStore,
+		ClientStore:       clientStore,
 		AuthService:       authService,
 		EPGSourceStore:    epgSourceStore,
 		ProgramStore:      programStore,
@@ -307,6 +382,9 @@ func main() {
 		WGService:         wgService,
 		LogoCache:         logoCache,
 		Activity:          activityService,
+		TMDBClient:        tmdbClient,
+		TMDBImages:        tmdbImages,
+		Config:            cfg,
 		StaticFS:          staticFS,
 		UserAgent:         cfg.UserAgent,
 		BypassHeader:      cfg.BypassHeader,
@@ -367,7 +445,11 @@ func main() {
 		Groups:     groupStore,
 		Streams:    streamStore,
 		Programs:   programStore,
+		Favorites:  favoriteStore,
 		TMDBCache:  tmdbCache,
+		TMDBClient: tmdbClient,
+		ImageCache: tmdbImages,
+		LogoCache:  logoCache,
 		Log:        zlog,
 	})
 	go func() {
@@ -507,6 +589,7 @@ func seedDefaults(ctx context.Context, s store.SettingsStore) {
 		"dlna_enabled":           "true",
 		"delivery":               "hls",
 		"container":              "mp4",
+		"tmdb_api_key":           "",
 	}
 	for k, v := range defaults {
 		existing, _ := s.Get(ctx, k)

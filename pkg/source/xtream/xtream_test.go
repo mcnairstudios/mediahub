@@ -146,6 +146,10 @@ func TestImplementsClearable(t *testing.T) {
 	var _ source.Clearable = (*Source)(nil)
 }
 
+func TestImplementsAccountInfoProvider(t *testing.T) {
+	var _ source.AccountInfoProvider = (*Source)(nil)
+}
+
 func TestType(t *testing.T) {
 	s := New(Config{
 		ID:          "test-src",
@@ -726,6 +730,102 @@ func TestRefreshHTTPError(t *testing.T) {
 	err := s.Refresh(context.Background())
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
+	}
+}
+
+func TestGetAccountInfo(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:          "xt-1",
+		Name:        "Test",
+		Server:      ts.URL,
+		Username:    "testuser",
+		Password:    "testpass",
+		StreamStore: ss,
+		HTTPClient:  ts.Client(),
+	})
+
+	result, err := s.GetAccountInfo(context.Background())
+	if err != nil {
+		t.Fatalf("get account info failed: %v", err)
+	}
+	info, ok := result.(*AccountInfo)
+	if !ok {
+		t.Fatalf("expected *AccountInfo, got %T", result)
+	}
+	if info.Status != "Active" {
+		t.Fatalf("expected status Active, got %s", info.Status)
+	}
+	if info.MaxConnections != "5" {
+		t.Fatalf("expected max connections 5, got %s", info.MaxConnections)
+	}
+	if info.LiveCategories != 2 {
+		t.Fatalf("expected 2 live categories, got %d", info.LiveCategories)
+	}
+	if info.LiveStreams != 3 {
+		t.Fatalf("expected 3 live streams, got %d", info.LiveStreams)
+	}
+	if info.VODStreams != 2 {
+		t.Fatalf("expected 2 VOD streams, got %d", info.VODStreams)
+	}
+	if info.SeriesCount != 1 {
+		t.Fatalf("expected 1 series, got %d", info.SeriesCount)
+	}
+}
+
+func TestGetAccountInfoAuthFailure(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:          "xt-1",
+		Name:        "Test",
+		Server:      ts.URL,
+		Username:    "wrong",
+		Password:    "wrong",
+		StreamStore: ss,
+		HTTPClient:  ts.Client(),
+	})
+
+	_, err := s.GetAccountInfo(context.Background())
+	if err == nil {
+		t.Fatal("expected error for auth failure")
+	}
+}
+
+func TestFetchVODStreams(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	vod, err := fetchVODStreams(context.Background(), ts.Client(), ts.URL, "testuser", "testpass")
+	if err != nil {
+		t.Fatalf("fetchVODStreams failed: %v", err)
+	}
+	if len(vod) != 2 {
+		t.Fatalf("expected 2 VOD streams, got %d", len(vod))
+	}
+	if vod[0].Name != "The Matrix" {
+		t.Fatalf("expected The Matrix, got %s", vod[0].Name)
+	}
+}
+
+func TestFetchSeries(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	series, err := fetchSeries(context.Background(), ts.Client(), ts.URL, "testuser", "testpass")
+	if err != nil {
+		t.Fatalf("fetchSeries failed: %v", err)
+	}
+	if len(series) != 1 {
+		t.Fatalf("expected 1 series, got %d", len(series))
+	}
+	if series[0].Name != "Breaking Bad" {
+		t.Fatalf("expected Breaking Bad, got %s", series[0].Name)
 	}
 }
 

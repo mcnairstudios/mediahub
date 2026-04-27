@@ -82,3 +82,35 @@ Factory registry for creating plugins by delivery mode.
 | `Modes` | `() []DeliveryMode` | List all registered modes |
 
 `PluginFactory` signature: `func(cfg PluginConfig) (OutputPlugin, error)`
+
+---
+
+## PluginConfig
+
+Configuration passed to plugin factories when creating output plugins.
+
+```go
+type PluginConfig struct {
+    OutputDir          string
+    OutputFilePath     string
+    OutputFormat       string
+    IsLive             bool
+    SegmentDurationSec int
+    Video              *media.VideoInfo
+    Audio              *media.AudioTrack
+    VideoCodecParams   any // *astiav.CodecParameters from demuxer
+    AudioCodecParams   any // *astiav.CodecParameters from demuxer
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `OutputDir` | Directory for segment output (MSE, HLS) |
+| `OutputFilePath` | Path for single-file output (stream, record) |
+| `OutputFormat` | Container format (mp4, mpegts) |
+| `IsLive` | Whether the source is live (infinite) or VOD (finite) |
+| `SegmentDurationSec` | Target segment duration for MSE/HLS |
+| `Video` | Video stream info from probe |
+| `Audio` | Audio stream info from probe |
+| `VideoCodecParams` | Codec parameters for video (from astiav demuxer) |
+| `AudioCodecParams` | Codec parameters for audio (from astiav demuxer) |

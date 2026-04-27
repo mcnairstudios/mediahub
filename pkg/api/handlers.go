@@ -106,6 +106,7 @@ func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondJSON(w, http.StatusOK, []any{})
 		return
 	}
+	s.resolveStreamLogos(streams)
 	httputil.RespondJSON(w, http.StatusOK, streams)
 }
 
@@ -363,11 +364,7 @@ func (s *Server) handleStartRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deps := orchestrator.RecordingDeps{
-		SessionMgr:     s.deps.SessionMgr,
-		RecordingStore: s.deps.RecordingStore,
-		OutputReg:      s.deps.OutputReg,
-	}
+	deps := s.recordingDeps()
 
 	if err := orchestrator.StartRecording(r.Context(), deps, streamID, req.Title, user.ID, false); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
@@ -384,11 +381,7 @@ func (s *Server) handleStopRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deps := orchestrator.RecordingDeps{
-		SessionMgr:     s.deps.SessionMgr,
-		RecordingStore: s.deps.RecordingStore,
-		OutputReg:      s.deps.OutputReg,
-	}
+	deps := s.recordingDeps()
 
 	if err := orchestrator.StopRecording(r.Context(), deps, streamID); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
@@ -503,4 +496,27 @@ func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) recordingDeps() orchestrator.RecordingDeps {
+	deps := orchestrator.RecordingDeps{
+		SessionMgr:     s.deps.SessionMgr,
+		RecordingStore: s.deps.RecordingStore,
+		OutputReg:      s.deps.OutputReg,
+	}
+	if s.deps.Config != nil {
+		deps.RecordDir = s.deps.Config.RecordDir
+	}
+	return deps
+}
+
+func (s *Server) resolveStreamLogos(streams []media.Stream) {
+	if s.deps.LogoCache == nil {
+		return
+	}
+	for i := range streams {
+		if streams[i].TvgLogo != "" {
+			streams[i].TvgLogo = s.deps.LogoCache.Resolve(streams[i].TvgLogo)
+		}
+	}
 }

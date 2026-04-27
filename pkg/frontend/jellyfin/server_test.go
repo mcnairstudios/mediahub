@@ -50,6 +50,10 @@ func (m *mockAuthService) ListUsers(_ context.Context) ([]*auth.User, error) {
 	return m.users, nil
 }
 
+func (m *mockAuthService) UpdateUser(_ context.Context, id string, username string, role auth.Role) (*auth.User, error) {
+	return nil, nil
+}
+
 func (m *mockAuthService) DeleteUser(_ context.Context, id string) error { return nil }
 
 func (m *mockAuthService) ChangePassword(_ context.Context, id, newPassword string) error {
@@ -133,7 +137,7 @@ func newTestServerFull() *Server {
 	}
 	s.streams = &mockStreamStore{
 		streams: []media.Stream{
-			{ID: "aaaaaaaa-1111-2222-3333-444444444444", Name: "Test Movie", VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080, Duration: 7200},
+			{ID: "aaaaaaaa-1111-2222-3333-444444444444", Name: "Test Movie", VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080, Duration: 7200, VODType: "movie", IsLocal: true},
 		},
 	}
 	return s

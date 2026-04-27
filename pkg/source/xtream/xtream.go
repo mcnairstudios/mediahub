@@ -186,6 +186,49 @@ func (s *Source) VODTypes() []string {
 	return []string{"movie", "series"}
 }
 
+type AccountInfo struct {
+	ServerURL        string `json:"server_url"`
+	Username         string `json:"username"`
+	Status           string `json:"status"`
+	MaxConnections   string `json:"max_connections"`
+	ActiveConnections string `json:"active_connections,omitempty"`
+	ServerProtocol   string `json:"server_protocol"`
+	LiveCategories   int    `json:"live_categories"`
+	LiveStreams       int    `json:"live_streams"`
+	VODStreams        int    `json:"vod_streams"`
+	SeriesCount       int    `json:"series_count"`
+}
+
+func (s *Source) GetAccountInfo(ctx context.Context) (any, error) {
+	client := s.cfg.HTTPClient
+	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
+		client = s.cfg.WGClient
+	}
+
+	auth, err := authenticate(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
+	if err != nil {
+		return nil, fmt.Errorf("authenticating: %w", err)
+	}
+
+	categories, _ := fetchCategories(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
+	liveStreams, _ := fetchLiveStreams(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
+	vodStreams, _ := fetchVODStreams(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
+	series, _ := fetchSeries(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
+
+	return &AccountInfo{
+		ServerURL:      auth.ServerInfo.URL,
+		Username:       auth.UserInfo.Username,
+		Status:         auth.UserInfo.Status,
+		MaxConnections: auth.UserInfo.MaxConnections,
+		ActiveConnections: auth.UserInfo.ActiveConnections,
+		ServerProtocol: auth.ServerInfo.ServerProtocol,
+		LiveCategories: len(categories),
+		LiveStreams:     len(liveStreams),
+		VODStreams:      len(vodStreams),
+		SeriesCount:     len(series),
+	}, nil
+}
+
 func (s *Source) Clear(ctx context.Context) error {
 	if err := s.cfg.StreamStore.DeleteBySource(ctx, "xtream", s.cfg.ID); err != nil {
 		return err
@@ -200,10 +243,11 @@ func (s *Source) Clear(ctx context.Context) error {
 }
 
 type UserInfo struct {
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	Status         string `json:"status"`
-	MaxConnections string `json:"max_connections"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	Status            string `json:"status"`
+	MaxConnections    string `json:"max_connections"`
+	ActiveConnections string `json:"active_cons"`
 }
 
 type ServerInfo struct {
@@ -282,6 +326,24 @@ func fetchLiveStreams(ctx context.Context, client *http.Client, server, username
 		return nil, err
 	}
 	return streams, nil
+}
+
+func fetchVODStreams(ctx context.Context, client *http.Client, server, username, password string) ([]VODStream, error) {
+	url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_vod_streams", server, username, password)
+	var streams []VODStream
+	if err := apiGet(ctx, client, url, &streams); err != nil {
+		return nil, err
+	}
+	return streams, nil
+}
+
+func fetchSeries(ctx context.Context, client *http.Client, server, username, password string) ([]Series, error) {
+	url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_series", server, username, password)
+	var series []Series
+	if err := apiGet(ctx, client, url, &series); err != nil {
+		return nil, err
+	}
+	return series, nil
 }
 
 func apiGet(ctx context.Context, client *http.Client, url string, result any) error {

@@ -8,6 +8,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/config"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
@@ -21,6 +22,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
+	"github.com/mcnairstudios/mediahub/pkg/tmdb"
 )
 
 type OrchestratorDeps struct {
@@ -34,6 +36,7 @@ type OrchestratorDeps struct {
 	OutputReg         *output.Registry
 	SourceReg         *source.Registry
 	RecordingStore    recording.Store
+	ClientStore       client.Store
 	AuthService       auth.Service
 	EPGSourceStore    epg.SourceStore
 	ProgramStore      epg.ProgramStore
@@ -43,6 +46,9 @@ type OrchestratorDeps struct {
 	FavoriteStore     favorite.Store
 	LogoCache         *logocache.Cache
 	Activity          *activity.Service
+	TMDBClient        *tmdb.Client
+	TMDBImages        *tmdb.ImageCache
+	Config            *config.Config
 	StaticFS          fs.FS
 	UserAgent         string
 	BypassHeader      string

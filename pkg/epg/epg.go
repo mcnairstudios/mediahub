@@ -42,6 +42,7 @@ type SourceStore interface {
 type ProgramStore interface {
 	NowPlaying(ctx context.Context, channelID string) (*Program, error)
 	Range(ctx context.Context, channelID string, start, end time.Time) ([]Program, error)
+	ListAll(ctx context.Context) ([]Program, error)
 	BulkInsert(ctx context.Context, programs []Program) error
 	DeleteBySource(ctx context.Context, sourceID string) error
 }

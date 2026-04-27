@@ -99,6 +99,16 @@ type Clearable interface {
 
 Clear all cached data and state without deleting the source configuration.
 
+### AccountInfoProvider
+
+```go
+type AccountInfoProvider interface {
+    GetAccountInfo(ctx context.Context) (any, error)
+}
+```
+
+Fetch account details from the upstream provider (e.g. Xtream Codes server info, connection limits, VOD/series counts).
+
 ---
 
 ## StatusReporter

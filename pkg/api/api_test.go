@@ -1745,3 +1745,764 @@ func TestEPGSourcesRequiresAuth(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
+
+func TestCreateHDHRSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "My HDHomeRun",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	if sc.Type != "hdhr" {
+		t.Errorf("type = %q, want %q", sc.Type, "hdhr")
+	}
+	if sc.Name != "My HDHomeRun" {
+		t.Errorf("name = %q, want %q", sc.Name, "My HDHomeRun")
+	}
+	if !sc.IsEnabled {
+		t.Error("expected IsEnabled true by default")
+	}
+}
+
+func TestCreateHDHRSourceMissingName(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateHDHRSourceRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "HDHomeRun",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateHDHRSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "Original HDHR",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("PUT", "/api/sources/hdhr/"+sc.ID, map[string]any{
+		"name": "Updated HDHR",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated sourceconfig.SourceConfig
+	decodeBody(resp, &updated)
+	if updated.Name != "Updated HDHR" {
+		t.Errorf("name = %q, want %q", updated.Name, "Updated HDHR")
+	}
+}
+
+func TestUpdateHDHRSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/sources/hdhr/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteHDHRSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "Delete Me",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("DELETE", "/api/sources/hdhr/"+sc.ID, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = env.request("GET", "/api/sources", nil, env.adminToken)
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 0 {
+		t.Fatalf("expected 0 sources after delete, got %d", len(sources))
+	}
+}
+
+func TestHDHRDevicesEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "Test HDHR",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("GET", "/api/sources/hdhr/"+sc.ID+"/devices", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var devices []map[string]any
+	decodeBody(resp, &devices)
+	if len(devices) != 0 {
+		t.Fatalf("expected 0 devices, got %d", len(devices))
+	}
+}
+
+func TestHDHRDevicesNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/hdhr/nonexistent/devices", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHDHRScanNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr/nonexistent/scan", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHDHRRetuneNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr/nonexistent/retune", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHDHRRetuneStatusIdle(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "Test HDHR",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("GET", "/api/sources/hdhr/"+sc.ID+"/status", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var status map[string]any
+	decodeBody(resp, &status)
+	if status["state"] != "idle" {
+		t.Errorf("state = %q, want %q", status["state"], "idle")
+	}
+}
+
+func TestHDHRClear(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr", map[string]any{
+		"name": "Test HDHR",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("POST", "/api/sources/hdhr/"+sc.ID+"/clear", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateSatIPSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name":      "Home Tuner",
+		"host":      "192.168.1.50",
+		"http_port": 8875,
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	if sc.Type != "satip" {
+		t.Errorf("type = %q, want %q", sc.Type, "satip")
+	}
+	if sc.Name != "Home Tuner" {
+		t.Errorf("name = %q, want %q", sc.Name, "Home Tuner")
+	}
+	if sc.Config["host"] != "192.168.1.50" {
+		t.Errorf("host = %q, want %q", sc.Config["host"], "192.168.1.50")
+	}
+	if sc.Config["http_port"] != "8875" {
+		t.Errorf("http_port = %q, want %q", sc.Config["http_port"], "8875")
+	}
+}
+
+func TestCreateSatIPSourceMissingFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "No Host",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateSatIPSourceRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "Tuner",
+		"host": "192.168.1.50",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateSatIPSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "Original",
+		"host": "192.168.1.50",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("PUT", "/api/sources/satip/"+sc.ID, map[string]any{
+		"name": "Updated Tuner",
+		"host": "192.168.1.100",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated sourceconfig.SourceConfig
+	decodeBody(resp, &updated)
+	if updated.Name != "Updated Tuner" {
+		t.Errorf("name = %q, want %q", updated.Name, "Updated Tuner")
+	}
+	if updated.Config["host"] != "192.168.1.100" {
+		t.Errorf("host = %q, want %q", updated.Config["host"], "192.168.1.100")
+	}
+}
+
+func TestUpdateSatIPSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/sources/satip/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteSatIPSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "Delete Me",
+		"host": "192.168.1.50",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("DELETE", "/api/sources/satip/"+sc.ID, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestSatIPScanNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip/nonexistent/scan", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestSatIPScanStatusIdle(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "Test",
+		"host": "192.168.1.50",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("GET", "/api/sources/satip/"+sc.ID+"/status", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var status map[string]any
+	decodeBody(resp, &status)
+	if status["state"] != "idle" {
+		t.Errorf("state = %q, want %q", status["state"], "idle")
+	}
+}
+
+func TestSatIPClear(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/satip", map[string]any{
+		"name": "Test",
+		"host": "192.168.1.50",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("POST", "/api/sources/satip/"+sc.ID+"/clear", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestXtreamAccountInfoNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/xtream/nonexistent/info", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestXtreamAccountInfoRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/xtream/nonexistent/info", nil, env.standardToken)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateXtreamSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/xtream", map[string]any{
+		"name":     "Original",
+		"server":   "http://example.com:8080",
+		"username": "user",
+		"password": "pass",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("PUT", "/api/sources/xtream/"+sc.ID, map[string]any{
+		"name":       "Updated Xtream",
+		"max_streams": 5,
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated sourceconfig.SourceConfig
+	decodeBody(resp, &updated)
+	if updated.Name != "Updated Xtream" {
+		t.Errorf("name = %q, want %q", updated.Name, "Updated Xtream")
+	}
+	if updated.Config["max_streams"] != "5" {
+		t.Errorf("max_streams = %q, want %q", updated.Config["max_streams"], "5")
+	}
+}
+
+func TestUpdateXtreamSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/sources/xtream/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHDHRDiscoverRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/hdhr/discover", nil, env.standardToken)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestDashboardStats(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/dashboard/stats", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var stats map[string]any
+	decodeBody(resp, &stats)
+
+	if _, ok := stats["total_streams"]; !ok {
+		t.Error("missing total_streams")
+	}
+	if _, ok := stats["total_channels"]; !ok {
+		t.Error("missing total_channels")
+	}
+}
+
+func TestDashboardStatsRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/dashboard/stats", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestEPGNowEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/epg/now", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result []map[string]any
+	decodeBody(resp, &result)
+	if result == nil {
+		t.Error("expected non-nil array")
+	}
+}
+
+func TestEPGProgramsMissingChannelID(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/epg/programs", nil, env.adminToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestEPGProgramsChannelNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/epg/programs?channel_id=test-channel", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestStopPlaybackRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("DELETE", "/api/play/some-stream", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeekRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/play/some-stream/seek", map[string]any{"position": 10.0}, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestStartRecordingNoSession(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/play/nonexistent/record", nil, env.adminToken)
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 400 or 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestStopRecordingNoSession(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("DELETE", "/api/play/nonexistent/record", nil, env.adminToken)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		t.Fatalf("expected error status for nonexistent session, got %d", resp.StatusCode)
+	}
+}
+
+func TestListUsersRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/users", nil, env.standardToken)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestListUsersAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/users", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var users []map[string]any
+	decodeBody(resp, &users)
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+}
+
+func TestUpdateTVPStreamsSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/tvpstreams", map[string]any{
+		"name": "Test TVP",
+		"url":  "http://example.com/tvp",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("PUT", "/api/sources/tvpstreams/"+sc.ID, map[string]any{
+		"name": "Updated TVP",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated sourceconfig.SourceConfig
+	decodeBody(resp, &updated)
+	if updated.Name != "Updated TVP" {
+		t.Fatalf("expected Updated TVP, got %s", updated.Name)
+	}
+}
+
+func TestUpdateTVPStreamsSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/sources/tvpstreams/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestTVPStreamsTLSStatusNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/tvpstreams/nonexistent/tls", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestProbeRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/probe", map[string]any{
+		"url": "http://example.com/stream.ts",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestProbeMissingURL(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/probe", map[string]any{}, env.adminToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestStreamDetailNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/streams/nonexistent/detail", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestStreamDetailFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/streams/stream-1/detail", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var detail map[string]any
+	decodeBody(resp, &detail)
+	if detail["name"] != "BBC One" {
+		t.Fatalf("expected BBC One, got %v", detail["name"])
+	}
+}
+
+func TestClientsNilStoreReturnsEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/clients", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var clients []map[string]any
+	decodeBody(resp, &clients)
+	if clients == nil {
+		t.Error("expected non-nil array")
+	}
+}
+
+func TestClientsRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/clients", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestRefreshSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/nonexistent/refresh", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestTMDBImageRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/tmdb/image?size=w500&path=/test.jpg", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeekRecordingPlaybackNoSession(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/recordings/completed/nonexistent/seek", map[string]any{"position": 10.0}, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestCapabilitiesRequiresAuth2(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/capabilities", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestWGActivateNoService(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/wireguard/profiles/nonexistent/activate", nil, env.adminToken)
+	if resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 503 or 404, got %d", resp.StatusCode)
+	}
+}

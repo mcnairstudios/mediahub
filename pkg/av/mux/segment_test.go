@@ -152,28 +152,7 @@ func TestFragmentedMuxer_VideoSegmentProduction(t *testing.T) {
 func TestFragmentedMuxer_AudioSegmentProduction(t *testing.T) {
 	dir := t.TempDir()
 
-	codec := astiav.FindEncoderByName("aac")
-	if codec == nil {
-		t.Skip("aac encoder not available")
-	}
-	cc := astiav.AllocCodecContext(codec)
-	if cc == nil {
-		t.Fatal("alloc codec context")
-	}
-	cc.SetSampleRate(48000)
-	cc.SetSampleFormat(astiav.SampleFormatFltp)
-	cc.SetChannelLayout(astiav.ChannelLayoutStereo)
-	cc.SetFlags(astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader))
-	cc.SetTimeBase(astiav.NewRational(1, 48000))
-
-	if err := cc.Open(codec, nil); err != nil {
-		cc.Free()
-		t.Fatalf("open AAC encoder: %v", err)
-	}
-	defer cc.Free()
-
-	aacExtradata := cc.ExtraData()
-	t.Logf("AAC extradata: %d bytes, frame_size=%d", len(aacExtradata), cc.FrameSize())
+	aacExtradata := []byte{0x12, 0x10}
 
 	m, err := NewFragmentedMuxer(MuxOpts{
 		OutputDir:       dir,
@@ -191,59 +170,28 @@ func TestFragmentedMuxer_AudioSegmentProduction(t *testing.T) {
 		t.Fatalf("init_audio.mp4 missing: %v", err)
 	}
 
-	outTB := astiav.NewRational(1, 48000)
+	frameSize := 1024
 	var totalPackets int
-	planeSizeBytes := cc.FrameSize() * 4
-	zeroBuf := make([]byte, planeSizeBytes)
 
 	for i := 0; i < 100; i++ {
-		frame := astiav.AllocFrame()
-		frame.SetSampleRate(48000)
-		frame.SetSampleFormat(astiav.SampleFormatFltp)
-		frame.SetChannelLayout(astiav.ChannelLayoutStereo)
-		frame.SetNbSamples(cc.FrameSize())
-		if err := frame.AllocBuffer(0); err != nil {
-			frame.Free()
-			t.Fatalf("alloc audio buffer: %v", err)
-		}
-		_ = frame.Data().SetBytes(zeroBuf, 0)
-		_ = frame.Data().SetBytes(zeroBuf, 1)
-		frame.SetPts(int64(i) * int64(cc.FrameSize()))
-
-		if err := cc.SendFrame(frame); err != nil {
-			frame.Free()
-			continue
-		}
-		frame.Free()
-
-		for {
-			pkt := astiav.AllocPacket()
-			if err := cc.ReceivePacket(pkt); err != nil {
-				pkt.Free()
-				break
-			}
-
-			pkt.RescaleTs(cc.TimeBase(), outTB)
-			if pkt.Duration() == 0 {
-				pkt.SetDuration(int64(cc.FrameSize()))
-			}
-
-			dur := pktDurationUs(pkt, m.audio.stream)
-			if totalPackets < 3 {
-				t.Logf("audio pkt %d: dur=%d durationUs=%d", totalPackets, pkt.Duration(), dur)
-			}
-
-			if err := m.WriteAudioPacket(pkt); err != nil {
-				pkt.Free()
-				t.Fatalf("write audio pkt %d: %v", totalPackets, err)
-			}
+		pkt := astiav.AllocPacket()
+		data := make([]byte, 200)
+		data[0] = 0x21
+		data[1] = 0x10
+		if err := pkt.FromData(data); err != nil {
 			pkt.Free()
-			totalPackets++
+			t.Fatalf("from data %d: %v", i, err)
 		}
-	}
+		pkt.SetPts(int64(i) * int64(frameSize))
+		pkt.SetDts(int64(i) * int64(frameSize))
+		pkt.SetDuration(int64(frameSize))
 
-	if totalPackets == 0 {
-		t.Fatal("AAC encoder produced no packets")
+		if err := m.WriteAudioPacket(pkt); err != nil {
+			pkt.Free()
+			t.Fatalf("write audio pkt %d: %v", i, err)
+		}
+		pkt.Free()
+		totalPackets++
 	}
 
 	if err := m.Close(); err != nil {

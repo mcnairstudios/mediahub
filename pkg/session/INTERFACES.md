@@ -17,6 +17,7 @@ Manages active sessions keyed by stream ID. One session per stream.
 | `List` | `() []*Session` | Return all active sessions |
 | `AddPlugin` | `(streamID string, plugin output.OutputPlugin) error` | Add an output plugin to an existing session |
 | `RemovePlugin` | `(streamID string, mode output.DeliveryMode) error` | Remove an output plugin by delivery mode |
+| `RunPipeline` | `(sess *Session, cfg PipelineConfig) (*PipelineResult, error)` | Run the AV pipeline for a session |
 
 ## Session
 
@@ -34,9 +35,50 @@ Represents a single active stream with fan-out delivery.
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
+| `Context` | `() context.Context` | Return the session's context |
+| `AddCloser` | `(c io.Closer)` | Register a closer to be called on session stop |
 | `SetRecorded` | `(v bool)` | Mark session as being recorded |
 | `IsRecorded` | `() bool` | Check if session is being recorded |
 | `Stop` | `()` | Cancel context, stop fan-out, close done channel |
 | `Done` | `() <-chan struct{}` | Channel closed when session stops |
 | `SetSeekFunc` | `(fn func(posMs int64))` | Register the seek callback |
 | `Seek` | `(posMs int64)` | Invoke the registered seek callback |
+| `SetError` | `(err error)` | Store pipeline error |
+| `Err` | `() error` | Retrieve pipeline error |
+| `MarkDone` | `()` | Mark session as finished (pipeline completed normally) |
+| `IsFinished` | `() bool` | Check if the pipeline has completed |
+
+## PipelineConfig
+
+```go
+type PipelineConfig struct {
+    StreamURL        string
+    StreamID         string
+    UserAgent        string
+    AudioLanguage    string
+    NeedsTranscode   bool
+    OutputCodec      string
+    OutputAudioCodec string
+    HWAccel          string
+    DecodeHWAccel    string
+    Bitrate          int
+    OutputHeight     int
+    MaxBitDepth      int
+    Deinterlace      bool
+    EncoderName      string
+    DecoderName      string
+    Framerate        int
+    FormatHint       string
+    TimeoutSec       int
+}
+```
+
+## PipelineResult
+
+```go
+type PipelineResult struct {
+    Info             *media.ProbeResult
+    VideoCodecParams any // *astiav.CodecParameters
+    AudioCodecParams any // *astiav.CodecParameters
+}
+```

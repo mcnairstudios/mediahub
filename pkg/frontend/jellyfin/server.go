@@ -2,9 +2,12 @@ package jellyfin
 
 import (
 	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,10 +17,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
-	"github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
+	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
+	"github.com/mcnairstudios/mediahub/pkg/favorite"
+	"github.com/mcnairstudios/mediahub/pkg/logocache"
 	"github.com/mcnairstudios/mediahub/pkg/store"
+	realtmdb "github.com/mcnairstudios/mediahub/pkg/tmdb"
 )
 
 const (
@@ -33,7 +39,11 @@ type Server struct {
 	groups     channel.GroupStore
 	streams    store.StreamStore
 	programs   epg.ProgramStore
-	tmdbCache  *tmdb.Cache
+	favorites  favorite.Store
+	tmdbCache  *tmdbcache.Cache
+	tmdbClient *realtmdb.Client
+	imageCache *realtmdb.ImageCache
+	logoCache  *logocache.Cache
 	log        zerolog.Logger
 	tokens     sync.Map
 	state      *persistedState
@@ -47,7 +57,11 @@ type ServerDeps struct {
 	Groups     channel.GroupStore
 	Streams    store.StreamStore
 	Programs   epg.ProgramStore
-	TMDBCache  *tmdb.Cache
+	Favorites  favorite.Store
+	TMDBCache  *tmdbcache.Cache
+	TMDBClient *realtmdb.Client
+	ImageCache *realtmdb.ImageCache
+	LogoCache  *logocache.Cache
 	Log        zerolog.Logger
 }
 
@@ -61,7 +75,11 @@ func NewServer(deps ServerDeps) *Server {
 		groups:     deps.Groups,
 		streams:    deps.Streams,
 		programs:   deps.Programs,
+		favorites:  deps.Favorites,
 		tmdbCache:  deps.TMDBCache,
+		tmdbClient: deps.TMDBClient,
+		imageCache: deps.ImageCache,
+		logoCache:  deps.LogoCache,
 		log:        deps.Log.With().Str("component", "jellyfin").Logger(),
 		state:      state,
 	}
@@ -82,20 +100,53 @@ func jellyfinID(uuid string) string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
+	s.registerWebRoutes(mux)
 	s.registerPublicRoutes(mux)
 	s.registerMediaRoutes(mux)
 	s.registerAuthenticatedRoutes(mux)
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == "GET" || r.Method == "HEAD") && strings.Contains(r.URL.Path, "/Videos/") && strings.Contains(r.URL.Path, "/stream.") {
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "Videos" && i+2 < len(parts) && strings.HasPrefix(parts[i+2], "stream.") {
+					r.SetPathValue("itemId", parts[i+1])
+					s.videoStream(w, r)
+					return
+				}
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) ListenAndServe(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
 }
 
+func (s *Server) registerWebRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("Jellyfin Server"))
+	})
+	mux.HandleFunc("GET /web", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/index.html", http.StatusFound)
+	})
+	mux.HandleFunc("GET /web/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/index.html", http.StatusFound)
+	})
+	mux.HandleFunc("GET /web/index.html", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<!DOCTYPE html><html><body><h1>MediaHub Jellyfin API</h1><p>Use a Jellyfin client app to connect.</p></body></html>"))
+	})
+	mux.HandleFunc("GET /web/{file}", s.webFile)
+	mux.HandleFunc("GET /favicon.ico", notFound)
+}
+
 func (s *Server) registerPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /System/Info/Public", s.systemInfoPublic)
 	mux.HandleFunc("GET /System/Info", s.systemInfo)
+	mux.HandleFunc("GET /System/Info/Storage", s.systemInfoStorage)
 	mux.HandleFunc("GET /System/Ping", s.ping)
 	mux.HandleFunc("POST /System/Ping", s.ping)
 	mux.HandleFunc("GET /System/Endpoint", s.systemEndpoint)
@@ -103,8 +154,14 @@ func (s *Server) registerPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Branding/Css", s.brandingCSS)
 	mux.HandleFunc("GET /Branding/Splashscreen", notFound)
 	mux.HandleFunc("GET /QuickConnect/Enabled", s.quickConnectEnabled)
+	mux.HandleFunc("POST /QuickConnect/Initiate", s.quickConnectInitiate)
 	mux.HandleFunc("GET /Users/Public", s.usersPublic)
 	mux.HandleFunc("POST /Users/AuthenticateByName", s.authenticateByName)
+	mux.HandleFunc("GET /UserImage", notFound)
+	mux.HandleFunc("HEAD /UserImage", notFound)
+	mux.HandleFunc("GET /socket", s.websocketStub)
+	mux.HandleFunc("POST /ClientLog/Document", s.clientLogDocument)
+	mux.HandleFunc("GET /web/ConfigurationPages", s.configurationPages)
 	mux.HandleFunc("GET /ScheduledTasks", s.scheduledTasks)
 }
 
@@ -113,31 +170,76 @@ func (s *Server) registerMediaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Items/{itemId}/Images/{imageType}/{imageIndex}", s.serveImage)
 	mux.HandleFunc("HEAD /Items/{itemId}/Images/{imageType}", s.serveImage)
 	mux.HandleFunc("HEAD /Items/{itemId}/Images/{imageType}/{imageIndex}", s.serveImage)
+	mux.HandleFunc("GET /Persons/{personId}/Images/{imageType}", s.servePersonImage)
+	mux.HandleFunc("GET /Videos/{itemId}/stream", s.videoStream)
+	mux.HandleFunc("HEAD /Videos/{itemId}/stream", s.videoStream)
+	mux.HandleFunc("GET /Videos/{itemId}/master.m3u8", s.hlsMasterPlaylist)
+	mux.HandleFunc("GET /Videos/{itemId}/main.m3u8", s.hlsMediaPlaylist)
+	mux.HandleFunc("GET /Videos/{itemId}/live.m3u8", s.hlsLivePlaylist)
+	mux.HandleFunc("GET /Videos/{itemId}/hls1/{playlistId}/{segment}", s.hlsSegment)
+	mux.HandleFunc("GET /Playback/BitrateTest", s.bitrateTest)
 }
 
 func (s *Server) registerAuthenticatedRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /Users/Me", s.requireAuth(http.HandlerFunc(s.usersMe)))
 	mux.Handle("GET /Users", s.requireAuth(http.HandlerFunc(s.usersList)))
 	mux.Handle("GET /Users/{userId}", s.requireAuth(http.HandlerFunc(s.userByID)))
+	mux.Handle("POST /Users/Configuration", s.requireAuth(http.HandlerFunc(noContent)))
+	mux.Handle("POST /Users/Password", s.requireAuth(http.HandlerFunc(noContent)))
 
 	mux.Handle("GET /UserViews", s.requireAuth(http.HandlerFunc(s.userViews)))
 	mux.Handle("GET /Items", s.requireAuth(http.HandlerFunc(s.listItems)))
+	mux.Handle("GET /Items/Filters", s.requireAuth(http.HandlerFunc(s.listFilters)))
 	mux.Handle("GET /Items/{itemId}", s.requireAuth(http.HandlerFunc(s.itemDetail)))
 	mux.Handle("GET /Items/Latest", s.requireAuth(http.HandlerFunc(s.latestItems)))
 	mux.Handle("GET /Items/Resume", s.requireAuth(http.HandlerFunc(s.listResumeItems)))
 	mux.Handle("GET /Items/Counts", s.requireAuth(http.HandlerFunc(s.itemCounts)))
+	mux.Handle("GET /Items/Suggestions", s.requireAuth(http.HandlerFunc(s.listSuggestions)))
+	mux.Handle("GET /UserItems/Resume", s.requireAuth(http.HandlerFunc(s.listResumeItems)))
 	mux.Handle("GET /Users/{userId}/Items", s.requireAuth(http.HandlerFunc(s.listItems)))
 	mux.Handle("GET /Users/{userId}/Items/Latest", s.requireAuth(http.HandlerFunc(s.latestItems)))
 	mux.Handle("GET /Users/{userId}/Items/Resume", s.requireAuth(http.HandlerFunc(s.listResumeItems)))
 	mux.Handle("GET /Users/{userId}/Items/{itemId}", s.requireAuth(http.HandlerFunc(s.itemDetail)))
 	mux.Handle("GET /Shows/NextUp", s.requireAuth(http.HandlerFunc(s.listResumeItems)))
+	mux.Handle("GET /Shows/{seriesId}/Seasons", s.requireAuth(http.HandlerFunc(s.listSeasons)))
+	mux.Handle("GET /Shows/{seriesId}/Episodes", s.requireAuth(http.HandlerFunc(s.listEpisodes)))
+	mux.Handle("GET /Items/{itemId}/Similar", s.requireAuth(http.HandlerFunc(s.listSimilarItems)))
+	mux.Handle("GET /Items/{itemId}/LocalTrailers", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/SpecialFeatures", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/ThemeMedia", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/ThemeSongs", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/ThemeVideos", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/InstantMix", s.requireAuth(http.HandlerFunc(s.listSpecialFeatures)))
+	mux.Handle("GET /Items/{itemId}/Intros", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
 
 	mux.Handle("POST /Items/{itemId}/PlaybackInfo", s.requireAuth(http.HandlerFunc(s.playbackInfo)))
 
-	mux.Handle("GET /LiveTv/Channels", s.requireAuth(http.HandlerFunc(s.liveTvChannels)))
+	mux.Handle("GET /Persons", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
+	mux.Handle("GET /Persons/{personId}", s.requireAuth(http.HandlerFunc(s.personDetail)))
+	mux.Handle("GET /Studios", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
+	mux.Handle("GET /Artists", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
+	mux.Handle("GET /Genres", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
+	mux.Handle("GET /Genres/{genreName}", s.requireAuth(http.HandlerFunc(s.genreDetail)))
+
+	mux.Handle("POST /UserPlayedItems/{itemId}", s.requireAuth(http.HandlerFunc(s.markPlayed)))
+	mux.Handle("DELETE /UserPlayedItems/{itemId}", s.requireAuth(http.HandlerFunc(s.markPlayed)))
+	mux.Handle("POST /UserFavoriteItems/{itemId}", s.requireAuth(http.HandlerFunc(s.markFavorite)))
+	mux.Handle("DELETE /UserFavoriteItems/{itemId}", s.requireAuth(http.HandlerFunc(s.markFavorite)))
+	mux.Handle("GET /UserItems/{itemId}/UserData", s.requireAuth(http.HandlerFunc(s.getUserData)))
+	mux.Handle("POST /UserItems/{itemId}/UserData", s.requireAuth(http.HandlerFunc(noContent)))
+	mux.Handle("POST /UserItems/{itemId}/Rating", s.requireAuth(http.HandlerFunc(s.getUserData)))
+	mux.Handle("DELETE /UserItems/{itemId}/Rating", s.requireAuth(http.HandlerFunc(s.getUserData)))
+
 	mux.Handle("GET /LiveTv/Info", s.requireAuth(http.HandlerFunc(s.liveTvInfo)))
+	mux.Handle("GET /LiveTv/Channels", s.requireAuth(http.HandlerFunc(s.liveTvChannels)))
+	mux.Handle("GET /LiveTv/Programs", s.requireAuth(http.HandlerFunc(s.liveTvPrograms)))
+	mux.Handle("GET /LiveTv/Programs/Recommended", s.requireAuth(http.HandlerFunc(s.liveTvPrograms)))
+	mux.Handle("POST /LiveTv/Programs", s.requireAuth(http.HandlerFunc(s.liveTvPrograms)))
+	mux.Handle("GET /LiveTv/GuideInfo", s.requireAuth(http.HandlerFunc(s.liveTvGuideInfo)))
 
 	mux.Handle("GET /Sessions", s.requireAuth(http.HandlerFunc(s.sessionsGet)))
+	mux.Handle("GET /System/ActivityLog/Entries", s.requireAuth(http.HandlerFunc(s.emptyQueryResult)))
+	mux.Handle("GET /Notifications/{userId}/Summary", s.requireAuth(http.HandlerFunc(s.notificationSummary)))
 	mux.Handle("POST /Sessions/Capabilities", s.requireAuth(http.HandlerFunc(noContent)))
 	mux.Handle("POST /Sessions/Capabilities/Full", s.requireAuth(http.HandlerFunc(noContent)))
 	mux.Handle("POST /Sessions/Playing", s.requireAuth(http.HandlerFunc(noContent)))
@@ -242,6 +344,155 @@ func (s *Server) systemEndpoint(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) scheduledTasks(w http.ResponseWriter, r *http.Request) {
 	s.respondJSON(w, http.StatusOK, []any{})
+}
+
+func (s *Server) quickConnectInitiate(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "QuickConnect not supported", http.StatusBadRequest)
+}
+
+func (s *Server) systemInfoStorage(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, map[string]any{"Drives": []any{}})
+}
+
+func (s *Server) websocketStub(w http.ResponseWriter, r *http.Request) {
+	s.log.Info().Str("remote", r.RemoteAddr).Str("upgrade", r.Header.Get("Upgrade")).Msg("websocket connection attempt")
+	if r.Header.Get("Upgrade") != "websocket" {
+		http.Error(w, "websocket required", http.StatusBadRequest)
+		return
+	}
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "websocket not supported", http.StatusInternalServerError)
+		return
+	}
+	conn, buf, err := hj.Hijack()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	key := r.Header.Get("Sec-WebSocket-Key")
+	accept := computeWebSocketAccept(key)
+	buf.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
+	buf.WriteString("Upgrade: websocket\r\n")
+	buf.WriteString("Connection: Upgrade\r\n")
+	buf.WriteString("Sec-WebSocket-Accept: " + accept + "\r\n\r\n")
+	buf.Flush()
+
+	b := make([]byte, 1)
+	for {
+		if _, err := conn.Read(b); err != nil {
+			return
+		}
+	}
+}
+
+func computeWebSocketAccept(key string) string {
+	h := sha1.New()
+	h.Write([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+func (s *Server) clientLogDocument(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	s.log.Debug().Str("body", string(body)).Msg("client log document")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) configurationPages(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, []any{})
+}
+
+func (s *Server) webFile(w http.ResponseWriter, r *http.Request) {
+	file := r.PathValue("file")
+	switch file {
+	case "config.json":
+		s.respondJSON(w, http.StatusOK, map[string]any{
+			"menuLinks": []any{}, "multiserver": false, "themes": []any{}, "plugins": []any{},
+		})
+	case "manifest.json":
+		s.respondJSON(w, http.StatusOK, map[string]any{
+			"name": "MediaHub", "short_name": "MediaHub", "start_url": "/web/index.html",
+			"display": "standalone", "background_color": "#1a1d23", "theme_color": "#3b82f6",
+		})
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (s *Server) personDetail(w http.ResponseWriter, r *http.Request) {
+	personID := r.PathValue("personId")
+	s.respondJSON(w, http.StatusOK, BaseItemDto{
+		Name: personID, ServerID: s.serverID,
+		ID: personID, Type: "Person",
+	})
+}
+
+func (s *Server) genreDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("genreName")
+	s.respondJSON(w, http.StatusOK, BaseItemDto{
+		Name: name, ServerID: s.serverID,
+		ID: fmt.Sprintf("genre_%x", hashString(name)), Type: "Genre",
+	})
+}
+
+func (s *Server) notificationSummary(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, map[string]int{"UnreadCount": 0, "MaxUnreadCount": 0})
+}
+
+func (s *Server) getUserData(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, UserItemData{Key: r.PathValue("itemId")})
+}
+
+func (s *Server) markPlayed(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, UserItemData{
+		Played: r.Method == "POST",
+		Key:    r.PathValue("itemId"),
+	})
+}
+
+func (s *Server) markFavorite(w http.ResponseWriter, r *http.Request) {
+	itemID := r.PathValue("itemId")
+	userID := s.authenticatedUserID(r)
+	isFav := r.Method == "POST"
+
+	if s.favorites != nil && userID != "" {
+		if isFav {
+			s.favorites.Add(r.Context(), userID, addDashes(itemID))
+		} else {
+			s.favorites.Remove(r.Context(), userID, addDashes(itemID))
+		}
+	}
+
+	s.respondJSON(w, http.StatusOK, UserItemData{
+		IsFavorite: isFav,
+		Key:        itemID,
+	})
+}
+
+func (s *Server) bitrateTest(w http.ResponseWriter, r *http.Request) {
+	size := 1000000
+	if sizeStr := r.URL.Query().Get("size"); sizeStr != "" {
+		if n, err := strconv.Atoi(sizeStr); err == nil && n > 0 && n <= 10000000 {
+			size = n
+		}
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(size))
+	buf := make([]byte, 65536)
+	written := 0
+	for written < size {
+		chunk := size - written
+		if chunk > len(buf) {
+			chunk = len(buf)
+		}
+		w.Write(buf[:chunk])
+		written += chunk
+	}
+}
+
+func (s *Server) listSpecialFeatures(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, []BaseItemDto{})
 }
 
 func (s *Server) usersPublic(w http.ResponseWriter, r *http.Request) {
@@ -408,150 +659,6 @@ func (s *Server) userViews(w http.ResponseWriter, r *http.Request) {
 	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{
 		Items: views, TotalRecordCount: len(views),
 	})
-}
-
-func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	parentID := firstOf(q, "parentId", "ParentId")
-	itemTypes := strings.Join(append(q["includeItemTypes"], q["IncludeItemTypes"]...), ",")
-	searchTerm := strings.ToLower(firstOf(q, "searchTerm", "SearchTerm"))
-	sortBy := firstOf(q, "sortBy", "SortBy")
-	sortOrder := firstOf(q, "sortOrder", "SortOrder")
-
-	ctx := r.Context()
-
-	hasMovies := parentID == viewMoviesID || strings.Contains(itemTypes, "Movie")
-	hasSeries := parentID == viewTVID || strings.Contains(itemTypes, "Series")
-
-	var items []BaseItemDto
-	if hasMovies || (!hasSeries && searchTerm != "") {
-		items = append(items, s.buildStreamItems(ctx, searchTerm)...)
-	}
-
-	if !hasMovies && !hasSeries && searchTerm == "" {
-		s.respondJSON(w, http.StatusOK, emptyResult())
-		return
-	}
-
-	sortItems(items, sortBy, sortOrder)
-	s.paginateAndRespond(w, r, items)
-}
-
-func (s *Server) itemDetail(w http.ResponseWriter, r *http.Request) {
-	itemID := r.PathValue("itemId")
-	ctx := r.Context()
-
-	if itemID == viewMoviesID || itemID == viewTVID {
-		s.userViews(w, r)
-		return
-	}
-
-	if s.streams != nil {
-		if stream, err := s.streams.Get(ctx, addDashes(itemID)); err == nil && stream != nil {
-			item := s.streamToItem(stream)
-			s.respondJSON(w, http.StatusOK, item)
-			return
-		}
-	}
-
-	if s.channels != nil {
-		if ch, err := s.channels.Get(ctx, addDashes(itemID)); err == nil && ch != nil {
-			item := s.newChannelItem(ch)
-			s.respondJSON(w, http.StatusOK, item)
-			return
-		}
-	}
-
-	s.respondJSON(w, http.StatusOK, BaseItemDto{
-		Name: "Unknown", ServerID: s.serverID, ID: itemID, Type: "Video",
-	})
-}
-
-func (s *Server) latestItems(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	items := s.buildStreamItems(ctx, "")
-	sortItems(items, "PremiereDate", "Descending")
-
-	limit := 20
-	if l := firstOf(r.URL.Query(), "limit", "Limit"); l != "" {
-		limit, _ = strconv.Atoi(l)
-	}
-	if len(items) > limit {
-		items = items[:limit]
-	}
-	if items == nil {
-		items = []BaseItemDto{}
-	}
-
-	s.respondJSON(w, http.StatusOK, items)
-}
-
-func (s *Server) listResumeItems(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, emptyResult())
-}
-
-func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
-	itemID := r.PathValue("itemId")
-
-	playSessionID := itemID
-	if len(playSessionID) > 16 {
-		playSessionID = playSessionID[:16]
-	}
-
-	ms := MediaSource{
-		Protocol: "Http", ID: itemID, Type: "Default", Name: "Default",
-		Container: "mp4", IsRemote: true,
-		SupportsTranscoding:     true,
-		SupportsDirectStream:    false,
-		SupportsDirectPlay:      false,
-		DefaultAudioStreamIndex: 1,
-		TranscodingURL:          fmt.Sprintf("/Videos/%s/master.m3u8?MediaSourceId=%s&PlaySessionId=%s", itemID, itemID, playSessionID),
-		TranscodingSubProtocol:  "hls",
-		TranscodingContainer:    "ts",
-		MediaStreams: []MediaStream{
-			{Type: "Video", Codec: "h264", Index: 0, IsDefault: true, Width: 1920, Height: 1080},
-			{Type: "Audio", Codec: "aac", Index: 1, IsDefault: true, Channels: 2},
-		},
-	}
-
-	s.respondJSON(w, http.StatusOK, map[string]any{
-		"MediaSources":  []MediaSource{ms},
-		"PlaySessionId": playSessionID,
-	})
-}
-
-func (s *Server) liveTvInfo(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]any{
-		"Services": []any{}, "IsEnabled": true, "EnabledUsers": []string{},
-	})
-}
-
-func (s *Server) liveTvChannels(w http.ResponseWriter, r *http.Request) {
-	if s.channels == nil {
-		s.respondJSON(w, http.StatusOK, emptyResult())
-		return
-	}
-
-	channels, err := s.channels.List(r.Context())
-	if err != nil {
-		s.respondJSON(w, http.StatusOK, emptyResult())
-		return
-	}
-
-	var items []BaseItemDto
-	for i, ch := range channels {
-		item := s.newLiveTvChannelItem(&ch, i)
-		items = append(items, item)
-	}
-	if items == nil {
-		items = []BaseItemDto{}
-	}
-
-	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{Items: items, TotalRecordCount: len(items)})
-}
-
-func (s *Server) serveImage(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
 }
 
 func (s *Server) newChannelItem(ch *channel.Channel) BaseItemDto {

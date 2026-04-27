@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mcnairstudios/mediahub/pkg/media"
 )
 
 func stripDashes(id string) string {
@@ -209,4 +211,52 @@ func secondsToTicks(secs float64) int64 {
 
 func channelStreamURL(itemID string) string {
 	return fmt.Sprintf("/Videos/%s/stream.mp4?static=true", itemID)
+}
+
+func buildMediaStreams(st *media.Stream) []MediaStream {
+	videoCodec := "h264"
+	audioCodec := "aac"
+	width, height := 1920, 1080
+
+	if st.VideoCodec != "" {
+		vc := strings.ToLower(st.VideoCodec)
+		switch {
+		case vc == "hevc" || vc == "h265":
+			videoCodec = "hevc"
+		case vc == "h264" || vc == "avc":
+			videoCodec = "h264"
+		case vc == "av1":
+			videoCodec = "av1"
+		default:
+			videoCodec = vc
+		}
+	}
+	if st.AudioCodec != "" {
+		ac := strings.ToLower(st.AudioCodec)
+		switch {
+		case strings.Contains(ac, "aac"):
+			audioCodec = "aac"
+		case strings.Contains(ac, "ac3") || strings.Contains(ac, "ac-3"):
+			audioCodec = "ac3"
+		case strings.Contains(ac, "eac3") || strings.Contains(ac, "e-ac-3"):
+			audioCodec = "eac3"
+		case strings.Contains(ac, "dts"):
+			audioCodec = "dca"
+		case strings.Contains(ac, "opus"):
+			audioCodec = "opus"
+		case strings.Contains(ac, "mp3"):
+			audioCodec = "mp3"
+		default:
+			audioCodec = ac
+		}
+	}
+	if st.Width > 0 && st.Height > 0 {
+		width = st.Width
+		height = st.Height
+	}
+
+	return []MediaStream{
+		{Type: "Video", Codec: videoCodec, Index: 0, IsDefault: true, Width: width, Height: height},
+		{Type: "Audio", Codec: audioCodec, Index: 1, IsDefault: true, Channels: 2},
+	}
 }

@@ -2,7 +2,7 @@
 
 Media hub connecting stream sources to playback sinks with intelligent format negotiation. Sources feed into a unified media cloud; outputs deliver to any client. Built in Go with in-process libavformat for all media processing — no subprocess management, no orphaned processes.
 
-**50 packages | 760 tests | 15K+ impl lines | 16K+ test lines**
+**58 packages | 1287 tests | 24K+ impl lines | 25K+ test lines**
 
 ## Architecture
 
@@ -104,8 +104,10 @@ graph TD
 
     source[source]
     source_m3u[source/m3u]
+    source_xtream[source/xtream]
     source_hdhr[source/hdhr]
     source_satip[source/satip]
+    source_tvpstreams[source/tvpstreams]
 
     output[output]
     output_bridge[output/bridge]
@@ -158,8 +160,10 @@ graph TD
     client --> media
 
     source_m3u --> source
+    source_xtream --> source
     source_hdhr --> source
     source_satip --> source
+    source_tvpstreams --> source
     source --> store
 
     output_bridge --> output
@@ -209,8 +213,10 @@ graph TD
 
     style source fill:#fff3e0
     style source_m3u fill:#fff3e0
+    style source_xtream fill:#fff3e0
     style source_hdhr fill:#fff3e0
     style source_satip fill:#fff3e0
+    style source_tvpstreams fill:#fff3e0
 
     style output fill:#e3f2fd
     style output_bridge fill:#e3f2fd
@@ -285,15 +291,18 @@ graph TD
 | `store/bolt` | BoltDB-backed implementation |
 | `cache` | Caching layer interfaces |
 | `cache/tmdb` | TMDB metadata cache (posters, backdrops, metadata) |
+| `tmdb` | TMDB API client (search, detail, images) and disk-backed image cache |
 
 ### Source Plugins (Input)
 
 | Package | Purpose |
 |---------|---------|
-| `source` | Source plugin interface + registry + discovery interface |
-| `source/m3u` | M3U + Xtream Codes source plugin |
-| `source/hdhr` | HDHomeRun source plugin |
-| `source/satip` | SAT>IP source plugin |
+| `source` | Source plugin interface + registry + discovery/retune/account info interfaces |
+| `source/m3u` | M3U source plugin |
+| `source/xtream` | Xtream Codes source plugin (live streams, VOD, series, account info) |
+| `source/hdhr` | HDHomeRun source plugin (UDP discovery, lineup scan, hardware retune) |
+| `source/satip` | SAT>IP source plugin (DVB scan, frequency tuning) |
+| `source/tvpstreams` | TVProxy Streams source plugin (mTLS enrollment) |
 
 ### Output Plugins (Delivery)
 
@@ -315,7 +324,13 @@ graph TD
 | `strategy` | Copy vs transcode decision engine (source + client profile) |
 | `epg` | EPG data management and enrichment |
 | `recording` | Recording lifecycle, scheduling, intent persistence |
+| `scheduler` | Scheduled recording execution (EPG-based) |
 | `auth` | JWT authentication, user management |
+| `favorite` | Per-user favorites (channels, streams) |
+| `activity` | Active session and viewer tracking |
+| `sourceconfig` | Source configuration persistence |
+| `logocache` | Logo caching proxy (fetch on demand, serve from disk) |
+| `mtls` | mTLS certificate management for tvproxy-streams |
 | `connectivity` | Connectivity abstractions |
 | `connectivity/wg` | WireGuard tunnel management (per-source routing) |
 
@@ -403,7 +418,7 @@ MediaHub is extensible through five plugin registries:
 
 | System | Interface | Implementations |
 |--------|-----------|-----------------|
-| **Source** | `source.Plugin` | M3U, Xtream Codes, HDHomeRun, SAT>IP |
+| **Source** | `source.Source` | M3U, Xtream Codes, HDHomeRun, SAT>IP, TVProxy Streams |
 | **Output** | `output.Plugin` | MSE, HLS, Stream, Recording |
 | **Cache** | `cache.Cache` | TMDB metadata, EPG, probe results |
 | **Connectivity** | `connectivity.Tunnel` | WireGuard (per-source routing) |

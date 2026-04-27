@@ -390,6 +390,10 @@ var hdhrDiscoverPacket = []byte{
 	0x73, 0xcc, 0x7d, 0x8f,
 }
 
+func UDPDiscover() ([]string, error) {
+	return udpDiscoverHDHR()
+}
+
 func udpDiscoverHDHR() ([]string, error) {
 	conn, err := net.ListenPacket("udp4", ":0")
 	if err != nil {

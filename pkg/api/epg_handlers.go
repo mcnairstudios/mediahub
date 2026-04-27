@@ -217,6 +217,223 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 	s.deps.EPGSourceStore.Update(ctx, src)
 }
 
+func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	channels, err := s.deps.ChannelStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+
+	type nowEntry struct {
+		ChannelID   string `json:"channel_id"`
+		ChannelName string `json:"channel_name"`
+		Title       string `json:"title"`
+		Subtitle    string `json:"subtitle,omitempty"`
+		Description string `json:"description,omitempty"`
+		StartTime   string `json:"start_time"`
+		EndTime     string `json:"end_time"`
+		Categories  []string `json:"categories,omitempty"`
+		Rating      string `json:"rating,omitempty"`
+		Progress    float64 `json:"progress"`
+	}
+
+	now := time.Now()
+	var result []nowEntry
+	for _, ch := range channels {
+		if !ch.IsEnabled {
+			continue
+		}
+		tvgID := ch.TvgID
+		if tvgID == "" {
+			tvgID = ch.ID
+		}
+		prog, err := s.deps.ProgramStore.NowPlaying(r.Context(), tvgID)
+		if err != nil || prog == nil {
+			continue
+		}
+		dur := prog.EndTime.Sub(prog.StartTime).Seconds()
+		elapsed := now.Sub(prog.StartTime).Seconds()
+		progress := 0.0
+		if dur > 0 {
+			progress = elapsed / dur
+			if progress > 1 {
+				progress = 1
+			}
+		}
+		result = append(result, nowEntry{
+			ChannelID:   ch.ID,
+			ChannelName: ch.Name,
+			Title:       prog.Title,
+			Subtitle:    prog.Subtitle,
+			Description: prog.Description,
+			StartTime:   prog.StartTime.Format(time.RFC3339),
+			EndTime:     prog.EndTime.Format(time.RFC3339),
+			Categories:  prog.Categories,
+			Rating:      prog.Rating,
+			Progress:    progress,
+		})
+	}
+
+	if result == nil {
+		result = []nowEntry{}
+	}
+	httputil.RespondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleEPGPrograms(w http.ResponseWriter, r *http.Request) {
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	channelID := r.URL.Query().Get("channel_id")
+	if channelID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "channel_id required")
+		return
+	}
+
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	var start, end time.Time
+	var err error
+
+	if startStr != "" {
+		start, err = time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "invalid start time (use RFC3339)")
+			return
+		}
+	} else {
+		start = time.Now().Add(-1 * time.Hour)
+	}
+
+	if endStr != "" {
+		end, err = time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "invalid end time (use RFC3339)")
+			return
+		}
+	} else {
+		end = time.Now().Add(6 * time.Hour)
+	}
+
+	ch, err := s.deps.ChannelStore.Get(r.Context(), channelID)
+	if err != nil || ch == nil {
+		httputil.RespondError(w, http.StatusNotFound, "channel not found")
+		return
+	}
+
+	tvgID := ch.TvgID
+	if tvgID == "" {
+		tvgID = ch.ID
+	}
+
+	programs, err := s.deps.ProgramStore.Range(r.Context(), tvgID, start, end)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to query programs")
+		return
+	}
+	if programs == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+	httputil.RespondJSON(w, http.StatusOK, programs)
+}
+
+func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
+	stats := map[string]any{}
+
+	configs, err := s.deps.SourceConfigStore.List(r.Context())
+	if err == nil {
+		totalStreams := 0
+		sourceBreakdown := make([]map[string]any, 0, len(configs))
+		for _, cfg := range configs {
+			count := 0
+			streams, sErr := s.deps.StreamStore.ListBySource(r.Context(), cfg.Type, cfg.ID)
+			if sErr == nil {
+				count = len(streams)
+			}
+			totalStreams += count
+			sourceBreakdown = append(sourceBreakdown, map[string]any{
+				"id":           cfg.ID,
+				"name":         cfg.Name,
+				"type":         cfg.Type,
+				"is_enabled":   cfg.IsEnabled,
+				"stream_count": count,
+			})
+		}
+		stats["total_streams"] = totalStreams
+		stats["sources"] = sourceBreakdown
+	}
+
+	channels, err := s.deps.ChannelStore.List(r.Context())
+	if err == nil {
+		stats["total_channels"] = len(channels)
+	}
+
+	if s.deps.Activity != nil {
+		stats["active_sessions"] = len(s.deps.Activity.List())
+	}
+
+	epgSources, err := s.deps.EPGSourceStore.List(r.Context())
+	if err == nil {
+		totalPrograms := 0
+		totalEPGChannels := 0
+		epgErrors := 0
+		for _, src := range epgSources {
+			totalPrograms += src.ProgramCount
+			totalEPGChannels += src.ChannelCount
+			if src.LastError != "" {
+				epgErrors++
+			}
+		}
+		stats["epg"] = map[string]any{
+			"source_count":  len(epgSources),
+			"channel_count": totalEPGChannels,
+			"program_count": totalPrograms,
+			"error_count":   epgErrors,
+		}
+	}
+
+	recordings, err := s.deps.RecordingStore.List(r.Context(), "", true)
+	if err == nil {
+		active := 0
+		completed := 0
+		scheduled := 0
+		for _, rec := range recordings {
+			switch rec.Status {
+			case "recording":
+				active++
+			case "completed":
+				completed++
+			case "scheduled":
+				scheduled++
+			}
+		}
+		stats["recordings"] = map[string]any{
+			"active":    active,
+			"completed": completed,
+			"scheduled": scheduled,
+			"total":     len(recordings),
+		}
+	}
+
+	if s.deps.WGService != nil {
+		plugin := s.deps.WGService.ActivePlugin()
+		stats["wireguard"] = map[string]any{
+			"connected": plugin != nil,
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, stats)
+}
+
 func (s *Server) RefreshAllEPGSources(ctx context.Context) error {
 	sources, err := s.deps.EPGSourceStore.List(ctx)
 	if err != nil {

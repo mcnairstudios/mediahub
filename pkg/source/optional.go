@@ -67,3 +67,9 @@ type TLSStatus struct {
 type TLSProvider interface {
 	TLSInfo() TLSStatus
 }
+
+// AccountInfoProvider is implemented by sources that can fetch account
+// details from the upstream provider (e.g. Xtream Codes server info).
+type AccountInfoProvider interface {
+	GetAccountInfo(ctx context.Context) (any, error)
+}

@@ -20,8 +20,9 @@ func (m *mockProgramStore) NowPlaying(_ context.Context, _ string) (*Program, er
 func (m *mockProgramStore) Range(_ context.Context, _ string, _, _ time.Time) ([]Program, error) {
 	return nil, nil
 }
-func (m *mockProgramStore) BulkInsert(_ context.Context, _ []Program) error   { return nil }
-func (m *mockProgramStore) DeleteBySource(_ context.Context, _ string) error   { return nil }
+func (m *mockProgramStore) ListAll(_ context.Context) ([]Program, error)     { return nil, nil }
+func (m *mockProgramStore) BulkInsert(_ context.Context, _ []Program) error  { return nil }
+func (m *mockProgramStore) DeleteBySource(_ context.Context, _ string) error { return nil }
 
 var _ SourceStore = (*mockSourceStore)(nil)
 var _ ProgramStore = (*mockProgramStore)(nil)

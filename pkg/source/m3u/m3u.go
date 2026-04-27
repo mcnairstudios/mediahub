@@ -76,7 +76,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	log.Printf("m3u: refreshing source %s from %s (wg=%v)", s.cfg.Name, s.cfg.URL, s.cfg.UseWireGuard)
-	log.Printf("m3u: using %s client", clientDesc)
+	log.Printf("m3u: using %s client (timeout=%v)", clientDesc, client.Timeout)
 
 	s.mu.RLock()
 	etag := s.etag
@@ -87,14 +87,18 @@ func (s *Source) Refresh(ctx context.Context) error {
 		extraHeaders = map[string]string{s.cfg.BypassHeader: s.cfg.BypassSecret}
 	}
 
+	fetchStart := time.Now()
 	result, err := httputil.FetchConditional(ctx, client, s.cfg.URL, etag, s.cfg.UserAgent, extraHeaders)
+	fetchDuration := time.Since(fetchStart)
 	if err != nil {
-		log.Printf("m3u: fetch error for %s: %v", s.cfg.Name, err)
+		log.Printf("m3u: fetch error for %s after %s: %v", s.cfg.Name, fetchDuration, err)
 		s.mu.Lock()
 		s.lastError = err.Error()
 		s.mu.Unlock()
 		return fmt.Errorf("fetching m3u: %w", err)
 	}
+
+	log.Printf("m3u: fetch completed for %s in %s (changed=%v etag=%q)", s.cfg.Name, fetchDuration, result.Changed, result.ETag)
 
 	if !result.Changed {
 		log.Printf("m3u: 304 not modified for %s", s.cfg.Name)

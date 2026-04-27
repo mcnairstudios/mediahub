@@ -32,6 +32,7 @@ Query and bulk-manage EPG program data.
 type ProgramStore interface {
     NowPlaying(ctx context.Context, channelID string) (*Program, error)
     Range(ctx context.Context, channelID string, start, end time.Time) ([]Program, error)
+    ListAll(ctx context.Context) ([]Program, error)
     BulkInsert(ctx context.Context, programs []Program) error
     DeleteBySource(ctx context.Context, sourceID string) error
 }
@@ -41,5 +42,6 @@ type ProgramStore interface {
 |--------|-------------|
 | `NowPlaying` | Return the currently airing program for a channel |
 | `Range` | Return all programs for a channel within a time window |
+| `ListAll` | Return all programs (used for XMLTV EPG output) |
 | `BulkInsert` | Insert programs in bulk (used during EPG refresh) |
 | `DeleteBySource` | Remove all programs belonging to an EPG source |

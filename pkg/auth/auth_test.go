@@ -46,9 +46,10 @@ func (m *mockService) RefreshToken(_ context.Context, _ string) (string, error) 
 func (m *mockService) CreateUser(_ context.Context, _, _ string, _ Role) (*User, error) {
 	return nil, nil
 }
-func (m *mockService) ListUsers(_ context.Context) ([]*User, error)          { return nil, nil }
-func (m *mockService) DeleteUser(_ context.Context, _ string) error          { return nil }
-func (m *mockService) ChangePassword(_ context.Context, _, _ string) error   { return nil }
+func (m *mockService) ListUsers(_ context.Context) ([]*User, error)                          { return nil, nil }
+func (m *mockService) UpdateUser(_ context.Context, _ string, _ string, _ Role) (*User, error) { return nil, nil }
+func (m *mockService) DeleteUser(_ context.Context, _ string) error                          { return nil }
+func (m *mockService) ChangePassword(_ context.Context, _, _ string) error                   { return nil }
 
 func TestMockSatisfiesService(t *testing.T) {
 	var _ Service = (*mockService)(nil)
@@ -59,9 +60,10 @@ type mockUserStore struct{}
 func (m *mockUserStore) Get(_ context.Context, _ string) (*User, error)            { return nil, nil }
 func (m *mockUserStore) GetByUsername(_ context.Context, _ string) (*User, error)   { return nil, nil }
 func (m *mockUserStore) List(_ context.Context) ([]*User, error)                   { return nil, nil }
-func (m *mockUserStore) Create(_ context.Context, _ *User) error                   { return nil }
-func (m *mockUserStore) Delete(_ context.Context, _ string) error                  { return nil }
-func (m *mockUserStore) UpdatePassword(_ context.Context, _, _ string) error       { return nil }
+func (m *mockUserStore) Create(_ context.Context, _ *User) error             { return nil }
+func (m *mockUserStore) Update(_ context.Context, _ *User) error             { return nil }
+func (m *mockUserStore) Delete(_ context.Context, _ string) error            { return nil }
+func (m *mockUserStore) UpdatePassword(_ context.Context, _, _ string) error { return nil }
 
 func TestMockSatisfiesUserStore(t *testing.T) {
 	var _ UserStore = (*mockUserStore)(nil)

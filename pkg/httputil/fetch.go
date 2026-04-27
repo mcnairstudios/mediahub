@@ -55,6 +55,9 @@ func FetchConditional(ctx context.Context, client *http.Client, url, etag, userA
 		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
 	}
 
+	log.Printf("httputil: fetch %s status=%d content-length=%s content-type=%s",
+		url, resp.StatusCode, resp.Header.Get("Content-Length"), resp.Header.Get("Content-Type"))
+
 	body, err := DecompressReader(resp.Body, url)
 	if err != nil {
 		return nil, fmt.Errorf("decompressing response from %s: %w", url, err)

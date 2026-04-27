@@ -81,6 +81,26 @@ func (s *MemoryUserStore) Create(_ context.Context, user *User) error {
 	return nil
 }
 
+func (s *MemoryUserStore) Update(_ context.Context, user *User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	su, ok := s.users[user.ID]
+	if !ok {
+		return ErrUserNotFound
+	}
+
+	for _, existing := range s.users {
+		if existing.User.Username == user.Username && existing.User.ID != user.ID {
+			return ErrUsernameExists
+		}
+	}
+
+	su.User = *user
+	s.users[user.ID] = su
+	return nil
+}
+
 func (s *MemoryUserStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

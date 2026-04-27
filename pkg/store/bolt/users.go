@@ -114,6 +114,45 @@ func (s *UserStore) Create(_ context.Context, user *auth.User) error {
 	})
 }
 
+func (s *UserStore) Update(_ context.Context, user *auth.User) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		data := b.Get([]byte(user.ID))
+		if data == nil {
+			return auth.ErrUserNotFound
+		}
+
+		var existing bool
+		err := b.ForEach(func(_, v []byte) error {
+			var su boltStoredUser
+			if err := json.Unmarshal(v, &su); err != nil {
+				return err
+			}
+			if su.User.Username == user.Username && su.User.ID != user.ID {
+				existing = true
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if existing {
+			return auth.ErrUsernameExists
+		}
+
+		var su boltStoredUser
+		if err := json.Unmarshal(data, &su); err != nil {
+			return err
+		}
+		su.User = *user
+		updated, err := json.Marshal(su)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(user.ID), updated)
+	})
+}
+
 func (s *UserStore) Delete(_ context.Context, id string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketUsers)

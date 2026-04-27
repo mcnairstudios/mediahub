@@ -2,10 +2,99 @@ package jellyfin
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
+	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 )
+
+func seriesKeyFromStream(st *media.Stream) string {
+	return st.Name
+}
+
+func (s *Server) buildMovieItems(ctx context.Context, searchTerm, genres string) []BaseItemDto {
+	if s.streams == nil {
+		return nil
+	}
+	streams, err := s.streams.List(ctx)
+	if err != nil {
+		return nil
+	}
+
+	genreFilter := parseGenres(genres)
+	var items []BaseItemDto
+
+	for _, st := range streams {
+		if st.VODType != "movie" {
+			continue
+		}
+		if !st.IsLocal {
+			continue
+		}
+		if searchTerm != "" {
+			nameMatch := strings.Contains(strings.ToLower(st.Name), searchTerm)
+			collMatch := st.CollectionName != "" && strings.Contains(strings.ToLower(st.CollectionName), searchTerm)
+			if !nameMatch && !collMatch {
+				continue
+			}
+		}
+
+		item := s.enrichMovieItem(&st)
+		if len(genreFilter) > 0 && !matchesGenres(item.Genres, genreFilter) {
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
+func (s *Server) buildSeriesItems(ctx context.Context, searchTerm, genres string) []BaseItemDto {
+	if s.streams == nil {
+		return nil
+	}
+	streams, err := s.streams.List(ctx)
+	if err != nil {
+		return nil
+	}
+
+	genreFilter := parseGenres(genres)
+	seriesMap := make(map[string]*BaseItemDto)
+
+	for _, st := range streams {
+		if st.VODType != "series" {
+			continue
+		}
+		if !st.IsLocal {
+			continue
+		}
+		key := seriesKeyFromStream(&st)
+		if searchTerm != "" && !strings.Contains(strings.ToLower(key), searchTerm) {
+			continue
+		}
+		if existing, ok := seriesMap[key]; ok {
+			existing.ChildCount++
+			continue
+		}
+
+		item := s.enrichSeriesItem(key)
+		item.ChildCount = 1
+		if len(genreFilter) > 0 && !matchesGenres(item.Genres, genreFilter) {
+			continue
+		}
+		seriesMap[key] = &item
+	}
+
+	var items []BaseItemDto
+	for _, item := range seriesMap {
+		items = append(items, *item)
+	}
+	return items
+}
 
 func (s *Server) buildStreamItems(ctx context.Context, searchTerm string) []BaseItemDto {
 	if s.streams == nil {
@@ -16,13 +105,24 @@ func (s *Server) buildStreamItems(ctx context.Context, searchTerm string) []Base
 		return nil
 	}
 
-	var items []BaseItemDto
+	var movies, series, other []BaseItemDto
+	movies = s.buildMovieItems(ctx, searchTerm, "")
+	series = s.buildSeriesItems(ctx, searchTerm, "")
+
 	for _, st := range streams {
+		if st.VODType == "movie" || st.VODType == "series" {
+			continue
+		}
 		if searchTerm != "" && !strings.Contains(strings.ToLower(st.Name), searchTerm) {
 			continue
 		}
-		items = append(items, s.streamToItem(&st))
+		other = append(other, s.streamToItem(&st))
 	}
+
+	var items []BaseItemDto
+	items = append(items, movies...)
+	items = append(items, series...)
+	items = append(items, other...)
 	return items
 }
 
@@ -61,8 +161,121 @@ func (s *Server) streamToItem(st *media.Stream) BaseItemDto {
 		item.Height = st.Height
 	}
 
+	s.enrichItemFromTMDB(&item, st.Name, st.VODType)
+
+	return item
+}
+
+func (s *Server) enrichMovieItem(st *media.Stream) BaseItemDto {
+	itemID := stripDashes(st.ID)
+
+	container := "mp4"
+	if st.URL != "" {
+		if idx := strings.LastIndex(st.URL, "."); idx >= 0 {
+			switch strings.ToLower(st.URL[idx+1:]) {
+			case "mkv":
+				container = "mkv"
+			case "avi":
+				container = "avi"
+			case "ts":
+				container = "ts"
+			}
+		}
+	}
+
+	item := BaseItemDto{
+		Name:         st.Name,
+		SortName:     sortName(st.Name),
+		Container:    container,
+		ServerID:     s.serverID,
+		ID:           itemID,
+		Type:         "Movie",
+		MediaType:    "Video",
+		IsFolder:     false,
+		LocationType: "FileSystem",
+		ImageTags:    map[string]string{},
+		UserData:     &UserItemData{Key: st.ID},
+		MediaSources: []MediaSource{{
+			Protocol: "Http", ID: itemID, Type: "Default", Name: st.Name,
+			Container: "mp4", IsRemote: true, SupportsTranscoding: true,
+			SupportsDirectStream: true, SupportsDirectPlay: false,
+			TranscodingURL:         channelStreamURL(itemID),
+			TranscodingSubProtocol: "http", TranscodingContainer: "mp4",
+			MediaStreams: buildMediaStreams(st),
+		}},
+	}
+
+	if st.Duration > 0 {
+		item.RunTimeTicks = secondsToTicks(st.Duration)
+		item.MediaSources[0].RunTimeTicks = item.RunTimeTicks
+	}
+
+	if st.Width > 0 && st.Height > 0 {
+		item.Width = st.Width
+		item.Height = st.Height
+	}
+
+	s.enrichItemFromTMDB(&item, st.Name, "movie")
+
+	if item.ProductionYear == 0 && st.Year != "" {
+		if yr, _ := strconv.Atoi(st.Year); yr > 0 {
+			item.ProductionYear = yr
+			item.PremiereDate = fmt.Sprintf("%s-01-01T00:00:00.0000000Z", st.Year)
+		}
+	}
+
+	return item
+}
+
+func (s *Server) enrichSeriesItem(name string) BaseItemDto {
+	item := BaseItemDto{
+		Name:         name,
+		SortName:     sortName(name),
+		ServerID:     s.serverID,
+		ID:           seriesIDFromName(name),
+		Type:         "Series",
+		MediaType:    "Video",
+		IsFolder:     true,
+		LocationType: "FileSystem",
+		ImageTags:    map[string]string{},
+		UserData:     &UserItemData{Key: name},
+	}
+
 	if s.tmdbCache != nil {
-		if m, ok := s.tmdbCache.GetMovie(st.Name); ok && m != nil {
+		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil {
+			item.Overview = sr.Overview
+			item.CommunityRating = sr.Rating
+			item.Genres = sr.Genres
+			item.GenreItems = genreItems(sr.Genres)
+			if sr.FirstAirDate != "" {
+				year := sr.FirstAirDate
+				if len(year) >= 4 {
+					year = year[:4]
+				}
+				if yr, _ := strconv.Atoi(year); yr > 0 {
+					item.ProductionYear = yr
+					item.PremiereDate = sr.FirstAirDate + "T00:00:00.0000000Z"
+				}
+			}
+			if sr.PosterPath != "" {
+				item.ImageTags["Primary"] = "tmdb"
+			}
+			if sr.BackdropPath != "" {
+				item.BackdropImageTags = []string{"tmdb"}
+			}
+		}
+	}
+
+	return item
+}
+
+func (s *Server) enrichItemFromTMDB(item *BaseItemDto, name, mediaType string) {
+	if s.tmdbCache == nil {
+		return
+	}
+
+	if mediaType == "movie" || mediaType == "" {
+		if m, ok := s.tmdbCache.GetMovie(name); ok && m != nil {
 			item.Overview = m.Overview
 			item.CommunityRating = m.Rating
 			item.OfficialRating = m.Certification
@@ -75,6 +288,9 @@ func (s *Server) streamToItem(st *media.Stream) BaseItemDto {
 				}
 				item.PremiereDate = m.ReleaseDate + "T00:00:00.0000000Z"
 				item.DateCreated = m.ReleaseDate + "T00:00:00.0000000Z"
+				if yr, _ := strconv.Atoi(year); yr > 0 {
+					item.ProductionYear = yr
+				}
 			}
 			if m.PosterPath != "" {
 				item.ImageTags["Primary"] = "tmdb"
@@ -82,56 +298,735 @@ func (s *Server) streamToItem(st *media.Stream) BaseItemDto {
 			if m.BackdropPath != "" {
 				item.BackdropImageTags = []string{"tmdb"}
 			}
+			return
 		}
 	}
 
-	return item
+	if mediaType == "series" {
+		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil {
+			item.Overview = sr.Overview
+			item.CommunityRating = sr.Rating
+			item.Genres = sr.Genres
+			item.GenreItems = genreItems(sr.Genres)
+			if sr.FirstAirDate != "" {
+				year := sr.FirstAirDate
+				if len(year) >= 4 {
+					year = year[:4]
+				}
+				item.PremiereDate = sr.FirstAirDate + "T00:00:00.0000000Z"
+				if yr, _ := strconv.Atoi(year); yr > 0 {
+					item.ProductionYear = yr
+				}
+			}
+			if sr.PosterPath != "" {
+				item.ImageTags["Primary"] = "tmdb"
+			}
+			if sr.BackdropPath != "" {
+				item.BackdropImageTags = []string{"tmdb"}
+			}
+		}
+	}
 }
 
-func buildMediaStreams(st *media.Stream) []MediaStream {
-	videoCodec := "h264"
-	audioCodec := "aac"
-	width, height := 1920, 1080
-
-	if st.VideoCodec != "" {
-		vc := strings.ToLower(st.VideoCodec)
-		switch {
-		case vc == "hevc" || vc == "h265":
-			videoCodec = "hevc"
-		case vc == "h264" || vc == "avc":
-			videoCodec = "h264"
-		case vc == "av1":
-			videoCodec = "av1"
-		default:
-			videoCodec = vc
-		}
-	}
-	if st.AudioCodec != "" {
-		ac := strings.ToLower(st.AudioCodec)
-		switch {
-		case strings.Contains(ac, "aac"):
-			audioCodec = "aac"
-		case strings.Contains(ac, "ac3") || strings.Contains(ac, "ac-3"):
-			audioCodec = "ac3"
-		case strings.Contains(ac, "eac3") || strings.Contains(ac, "e-ac-3"):
-			audioCodec = "eac3"
-		case strings.Contains(ac, "dts"):
-			audioCodec = "dca"
-		case strings.Contains(ac, "opus"):
-			audioCodec = "opus"
-		case strings.Contains(ac, "mp3"):
-			audioCodec = "mp3"
-		default:
-			audioCodec = ac
-		}
-	}
-	if st.Width > 0 && st.Height > 0 {
-		width = st.Width
-		height = st.Height
+func (s *Server) lookupCast(name, mediaType string) []PersonDto {
+	if s.tmdbCache == nil {
+		return nil
 	}
 
-	return []MediaStream{
-		{Type: "Video", Codec: videoCodec, Index: 0, IsDefault: true, Width: width, Height: height},
-		{Type: "Audio", Codec: audioCodec, Index: 1, IsDefault: true, Channels: 2},
+	var cast []tmdbcache.CastMember
+	var crew []tmdbcache.CrewMember
+
+	if mediaType == "movie" || mediaType == "" {
+		if m, ok := s.tmdbCache.GetMovie(name); ok && m != nil {
+			cast = m.Cast
+			crew = m.Crew
+		}
 	}
+
+	var people []PersonDto
+	for _, c := range cast {
+		person := PersonDto{
+			Name: c.Name,
+			ID:   fmt.Sprintf("person_%d", c.TMDBID),
+			Role: c.Character,
+			Type: "Actor",
+		}
+		if c.ProfilePath != "" {
+			person.ImageTag = "tmdb"
+		}
+		people = append(people, person)
+		if len(people) >= 20 {
+			break
+		}
+	}
+	for _, c := range crew {
+		people = append(people, PersonDto{
+			Name: c.Name,
+			ID:   fmt.Sprintf("person_%d", c.TMDBID),
+			Role: c.Job,
+			Type: c.Department,
+		})
+	}
+	return people
+}
+
+func (s *Server) lookupPoster(name, mediaType string) string {
+	if s.tmdbCache == nil {
+		return ""
+	}
+	if mediaType == "movie" || mediaType == "" {
+		if m, ok := s.tmdbCache.GetMovie(name); ok && m != nil && m.PosterPath != "" {
+			return m.PosterPath
+		}
+	}
+	if mediaType == "series" || mediaType == "tv" {
+		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil && sr.PosterPath != "" {
+			return sr.PosterPath
+		}
+	}
+	return ""
+}
+
+func (s *Server) lookupBackdrop(name, mediaType string) string {
+	if s.tmdbCache == nil {
+		return ""
+	}
+	if mediaType == "movie" || mediaType == "" {
+		if m, ok := s.tmdbCache.GetMovie(name); ok && m != nil && m.BackdropPath != "" {
+			return m.BackdropPath
+		}
+	}
+	if mediaType == "series" || mediaType == "tv" {
+		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil && sr.BackdropPath != "" {
+			return sr.BackdropPath
+		}
+	}
+	return ""
+}
+
+func (s *Server) lookupEpisode(seriesName string, season, episode int) *tmdbcache.Episode {
+	if s.tmdbCache == nil {
+		return nil
+	}
+	if sr, ok := s.tmdbCache.GetSeries(seriesName); ok && sr != nil {
+		for _, seas := range sr.Seasons {
+			if seas.SeasonNumber == season {
+				for _, ep := range seas.Episodes {
+					if ep.EpisodeNumber == episode {
+						return &ep
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) isFavorite(r *http.Request, itemID string) bool {
+	if s.favorites == nil {
+		return false
+	}
+	userID := s.authenticatedUserID(r)
+	if userID == "" {
+		return false
+	}
+	is, _ := s.favorites.IsFavorite(r.Context(), userID, itemID)
+	return is
+}
+
+func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	parentID := firstOf(q, "parentId", "ParentId")
+	itemTypes := strings.Join(append(q["includeItemTypes"], q["IncludeItemTypes"]...), ",")
+	searchTerm := strings.ToLower(firstOf(q, "searchTerm", "SearchTerm"))
+	genres := firstOf(q, "genres", "Genres")
+	sortBy := firstOf(q, "sortBy", "SortBy")
+	sortOrder := firstOf(q, "sortOrder", "SortOrder")
+
+	ctx := r.Context()
+
+	filters := strings.Join(append(q["filters"], q["Filters"]...), ",")
+	if strings.Contains(filters, "IsFavorite") {
+		s.listFavoriteItems(w, r)
+		return
+	}
+
+	if strings.HasPrefix(parentID, "group_") {
+		groupID := addDashes(strings.TrimPrefix(parentID, "group_"))
+		s.groupChannels(w, r, groupID)
+		return
+	}
+
+	if isGroupItemID(parentID) {
+		s.groupChannels(w, r, groupUUIDFromItemID(parentID))
+		return
+	}
+
+	if strings.HasPrefix(parentID, "cccc") || strings.HasPrefix(parentID, "cccd") {
+		if strings.Contains(itemTypes, "Episode") || isSeasonItemID(parentID) {
+			s.listEpisodes(w, r)
+			return
+		}
+		s.listSeasons(w, r)
+		return
+	}
+
+	hasMovies := parentID == viewMoviesID || strings.Contains(itemTypes, "Movie") || strings.Contains(itemTypes, "BoxSet") || strings.Contains(itemTypes, "MusicVideo") || strings.Contains(itemTypes, "Video")
+	hasSeries := parentID == viewTVID || strings.Contains(itemTypes, "Series")
+
+	var items []BaseItemDto
+	if hasMovies && !hasSeries && genres == "" {
+		items = append(items, s.buildStreamItems(ctx, searchTerm)...)
+	} else {
+		if hasMovies || (!hasSeries && searchTerm != "") {
+			items = append(items, s.buildMovieItems(ctx, searchTerm, genres)...)
+		}
+		if hasSeries || (!hasMovies && searchTerm != "") {
+			items = append(items, s.buildSeriesItems(ctx, searchTerm, genres)...)
+		}
+	}
+
+	if !hasMovies && !hasSeries && searchTerm == "" {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	sortItems(items, sortBy, sortOrder)
+	s.paginateAndRespond(w, r, items)
+}
+
+func (s *Server) itemDetail(w http.ResponseWriter, r *http.Request) {
+	itemID := r.PathValue("itemId")
+	ctx := r.Context()
+
+	if itemID == viewMoviesID || itemID == viewTVID || strings.HasPrefix(itemID, "group_") || isGroupItemID(itemID) {
+		s.userViews(w, r)
+		return
+	}
+
+	if s.streams != nil {
+		if stream, err := s.streams.Get(ctx, addDashes(itemID)); err == nil && stream != nil {
+			item := s.enrichMovieItem(stream)
+			if stream.VODType == "series" {
+				key := seriesKeyFromStream(stream)
+				epSeason := stream.Season
+				if epSeason == 0 {
+					epSeason = 1
+				}
+				item.Type = "Episode"
+				item.MediaType = "Video"
+				item.SeriesName = key
+				item.SeriesID = seriesIDFromName(key)
+				item.SeasonID = seasonItemID(key, epSeason)
+				item.SeasonName = fmt.Sprintf("Season %d", epSeason)
+				item.IndexNumber = stream.Episode
+				item.ParentIndexNumber = epSeason
+				if ep := s.lookupEpisode(key, epSeason, stream.Episode); ep != nil {
+					if ep.Name != "" {
+						item.Name = ep.Name
+					}
+					if ep.Overview != "" {
+						item.Overview = ep.Overview
+					}
+					if ep.StillPath != "" {
+						item.ImageTags["Primary"] = "tmdb_ep"
+					}
+				}
+			}
+			item.People = s.lookupCast(stream.Name, stream.VODType)
+			if item.UserData != nil {
+				item.UserData.IsFavorite = s.isFavorite(r, stream.ID)
+			}
+			s.respondJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+
+	if strings.HasPrefix(itemID, "cccc") && !strings.HasPrefix(itemID, "cccd") {
+		if item, ok := s.findSeriesItem(ctx, itemID); ok {
+			s.respondJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+
+	if isSeasonItemID(itemID) {
+		if item, ok := s.findSeasonItem(ctx, itemID); ok {
+			s.respondJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+
+	if s.channels != nil {
+		if ch, err := s.channels.Get(ctx, addDashes(itemID)); err == nil && ch != nil {
+			item := s.newChannelItem(ch)
+			s.respondJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+
+	s.respondJSON(w, http.StatusOK, BaseItemDto{
+		Name: "Unknown", ServerID: s.serverID, ID: itemID, Type: "Video",
+	})
+}
+
+func (s *Server) findSeriesItem(ctx context.Context, seriesID string) (BaseItemDto, bool) {
+	if s.streams == nil {
+		return BaseItemDto{}, false
+	}
+	streams, _ := s.streams.List(ctx)
+	for _, st := range streams {
+		if st.VODType != "series" {
+			continue
+		}
+		key := seriesKeyFromStream(&st)
+		if seriesIDFromName(key) != seriesID {
+			continue
+		}
+		item := s.enrichSeriesItem(key)
+		var childCount int
+		for _, s2 := range streams {
+			if s2.VODType == "series" && seriesKeyFromStream(&s2) == key {
+				childCount++
+			}
+		}
+		item.ChildCount = childCount
+		return item, true
+	}
+	return BaseItemDto{}, false
+}
+
+func (s *Server) findSeasonItem(ctx context.Context, seasonID string) (BaseItemDto, bool) {
+	h, seasonNum, ok := parseSeasonItemID(seasonID)
+	if !ok {
+		return BaseItemDto{}, false
+	}
+	if s.streams == nil {
+		return BaseItemDto{}, false
+	}
+	streams, _ := s.streams.List(ctx)
+	var seriesName string
+	var epCount int
+	for _, st := range streams {
+		if st.VODType != "series" {
+			continue
+		}
+		key := seriesKeyFromStream(&st)
+		if hashString(key) != h {
+			continue
+		}
+		epSeason := st.Season
+		if epSeason == 0 {
+			epSeason = 1
+		}
+		if epSeason == seasonNum {
+			seriesName = key
+			epCount++
+		}
+	}
+	if seriesName == "" {
+		return BaseItemDto{}, false
+	}
+	sID := seriesIDFromName(seriesName)
+	seasonName := fmt.Sprintf("Season %d", seasonNum)
+	imageTags := map[string]string{}
+	if s.tmdbCache != nil {
+		if sr, ok := s.tmdbCache.GetSeries(seriesName); ok && sr != nil && sr.PosterPath != "" {
+			imageTags["Primary"] = "tmdb"
+		}
+	}
+	return BaseItemDto{
+		Name:         seasonName,
+		ServerID:     s.serverID,
+		ID:           seasonID,
+		Type:         "Season",
+		SeriesName:   seriesName,
+		SeriesID:     sID,
+		IndexNumber:  seasonNum,
+		IsFolder:     true,
+		ChildCount:   epCount,
+		LocationType: "FileSystem",
+		ImageTags:    imageTags,
+		UserData:     &UserItemData{Key: seasonID},
+	}, true
+}
+
+func (s *Server) latestItems(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	parentID := firstOf(q, "parentId", "ParentId")
+	ctx := r.Context()
+
+	var items []BaseItemDto
+	switch parentID {
+	case viewMoviesID:
+		items = s.buildMovieItems(ctx, "", "")
+	case viewTVID:
+		items = s.buildSeriesItems(ctx, "", "")
+	default:
+		items = []BaseItemDto{}
+	}
+
+	sortItems(items, "PremiereDate", "Descending")
+
+	limit := 20
+	if l := firstOf(q, "limit", "Limit"); l != "" {
+		limit, _ = strconv.Atoi(l)
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []BaseItemDto{}
+	}
+
+	s.respondJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) listSuggestions(w http.ResponseWriter, r *http.Request) {
+	items := s.buildMovieItems(r.Context(), "", "")
+	sortItems(items, "Random", "")
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		limit, _ = strconv.Atoi(l)
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []BaseItemDto{}
+	}
+	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{Items: items, TotalRecordCount: len(items)})
+}
+
+func (s *Server) listResumeItems(w http.ResponseWriter, r *http.Request) {
+	s.respondJSON(w, http.StatusOK, emptyResult())
+}
+
+func (s *Server) resolveSeriesID(r *http.Request) string {
+	id := r.PathValue("seriesId")
+	if id == "" {
+		id = firstOf(r.URL.Query(), "parentId", "ParentId")
+	}
+	if isSeasonItemID(id) {
+		h, _, ok := parseSeasonItemID(id)
+		if ok {
+			return fmt.Sprintf("cccc%028x", h)
+		}
+	}
+	return id
+}
+
+func (s *Server) listSeasons(w http.ResponseWriter, r *http.Request) {
+	targetID := s.resolveSeriesID(r)
+	if s.streams == nil {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+	streams, _ := s.streams.List(r.Context())
+
+	seasonSet := make(map[int]bool)
+	seasonEpCount := make(map[int]int)
+	var name string
+
+	for _, st := range streams {
+		if st.VODType != "series" {
+			continue
+		}
+		key := seriesKeyFromStream(&st)
+		if seriesIDFromName(key) != targetID {
+			continue
+		}
+		name = key
+		num := st.Season
+		if num == 0 {
+			num = 1
+		}
+		seasonSet[num] = true
+		seasonEpCount[num]++
+	}
+
+	if len(seasonSet) == 0 {
+		seasonSet[1] = true
+	}
+
+	var items []BaseItemDto
+	for num := range seasonSet {
+		sid := seasonItemID(name, num)
+		seasonName := fmt.Sprintf("Season %d", num)
+		var imageTags map[string]string
+		if s.tmdbCache != nil {
+			if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil && sr.PosterPath != "" {
+				imageTags = map[string]string{"Primary": "tmdb"}
+			}
+		}
+		if imageTags == nil {
+			imageTags = map[string]string{}
+		}
+		items = append(items, BaseItemDto{
+			Name:         seasonName,
+			ServerID:     s.serverID,
+			ID:           sid,
+			Type:         "Season",
+			SeriesName:   name,
+			SeriesID:     targetID,
+			IndexNumber:  num,
+			IsFolder:     true,
+			ChildCount:   seasonEpCount[num],
+			LocationType: "FileSystem",
+			ImageTags:    imageTags,
+			UserData:     &UserItemData{Key: sid},
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].IndexNumber < items[j].IndexNumber
+	})
+
+	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{Items: items, TotalRecordCount: len(items)})
+}
+
+func (s *Server) listEpisodes(w http.ResponseWriter, r *http.Request) {
+	targetID := s.resolveSeriesID(r)
+	seasonIDParam := r.URL.Query().Get("seasonId")
+	var seasonNum int
+
+	if isSeasonItemID(seasonIDParam) {
+		_, seasonNum, _ = parseSeasonItemID(seasonIDParam)
+	} else if seasonIDParam != "" {
+		seasonNum, _ = strconv.Atoi(seasonIDParam)
+	}
+
+	if seasonNum == 0 {
+		if sn := r.URL.Query().Get("season"); sn != "" {
+			seasonNum, _ = strconv.Atoi(sn)
+		}
+	}
+
+	if s.streams == nil {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+	streams, _ := s.streams.List(r.Context())
+	seen := make(map[string]bool)
+	var items []BaseItemDto
+
+	for _, st := range streams {
+		if st.VODType != "series" {
+			continue
+		}
+		key := seriesKeyFromStream(&st)
+		if seriesIDFromName(key) != targetID {
+			continue
+		}
+
+		epSeason := st.Season
+		if epSeason == 0 {
+			epSeason = 1
+		}
+
+		if seasonNum > 0 && epSeason != seasonNum {
+			continue
+		}
+
+		dedup := fmt.Sprintf("s%de%d", epSeason, st.Episode)
+		if seen[dedup] {
+			continue
+		}
+		seen[dedup] = true
+
+		item := s.enrichMovieItem(&st)
+		item.Type = "Episode"
+		item.MediaType = "Video"
+		item.SeriesName = key
+		item.SeriesID = targetID
+		item.SeasonID = seasonItemID(key, epSeason)
+		item.SeasonName = fmt.Sprintf("Season %d", epSeason)
+		item.IndexNumber = st.Episode
+		item.ParentIndexNumber = epSeason
+
+		if ep := s.lookupEpisode(key, epSeason, st.Episode); ep != nil {
+			if ep.Name != "" {
+				item.Name = ep.Name
+			}
+			if ep.Overview != "" {
+				item.Overview = ep.Overview
+			}
+			if ep.StillPath != "" {
+				item.ImageTags["Primary"] = "tmdb_ep"
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ParentIndexNumber != items[j].ParentIndexNumber {
+			return items[i].ParentIndexNumber < items[j].ParentIndexNumber
+		}
+		return items[i].IndexNumber < items[j].IndexNumber
+	})
+
+	if items == nil {
+		items = []BaseItemDto{}
+	}
+	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{Items: items, TotalRecordCount: len(items)})
+}
+
+func (s *Server) listFilters(w http.ResponseWriter, r *http.Request) {
+	if s.streams == nil || s.tmdbCache == nil {
+		s.respondJSON(w, http.StatusOK, map[string]any{
+			"Genres": []string{}, "Tags": []string{}, "OfficialRatings": []string{}, "Years": []int{},
+		})
+		return
+	}
+
+	streams, _ := s.streams.List(r.Context())
+
+	genreSet := make(map[string]bool)
+	yearSet := make(map[int]bool)
+	ratingSet := make(map[string]bool)
+
+	for _, st := range streams {
+		if st.VODType != "movie" {
+			continue
+		}
+		if m, ok := s.tmdbCache.GetMovie(st.Name); ok && m != nil {
+			for _, g := range m.Genres {
+				genreSet[g] = true
+			}
+			if m.ReleaseDate != "" && len(m.ReleaseDate) >= 4 {
+				if yr, _ := strconv.Atoi(m.ReleaseDate[:4]); yr > 0 {
+					yearSet[yr] = true
+				}
+			}
+			if m.Certification != "" {
+				ratingSet[m.Certification] = true
+			}
+		}
+	}
+
+	var genreList []string
+	for g := range genreSet {
+		genreList = append(genreList, g)
+	}
+	sort.Strings(genreList)
+
+	var yearList []int
+	for y := range yearSet {
+		yearList = append(yearList, y)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(yearList)))
+
+	var ratingList []string
+	for r := range ratingSet {
+		ratingList = append(ratingList, r)
+	}
+	sort.Strings(ratingList)
+
+	s.respondJSON(w, http.StatusOK, map[string]any{
+		"Genres":          genreList,
+		"Tags":            []string{},
+		"OfficialRatings": ratingList,
+		"Years":           yearList,
+	})
+}
+
+func (s *Server) listSimilarItems(w http.ResponseWriter, r *http.Request) {
+	itemID := r.PathValue("itemId")
+	ctx := r.Context()
+
+	if s.streams == nil {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	stream, err := s.streams.Get(ctx, addDashes(itemID))
+	if err != nil || stream == nil {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	var sourceGenres []string
+	if s.tmdbCache != nil {
+		if m, ok := s.tmdbCache.GetMovie(stream.Name); ok && m != nil {
+			sourceGenres = m.Genres
+		}
+	}
+	if len(sourceGenres) == 0 {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	allMovies := s.buildMovieItems(ctx, "", "")
+	var similar []BaseItemDto
+	for _, item := range allMovies {
+		if item.ID == itemID {
+			continue
+		}
+		overlap := 0
+		for _, g := range item.Genres {
+			for _, sg := range sourceGenres {
+				if g == sg {
+					overlap++
+				}
+			}
+		}
+		if overlap >= 2 {
+			similar = append(similar, item)
+		}
+	}
+
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		limit, _ = strconv.Atoi(l)
+	}
+	if len(similar) > limit {
+		similar = similar[:limit]
+	}
+	if similar == nil {
+		similar = []BaseItemDto{}
+	}
+
+	s.respondJSON(w, http.StatusOK, BaseItemDtoQueryResult{Items: similar, TotalRecordCount: len(similar)})
+}
+
+func (s *Server) listFavoriteItems(w http.ResponseWriter, r *http.Request) {
+	userID := s.authenticatedUserID(r)
+	if userID == "" || s.favorites == nil {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	favs, _ := s.favorites.List(r.Context(), userID)
+	if len(favs) == 0 {
+		s.respondJSON(w, http.StatusOK, emptyResult())
+		return
+	}
+
+	ctx := r.Context()
+	var items []BaseItemDto
+	for _, f := range favs {
+		if s.streams != nil {
+			if stream, err := s.streams.Get(ctx, f.StreamID); err == nil && stream != nil {
+				item := s.enrichMovieItem(stream)
+				if item.UserData != nil {
+					item.UserData.IsFavorite = true
+				}
+				items = append(items, item)
+			}
+		}
+		if s.channels != nil {
+			if ch, err := s.channels.Get(ctx, f.StreamID); err == nil && ch != nil {
+				item := s.newChannelItem(ch)
+				if item.UserData != nil {
+					item.UserData.IsFavorite = true
+				}
+				items = append(items, item)
+			}
+		}
+	}
+
+	if items == nil {
+		items = []BaseItemDto{}
+	}
+	s.paginateAndRespond(w, r, items)
 }

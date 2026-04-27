@@ -23,6 +23,7 @@ type Service interface {
 	RefreshToken(ctx context.Context, token string) (newToken string, err error)
 	CreateUser(ctx context.Context, username, password string, role Role) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
+	UpdateUser(ctx context.Context, id string, username string, role Role) (*User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ChangePassword(ctx context.Context, id, newPassword string) error
 }
@@ -32,6 +33,7 @@ type UserStore interface {
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Create(ctx context.Context, user *User) error
+	Update(ctx context.Context, user *User) error
 	Delete(ctx context.Context, id string) error
 	UpdatePassword(ctx context.Context, id, hashedPassword string) error
 }

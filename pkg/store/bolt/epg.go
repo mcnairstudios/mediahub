@@ -135,6 +135,24 @@ func (s *ProgramStore) Range(_ context.Context, channelID string, start, end tim
 	return result, err
 }
 
+func (s *ProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
+	var result []epg.Program
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketEPGPrograms)
+		return b.ForEach(func(_, v []byte) error {
+			var p epg.Program
+			if err := json.Unmarshal(v, &p); err != nil {
+				return err
+			}
+			result = append(result, p)
+			return nil
+		})
+	})
+
+	return result, err
+}
+
 func (s *ProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEPGPrograms)

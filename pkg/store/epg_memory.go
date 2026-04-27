@@ -103,6 +103,15 @@ func (s *MemoryProgramStore) Range(_ context.Context, channelID string, start, e
 	return result, nil
 }
 
+func (s *MemoryProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]epg.Program, len(s.programs))
+	copy(result, s.programs)
+	return result, nil
+}
+
 func (s *MemoryProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
