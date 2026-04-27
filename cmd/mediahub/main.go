@@ -87,6 +87,8 @@ func main() {
 
 	seedDefaults(ctx, settingsStore)
 
+	wgService := wg.NewService(settingsStore)
+
 	sourceReg := source.NewRegistry()
 	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := sourceConfigStore.Get(ctx, sourceID)
@@ -96,14 +98,20 @@ func main() {
 		if sc == nil {
 			return nil, errors.New("source config not found")
 		}
-		return m3usource.New(m3usource.Config{
+		cfg := m3usource.Config{
 			ID:           sc.ID,
 			Name:         sc.Name,
 			URL:          sc.Config["url"],
 			IsEnabled:    sc.IsEnabled,
 			UseWireGuard: sc.Config["use_wireguard"] == "true",
 			StreamStore:  streamStore,
-		}), nil
+		}
+		if cfg.UseWireGuard && wgService != nil {
+			if p := wgService.ActivePlugin(); p != nil {
+				cfg.WGClient = p.HTTPClient()
+			}
+		}
+		return m3usource.New(cfg), nil
 	})
 	sourceReg.Register("hdhr", func(_ context.Context, _ string) (source.Source, error) {
 		return nil, errors.New("hdhr sources are created via API with their config")
@@ -128,7 +136,6 @@ func main() {
 
 	connReg := connectivity.NewRegistry()
 
-	wgService := wg.NewService(settingsStore)
 	if err := wgService.RestoreActive(ctx); err != nil {
 		log.Printf("wireguard: failed to restore active profile: %v", err)
 	} else if plugin := wgService.ActivePlugin(); plugin != nil {
