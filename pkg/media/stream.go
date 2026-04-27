@@ -21,4 +21,14 @@ type Stream struct {
 	FramerateN int
 	FramerateD int
 	Duration   float64
+
+	VODType        string
+	TMDBID         string
+	Year           string
+	Season         int
+	Episode        int
+	EpisodeName    string
+	CollectionName string
+	CollectionID   string
+	IsLocal        bool
 }
