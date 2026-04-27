@@ -378,6 +378,11 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("source refresh PANIC: %s (%s): %v", sourceID, sourceType, r)
+			}
+		}()
 		if err := orchestrator.RefreshSource(context.Background(), deps, source.SourceType(sourceType), sourceID); err != nil {
 			log.Printf("source refresh failed: %s (%s): %v", sourceID, sourceType, err)
 		} else {

@@ -25,6 +25,9 @@ func FetchConditional(ctx context.Context, client *http.Client, url, etag, userA
 		req.Header.Set("If-None-Match", etag)
 	}
 
+	if client == nil {
+		client = http.DefaultClient
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", url, err)
