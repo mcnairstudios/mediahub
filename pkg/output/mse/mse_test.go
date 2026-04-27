@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
 
@@ -217,5 +218,75 @@ func TestEndOfStreamMarksStopped(t *testing.T) {
 	status := p.Status()
 	if status.Healthy {
 		t.Fatal("expected unhealthy after EndOfStream")
+	}
+}
+
+func TestConstructionNilAudioVideoOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputDir: dir,
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("expected nil audio to work: %v", err)
+	}
+	defer p.Stop()
+
+	if p.Mode() != output.DeliveryMSE {
+		t.Fatalf("expected mode %q, got %q", output.DeliveryMSE, p.Mode())
+	}
+}
+
+func TestPushAudioNoAudioStreamMSE(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputDir: dir,
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+		t.Fatalf("PushAudio on video-only MSE should return nil, got: %v", err)
+	}
+}
+
+func TestPushVideoAfterStopMSE(t *testing.T) {
+	dir := t.TempDir()
+	p, err := New(output.PluginConfig{OutputDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.Stop()
+
+	if err := p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true); err != nil {
+		t.Fatalf("PushVideo after stop should return nil, got: %v", err)
+	}
+}
+
+func TestPushAudioAfterStopMSE(t *testing.T) {
+	dir := t.TempDir()
+	p, err := New(output.PluginConfig{OutputDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.Stop()
+
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+		t.Fatalf("PushAudio after stop should return nil, got: %v", err)
 	}
 }

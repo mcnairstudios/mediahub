@@ -89,6 +89,10 @@ func NewDemuxerWithTee(tee TeeSource, opts DemuxOpts) (*Demuxer, error) {
 }
 
 func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
+	if url == "" {
+		return nil, fmt.Errorf("demux: URL is empty")
+	}
+
 	if opts.SATIPHTTPMode && strings.HasPrefix(url, "rtsp://") {
 		url = convertRTSPtoHTTP(url)
 	}

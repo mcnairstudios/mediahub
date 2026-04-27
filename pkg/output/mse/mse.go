@@ -32,8 +32,9 @@ type Plugin struct {
 	stopped    atomic.Bool
 	eos        atomic.Bool
 
-	videoTB astiav.Rational
-	audioTB astiav.Rational
+	videoTB  astiav.Rational
+	audioTB  astiav.Rational
+	hasAudio bool
 
 	mu           sync.Mutex
 	bytesWritten int64
@@ -80,6 +81,7 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 			muxOpts.AudioCodecID = audioCodecID
 			muxOpts.AudioChannels = cfg.Audio.Channels
 			muxOpts.AudioSampleRate = cfg.Audio.SampleRate
+			p.hasAudio = true
 		}
 	}
 
@@ -122,7 +124,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 }
 
 func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
-	if p.stopped.Load() {
+	if p.stopped.Load() || !p.hasAudio {
 		return nil
 	}
 	if p.muxer == nil {

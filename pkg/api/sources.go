@@ -29,10 +29,14 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	for _, cfg := range configs {
 		resp := sourceResponse{SourceConfig: cfg}
 
+		streams, err := s.deps.StreamStore.ListBySource(r.Context(), cfg.Type, cfg.ID)
+		if err == nil {
+			resp.StreamCount = len(streams)
+		}
+
 		src, err := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
 		if err == nil {
 			info := src.Info(r.Context())
-			resp.StreamCount = info.StreamCount
 			if info.LastRefreshed != nil {
 				resp.LastRefreshed = info.LastRefreshed.Format("2006-01-02T15:04:05Z")
 			}
@@ -176,7 +180,29 @@ func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
+	cfg, err := s.deps.SourceConfigStore.Get(r.Context(), sourceID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
+		return
+	}
+	if cfg == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	src, err := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
+	if err != nil {
+		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
+		return
+	}
+
+	info := src.Info(r.Context())
+	status := source.RefreshStatus{State: "idle"}
+	if info.LastError != "" {
+		status.State = "error"
+		status.Message = info.LastError
+	}
+	httputil.RespondJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Request) {

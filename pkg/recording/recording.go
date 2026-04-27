@@ -16,23 +16,23 @@ const (
 )
 
 type Recording struct {
-	ID             string
-	StreamID       string
-	StreamName     string
-	ChannelID      string
-	ChannelName    string
-	Title          string
-	UserID         string
-	Status         Status
-	StartedAt      time.Time
-	StoppedAt      time.Time
-	ScheduledStart time.Time
-	ScheduledStop  time.Time
-	FilePath       string
-	FileSize       int64
-	Container      string
-	VideoCodec     string
-	AudioCodec     string
+	ID             string    `json:"id"`
+	StreamID       string    `json:"stream_id"`
+	StreamName     string    `json:"stream_name,omitempty"`
+	ChannelID      string    `json:"channel_id,omitempty"`
+	ChannelName    string    `json:"channel_name,omitempty"`
+	Title          string    `json:"title"`
+	UserID         string    `json:"user_id"`
+	Status         Status    `json:"status"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	StoppedAt      time.Time `json:"stopped_at,omitempty"`
+	ScheduledStart time.Time `json:"scheduled_start,omitempty"`
+	ScheduledStop  time.Time `json:"scheduled_stop,omitempty"`
+	FilePath       string    `json:"file_path,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	Container      string    `json:"container,omitempty"`
+	VideoCodec     string    `json:"video_codec,omitempty"`
+	AudioCodec     string    `json:"audio_codec,omitempty"`
 }
 
 type Store interface {

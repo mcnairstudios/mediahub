@@ -215,3 +215,67 @@ func TestCodecParamsFromAudioProbeUnknownCodec(t *testing.T) {
 		t.Fatal("expected error for unknown codec")
 	}
 }
+
+func TestToAVPacketZeroDurationPassthrough(t *testing.T) {
+	tb := astiav.NewRational(1, 90000)
+	pkt := &av.Packet{
+		Type:     av.Video,
+		Data:     []byte{0x00, 0x00, 0x00, 0x01, 0x65},
+		PTS:      1_000_000_000,
+		DTS:      1_000_000_000,
+		Duration: 0,
+		Keyframe: true,
+	}
+
+	avPkt, err := ToAVPacket(pkt, tb)
+	if err != nil {
+		t.Fatalf("ToAVPacket: %v", err)
+	}
+	defer avPkt.Free()
+
+	if avPkt.Duration() != 0 {
+		t.Errorf("Duration = %d, want 0", avPkt.Duration())
+	}
+}
+
+func TestToAVPacketZeroTimeBase(t *testing.T) {
+	tb := astiav.NewRational(0, 0)
+	pkt := &av.Packet{
+		Type:     av.Video,
+		Data:     []byte{0x00, 0x00, 0x00, 0x01, 0x65},
+		PTS:      1_000_000_000,
+		DTS:      1_000_000_000,
+		Duration: 33_333_333,
+		Keyframe: true,
+	}
+
+	avPkt, err := ToAVPacket(pkt, tb)
+	if err != nil {
+		t.Fatalf("ToAVPacket: %v", err)
+	}
+	defer avPkt.Free()
+
+	if avPkt.Pts() == 90000 {
+		t.Error("PTS should NOT be converted when timebase is zero")
+	}
+}
+
+func TestToAVPacketEmptySliceData(t *testing.T) {
+	tb := astiav.NewRational(1, 90000)
+	pkt := &av.Packet{
+		Type: av.Audio,
+		Data: []byte{},
+		PTS:  1_000_000_000,
+		DTS:  1_000_000_000,
+	}
+
+	avPkt, err := ToAVPacket(pkt, tb)
+	if err != nil {
+		t.Fatalf("ToAVPacket: %v", err)
+	}
+	defer avPkt.Free()
+
+	if avPkt.Size() != 0 {
+		t.Errorf("expected size 0 for empty slice, got %d", avPkt.Size())
+	}
+}

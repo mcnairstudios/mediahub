@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
@@ -12,6 +13,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	"github.com/mcnairstudios/mediahub/pkg/output"
+	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 )
 
@@ -35,7 +37,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, map[string]any{"access_token": token})
+	resp := map[string]any{"access_token": token}
+
+	user, valErr := s.deps.AuthService.ValidateToken(r.Context(), token)
+	if valErr == nil && user != nil {
+		if jwtSvc, ok := s.deps.AuthService.(*auth.JWTService); ok {
+			if refreshToken, rtErr := jwtSvc.GenerateRefreshToken(user); rtErr == nil {
+				resp["refresh_token"] = refreshToken
+			}
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
@@ -57,13 +70,28 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, map[string]any{"access_token": newToken})
+	resp := map[string]any{"access_token": newToken}
+
+	user, valErr := s.deps.AuthService.ValidateToken(r.Context(), newToken)
+	if valErr == nil && user != nil {
+		if jwtSvc, ok := s.deps.AuthService.(*auth.JWTService); ok {
+			if refreshToken, rtErr := jwtSvc.GenerateRefreshToken(user); rtErr == nil {
+				resp["refresh_token"] = refreshToken
+			}
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
 	streams, err := s.deps.StreamStore.List(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list streams")
+		return
+	}
+	if streams == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
 		return
 	}
 	httputil.RespondJSON(w, http.StatusOK, streams)
@@ -73,6 +101,10 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := s.deps.ChannelStore.List(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+	if channels == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
 		return
 	}
 	httputil.RespondJSON(w, http.StatusOK, channels)
@@ -110,6 +142,10 @@ func (s *Server) handleListEPGSources(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list EPG sources")
 		return
 	}
+	if sources == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
 	httputil.RespondJSON(w, http.StatusOK, sources)
 }
 
@@ -124,6 +160,9 @@ func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list recordings")
 		return
+	}
+	if recordings == nil {
+		recordings = []recording.Recording{}
 	}
 	httputil.RespondJSON(w, http.StatusOK, recordings)
 }
@@ -153,7 +192,11 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 
 	result, err := orchestrator.StartPlayback(r.Context(), deps, streamID, 0, headers)
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+		if strings.Contains(err.Error(), "not found") {
+			httputil.RespondError(w, http.StatusNotFound, err.Error())
+		} else {
+			httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 
@@ -358,18 +401,7 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sourceType == "" {
-		var req struct {
-			SourceType string `json:"source_type"`
-		}
-		if err := httputil.DecodeJSON(r, &req); err != nil {
-			httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
-			return
-		}
-		sourceType = req.SourceType
-	}
-
-	if sourceType == "" {
-		httputil.RespondError(w, http.StatusBadRequest, "source type required")
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
 		return
 	}
 
@@ -390,7 +422,7 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	w.WriteHeader(http.StatusAccepted)
+	httputil.RespondJSON(w, http.StatusAccepted, map[string]string{"status": "refreshing"})
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +430,9 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list users")
 		return
+	}
+	if users == nil {
+		users = []*auth.User{}
 	}
 	httputil.RespondJSON(w, http.StatusOK, users)
 }

@@ -238,5 +238,17 @@ func probeMaxBitDepthFromPlatforms(platforms map[string]bool) int {
 
 func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := probeCapabilities()
+	if caps.Platforms == nil {
+		caps.Platforms = []string{}
+	}
+	if caps.VideoEncoders == nil {
+		caps.VideoEncoders = []codecEntry{}
+	}
+	if caps.VideoDecoders == nil {
+		caps.VideoDecoders = []codecEntry{}
+	}
+	if caps.AudioEncoders == nil {
+		caps.AudioEncoders = []codecEntry{}
+	}
 	httputil.RespondJSON(w, http.StatusOK, caps)
 }

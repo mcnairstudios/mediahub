@@ -102,7 +102,9 @@ func (s *Server) handleListScheduledRecordings(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	all := append(scheduled, active...)
+	all := make([]recording.Recording, 0, len(scheduled)+len(active))
+	all = append(all, scheduled...)
+	all = append(all, active...)
 	httputil.RespondJSON(w, http.StatusOK, all)
 }
 

@@ -193,6 +193,51 @@ func TestResetForSeekIsNoop(t *testing.T) {
 	p.ResetForSeek()
 }
 
+func TestConstructionVideoOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video:          testVideo(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New with nil audio should work: %v", err)
+	}
+	defer p.Stop()
+
+	if p.Mode() != output.DeliveryStream {
+		t.Fatalf("expected mode %s, got %s", output.DeliveryStream, p.Mode())
+	}
+}
+
+func TestPushAudioNoAudioStream(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video:          testVideo(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+		t.Fatalf("PushAudio with no audio stream should return nil, got: %v", err)
+	}
+}
+
+func TestPushVideoAfterStopReturnsNil(t *testing.T) {
+	p := mustNewPlugin(t, "mpegts")
+	p.Stop()
+
+	if err := p.PushVideo(makeNALU(128), 0, 0, true); err != nil {
+		t.Fatalf("PushVideo after stop should return nil, got: %v", err)
+	}
+}
+
 func TestFilePathReturnsOutputPath(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test_output.ts")

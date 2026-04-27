@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
-	"github.com/mcnairstudios/mediahub/pkg/favorite"
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/favorite"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/session"
@@ -559,7 +561,16 @@ func TestSourceStatusEndpoint(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.close()
 
-	resp := env.request("GET", "/api/sources/some-id/status", nil, env.adminToken)
+	ctx := context.Background()
+	env.server.deps.SourceConfigStore.Create(ctx, &sourceconfig.SourceConfig{
+		ID:        "status-src",
+		Type:      "m3u",
+		Name:      "Status Test",
+		IsEnabled: true,
+		Config:    map[string]string{"url": "http://example.com/test.m3u"},
+	})
+
+	resp := env.request("GET", "/api/sources/status-src/status", nil, env.adminToken)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -568,6 +579,16 @@ func TestSourceStatusEndpoint(t *testing.T) {
 	decodeBody(resp, &status)
 	if status["state"] != "idle" {
 		t.Errorf("state = %q, want %q", status["state"], "idle")
+	}
+}
+
+func TestSourceStatusNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/nonexistent/status", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }
 
@@ -1031,5 +1052,651 @@ func TestCreateAndListChannels(t *testing.T) {
 	decodeBody(resp, &channels)
 	if len(channels) != 2 {
 		t.Fatalf("expected 2 channels, got %d", len(channels))
+	}
+}
+
+func TestSourceStreamCount(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	ctx := context.Background()
+	env.server.deps.SourceConfigStore.Create(ctx, &sourceconfig.SourceConfig{
+		ID:        "src-1",
+		Type:      "m3u",
+		Name:      "Test M3U",
+		IsEnabled: true,
+		Config:    map[string]string{"url": "http://example.com/test.m3u"},
+	})
+
+	resp := env.request("GET", "/api/sources", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
+	}
+
+	count, ok := sources[0]["stream_count"].(float64)
+	if !ok {
+		t.Fatalf("stream_count not a number: %v", sources[0]["stream_count"])
+	}
+	if count != 2 {
+		t.Fatalf("expected stream_count=2, got %v", count)
+	}
+}
+
+func TestRecordingsEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/recordings", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q", trimmed)
+	}
+}
+
+func TestScheduledRecordingsEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/recordings/schedule", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q", trimmed)
+	}
+}
+
+func TestActivityEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/activity", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q", trimmed)
+	}
+}
+
+func TestActivityRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/activity", nil, env.standardToken)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestChannelGroupsEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/channel-groups", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q", trimmed)
+	}
+}
+
+func TestChannelsEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/channels", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q (should be empty array, not null)", trimmed)
+	}
+}
+
+func TestSettingsReturnKeyValue(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/settings", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var settings map[string]string
+	decodeBody(resp, &settings)
+
+	if _, ok := settings["base_url"]; !ok {
+		t.Fatal("expected base_url key in settings")
+	}
+}
+
+func TestRefreshSourceRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/some-id/refresh", map[string]any{
+		"source_type": "m3u",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeekNoSession(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/play/nonexistent/seek", map[string]any{
+		"position_ms": 5000,
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	decodeBody(resp, &result)
+	if _, ok := result["error"]; !ok {
+		t.Fatal("expected error field in response")
+	}
+}
+
+func TestDeleteGroupRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channel-groups", map[string]any{
+		"name": "Test",
+	}, env.adminToken)
+
+	var g map[string]any
+	decodeBody(resp, &g)
+	id := g["id"].(string)
+
+	resp = env.request("DELETE", "/api/channel-groups/"+id, nil, env.standardToken)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestScheduleRecording(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	chResp := env.request("POST", "/api/channels", map[string]any{
+		"name":       "BBC One",
+		"number":     1,
+		"stream_ids": []string{"stream-1"},
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(chResp, &ch)
+	channelID := ch["id"].(string)
+
+	start := time.Now().Add(time.Hour)
+	stop := start.Add(2 * time.Hour)
+
+	resp := env.request("POST", "/api/recordings/schedule", map[string]any{
+		"channel_id": channelID,
+		"title":      "Test Recording",
+		"start_at":   start.Format(time.RFC3339),
+		"stop_at":    stop.Format(time.RFC3339),
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var rec map[string]any
+	decodeBody(resp, &rec)
+
+	if rec["id"] == "" {
+		t.Fatal("expected non-empty recording ID")
+	}
+	if rec["title"] != "Test Recording" {
+		t.Errorf("title = %q, want %q", rec["title"], "Test Recording")
+	}
+	if rec["status"] != "scheduled" {
+		t.Errorf("status = %q, want %q", rec["status"], "scheduled")
+	}
+}
+
+func TestScheduleRecordingMissingFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/recordings/schedule", map[string]any{
+		"title": "Missing Channel",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestScheduleRecordingStopBeforeStart(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	chResp := env.request("POST", "/api/channels", map[string]any{
+		"name":       "BBC One",
+		"number":     1,
+		"stream_ids": []string{"stream-1"},
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(chResp, &ch)
+	channelID := ch["id"].(string)
+
+	stop := time.Now().Add(time.Hour)
+	start := stop.Add(2 * time.Hour)
+
+	resp := env.request("POST", "/api/recordings/schedule", map[string]any{
+		"channel_id": channelID,
+		"title":      "Bad Times",
+		"start_at":   start.Format(time.RFC3339),
+		"stop_at":    stop.Format(time.RFC3339),
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCancelScheduledRecording(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	chResp := env.request("POST", "/api/channels", map[string]any{
+		"name":       "BBC One",
+		"number":     1,
+		"stream_ids": []string{"stream-1"},
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(chResp, &ch)
+	channelID := ch["id"].(string)
+
+	start := time.Now().Add(time.Hour)
+	stop := start.Add(2 * time.Hour)
+
+	createResp := env.request("POST", "/api/recordings/schedule", map[string]any{
+		"channel_id": channelID,
+		"title":      "To Cancel",
+		"start_at":   start.Format(time.RFC3339),
+		"stop_at":    stop.Format(time.RFC3339),
+	}, env.standardToken)
+
+	var rec map[string]any
+	decodeBody(createResp, &rec)
+	recID, ok := rec["id"].(string)
+	if !ok || recID == "" {
+		t.Fatalf("expected non-empty recording ID, got %v", rec["id"])
+	}
+
+	resp := env.request("DELETE", "/api/recordings/schedule/"+recID, nil, env.standardToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestCancelNonexistentScheduledRecording(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("DELETE", "/api/recordings/schedule/nonexistent", nil, env.standardToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateXtreamSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/xtream", map[string]any{
+		"name":     "Xtream",
+		"server":   "http://example.com:8080",
+		"username": "user",
+		"password": "pass",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	if sc.Type != "xtream" {
+		t.Errorf("type = %q, want %q", sc.Type, "xtream")
+	}
+	if sc.Config["server"] != "http://example.com:8080" {
+		t.Errorf("server = %q, want %q", sc.Config["server"], "http://example.com:8080")
+	}
+}
+
+func TestCreateXtreamSourceMissingFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/xtream", map[string]any{
+		"name": "Incomplete",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateTVPStreamsSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/tvpstreams", map[string]any{
+		"name": "TVP Streams",
+		"url":  "https://streams.example.com",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	if sc.Type != "tvpstreams" {
+		t.Errorf("type = %q, want %q", sc.Type, "tvpstreams")
+	}
+}
+
+func TestDeleteXtreamSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/xtream", map[string]any{
+		"name":     "Delete Me",
+		"server":   "http://example.com:8080",
+		"username": "user",
+		"password": "pass",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("DELETE", "/api/sources/xtream/"+sc.ID, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteTVPStreamsSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/tvpstreams", map[string]any{
+		"name": "Delete Me",
+		"url":  "https://streams.example.com",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("DELETE", "/api/sources/tvpstreams/"+sc.ID, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestErrorResponseFormat(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/auth/login", map[string]string{
+		"username": "admin",
+		"password": "wrongpass",
+	}, "")
+
+	var result map[string]string
+	decodeBody(resp, &result)
+
+	errMsg, ok := result["error"]
+	if !ok {
+		t.Fatal("error response missing 'error' field")
+	}
+	if errMsg == "" {
+		t.Fatal("error message is empty")
+	}
+}
+
+func TestStreamsReturnCorrectFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/streams", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var streams []map[string]any
+	decodeBody(resp, &streams)
+
+	if len(streams) < 1 {
+		t.Fatal("expected at least 1 stream")
+	}
+
+	s := streams[0]
+	if _, ok := s["id"]; !ok {
+		t.Error("stream missing 'id' field")
+	}
+	if _, ok := s["name"]; !ok {
+		t.Error("stream missing 'name' field")
+	}
+	if _, ok := s["url"]; !ok {
+		t.Error("stream missing 'url' field")
+	}
+	if _, ok := s["source_type"]; !ok {
+		t.Error("stream missing 'source_type' field")
+	}
+	if _, ok := s["source_id"]; !ok {
+		t.Error("stream missing 'source_id' field")
+	}
+}
+
+func TestEPGSourcesEmptyReturnsArray(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/epg/sources", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	resp.Body.Close()
+
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed != "[]" {
+		t.Fatalf("expected [], got %q", trimmed)
+	}
+}
+
+func TestRefreshTokenValid(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	loginResp := env.request("POST", "/api/auth/login", map[string]string{
+		"username": "admin",
+		"password": "adminpass",
+	}, "")
+
+	var loginResult map[string]any
+	decodeBody(loginResp, &loginResult)
+
+	refreshToken, ok := loginResult["refresh_token"].(string)
+	if !ok || refreshToken == "" {
+		t.Skip("no refresh_token in login response")
+	}
+
+	resp := env.request("POST", "/api/auth/refresh", map[string]string{
+		"token": refreshToken,
+	}, "")
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	decodeBody(resp, &result)
+	if _, ok := result["access_token"]; !ok {
+		t.Fatal("response missing access_token")
+	}
+}
+
+func TestRefreshTokenInvalid(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/auth/refresh", map[string]string{
+		"token": "invalid-token",
+	}, "")
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestRefreshTokenMissing(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/auth/refresh", map[string]string{}, "")
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSourcesRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestSettingsRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/settings", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestRecordingsRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/recordings", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestEPGSourcesRequiresAuth(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/epg/sources", nil, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }

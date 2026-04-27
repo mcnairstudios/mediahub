@@ -85,76 +85,85 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		IsNew:    isNew,
 	}
 
-	if isNew {
-		pipelineURL := stream.URL
+	if !isNew {
+		result.Delivery = sess.Delivery
+		return result, nil
+	}
 
-		if deps.SourceConfigStore != nil && deps.ConnRegistry != nil && stream.SourceID != "" {
-			sc, _ := deps.SourceConfigStore.Get(ctx, stream.SourceID)
-			if sc != nil && sc.Config["use_wireguard"] == "true" {
-				if active := deps.ConnRegistry.Active(); active != nil {
-					pipelineURL = active.ProxyURL(stream.URL)
-				}
+	pipelineURL := stream.URL
+
+	if deps.SourceConfigStore != nil && deps.ConnRegistry != nil && stream.SourceID != "" {
+		sc, _ := deps.SourceConfigStore.Get(ctx, stream.SourceID)
+		if sc != nil && sc.Config["use_wireguard"] == "true" {
+			if active := deps.ConnRegistry.Active(); active != nil {
+				pipelineURL = active.ProxyURL(stream.URL)
 			}
 		}
+	}
 
-		runner := deps.PipelineRunner
-		if runner == nil {
-			runner = deps.SessionMgr.RunPipeline
-		}
-		info, err := runner(sess, session.PipelineConfig{
-			StreamURL:        pipelineURL,
-			StreamID:         stream.ID,
-			UserAgent:        deps.UserAgent,
-			NeedsTranscode:   decision.NeedsTranscode,
-			OutputCodec:      string(decision.VideoCodec),
-			OutputAudioCodec: string(decision.AudioCodec),
-			HWAccel:          decision.HWAccel,
-			Deinterlace:      decision.Deinterlace,
-		})
-		if err != nil {
-			deps.SessionMgr.Stop(stream.ID)
-			return nil, fmt.Errorf("run pipeline: %w", err)
-		}
-		result.ProbeInfo = info
+	runner := deps.PipelineRunner
+	if runner == nil {
+		runner = deps.SessionMgr.RunPipeline
+	}
+	info, err := runner(sess, session.PipelineConfig{
+		StreamURL:        pipelineURL,
+		StreamID:         stream.ID,
+		UserAgent:        deps.UserAgent,
+		NeedsTranscode:   decision.NeedsTranscode,
+		OutputCodec:      string(decision.VideoCodec),
+		OutputAudioCodec: string(decision.AudioCodec),
+		HWAccel:          decision.HWAccel,
+		Deinterlace:      decision.Deinterlace,
+	})
+	if err != nil {
+		deps.SessionMgr.Stop(stream.ID)
+		return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
+	}
+	result.ProbeInfo = info
 
-		delivery := resolveDelivery(ctx, deps)
-		sess.Delivery = string(delivery)
+	delivery := resolveDelivery(ctx, deps)
+	sess.Delivery = string(delivery)
 
-		pluginCfg := output.PluginConfig{
-			OutputDir: sess.OutputDir,
-			IsLive:    true,
-		}
-		if info.Video != nil {
-			pluginCfg.Video = info.Video
-		}
-		if len(info.AudioTracks) > 0 {
-			pluginCfg.Audio = &info.AudioTracks[0]
-		}
+	pluginCfg := output.PluginConfig{
+		OutputDir: sess.OutputDir,
+		IsLive:    true,
+	}
+	if info.Video != nil {
+		pluginCfg.Video = info.Video
+	}
+	if len(info.AudioTracks) > 0 {
+		pluginCfg.Audio = &info.AudioTracks[0]
+	}
 
-		plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
-		if err != nil {
-			deps.SessionMgr.Stop(stream.ID)
-			return nil, fmt.Errorf("create output plugin: %w", err)
-		}
+	plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
+	if err != nil {
+		deps.SessionMgr.Stop(stream.ID)
+		return nil, fmt.Errorf("create output plugin: %w", err)
+	}
 
-		sess.FanOut.Add(plugin)
-		result.Plugin = plugin
-		result.Delivery = string(delivery)
+	sess.FanOut.Add(plugin)
+	result.Plugin = plugin
+	result.Delivery = string(delivery)
 
-		if sp, ok := plugin.(output.ServablePlugin); ok {
-			result.Servable = sp
-		}
+	if sp, ok := plugin.(output.ServablePlugin); ok {
+		result.Servable = sp
+	}
 
+	func() {
+		defer func() {
+			recover() //nolint:errcheck
+		}()
 		recCfg := pluginCfg
 		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
 		recCfg.OutputFormat = "mpegts"
 		recPlugin, recErr := deps.OutputReg.Create(output.DeliveryRecord, recCfg)
-		if recErr == nil && recPlugin != nil {
+		if recErr != nil {
+			return
+		}
+		if recPlugin != nil {
 			sess.FanOut.Add(recPlugin)
 		}
-	} else {
-		result.Delivery = sess.Delivery
-	}
+	}()
 
 	return result, nil
 }
@@ -186,50 +195,51 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		IsNew:   isNew,
 	}
 
-	if isNew {
-		runner := deps.PipelineRunner
-		if runner == nil {
-			runner = deps.SessionMgr.RunPipeline
-		}
-		info, err := runner(sess, session.PipelineConfig{
-			StreamURL: filePath,
-			StreamID:  sessionKey,
-		})
-		if err != nil {
-			deps.SessionMgr.Stop(sessionKey)
-			return nil, fmt.Errorf("run pipeline: %w", err)
-		}
-		result.ProbeInfo = info
-
-		delivery := resolveDelivery(ctx, deps)
-		sess.Delivery = string(delivery)
-
-		pluginCfg := output.PluginConfig{
-			OutputDir: sess.OutputDir,
-			IsLive:    false,
-		}
-		if info.Video != nil {
-			pluginCfg.Video = info.Video
-		}
-		if len(info.AudioTracks) > 0 {
-			pluginCfg.Audio = &info.AudioTracks[0]
-		}
-
-		plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
-		if err != nil {
-			deps.SessionMgr.Stop(sessionKey)
-			return nil, fmt.Errorf("create output plugin: %w", err)
-		}
-
-		sess.FanOut.Add(plugin)
-		result.Plugin = plugin
-		result.Delivery = string(delivery)
-
-		if sp, ok := plugin.(output.ServablePlugin); ok {
-			result.Servable = sp
-		}
-	} else {
+	if !isNew {
 		result.Delivery = sess.Delivery
+		return result, nil
+	}
+
+	runner := deps.PipelineRunner
+	if runner == nil {
+		runner = deps.SessionMgr.RunPipeline
+	}
+	info, err := runner(sess, session.PipelineConfig{
+		StreamURL: filePath,
+		StreamID:  sessionKey,
+	})
+	if err != nil {
+		deps.SessionMgr.Stop(sessionKey)
+		return nil, fmt.Errorf("pipeline failed for recording %q (%s): %w", title, filePath, err)
+	}
+	result.ProbeInfo = info
+
+	delivery := resolveDelivery(ctx, deps)
+	sess.Delivery = string(delivery)
+
+	pluginCfg := output.PluginConfig{
+		OutputDir: sess.OutputDir,
+		IsLive:    false,
+	}
+	if info.Video != nil {
+		pluginCfg.Video = info.Video
+	}
+	if len(info.AudioTracks) > 0 {
+		pluginCfg.Audio = &info.AudioTracks[0]
+	}
+
+	plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
+	if err != nil {
+		deps.SessionMgr.Stop(sessionKey)
+		return nil, fmt.Errorf("create output plugin: %w", err)
+	}
+
+	sess.FanOut.Add(plugin)
+	result.Plugin = plugin
+	result.Delivery = string(delivery)
+
+	if sp, ok := plugin.(output.ServablePlugin); ok {
+		result.Servable = sp
 	}
 
 	return result, nil

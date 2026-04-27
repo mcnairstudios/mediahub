@@ -2,7 +2,10 @@ package output
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 var errFanOutStopped = errors.New("fanout is stopped")
@@ -35,7 +38,7 @@ func (f *FanOut) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 
 	var firstErr error
 	for _, p := range f.plugins {
-		if err := p.PushVideo(data, pts, dts, keyframe); err != nil && firstErr == nil {
+		if err := safePushVideo(p, data, pts, dts, keyframe); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -53,7 +56,7 @@ func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
 
 	var firstErr error
 	for _, p := range f.plugins {
-		if err := p.PushAudio(data, pts, dts); err != nil && firstErr == nil {
+		if err := safePushAudio(p, data, pts, dts); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -71,7 +74,7 @@ func (f *FanOut) PushSubtitle(data []byte, pts int64, duration int64) error {
 
 	var firstErr error
 	for _, p := range f.plugins {
-		if err := p.PushSubtitle(data, pts, duration); err != nil && firstErr == nil {
+		if err := safePushSubtitle(p, data, pts, duration); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -84,7 +87,7 @@ func (f *FanOut) EndOfStream() {
 	defer f.mu.RUnlock()
 
 	for _, p := range f.plugins {
-		p.EndOfStream()
+		safeEndOfStream(p)
 	}
 }
 
@@ -94,7 +97,7 @@ func (f *FanOut) ResetForSeek() {
 	defer f.mu.RUnlock()
 
 	for _, p := range f.plugins {
-		p.ResetForSeek()
+		safeResetForSeek(p)
 	}
 }
 
@@ -106,7 +109,7 @@ func (f *FanOut) Stop() {
 
 	f.stopped = true
 	for _, p := range f.plugins {
-		p.Stop()
+		safeStop(p)
 	}
 }
 
@@ -161,4 +164,61 @@ func (f *FanOut) Status() []PluginStatus {
 		statuses[i] = p.Status()
 	}
 	return statuses
+}
+
+func safePushVideo(p OutputPlugin, data []byte, pts, dts int64, keyframe bool) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("fanout: panic in %s PushVideo: %v", p.Mode(), r)
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in PushVideo")
+		}
+	}()
+	return p.PushVideo(data, pts, dts, keyframe)
+}
+
+func safePushAudio(p OutputPlugin, data []byte, pts, dts int64) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("fanout: panic in %s PushAudio: %v", p.Mode(), r)
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in PushAudio")
+		}
+	}()
+	return p.PushAudio(data, pts, dts)
+}
+
+func safePushSubtitle(p OutputPlugin, data []byte, pts int64, duration int64) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("fanout: panic in %s PushSubtitle: %v", p.Mode(), r)
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in PushSubtitle")
+		}
+	}()
+	return p.PushSubtitle(data, pts, duration)
+}
+
+func safeEndOfStream(p OutputPlugin) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in EndOfStream")
+		}
+	}()
+	p.EndOfStream()
+}
+
+func safeResetForSeek(p OutputPlugin) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in ResetForSeek")
+		}
+	}()
+	p.ResetForSeek()
+}
+
+func safeStop(p OutputPlugin) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in Stop")
+		}
+	}()
+	p.Stop()
 }

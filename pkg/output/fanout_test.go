@@ -274,3 +274,105 @@ func TestFanOutEmptyIsValid(t *testing.T) {
 	fan.ResetForSeek()
 	fan.Stop()
 }
+
+type panicPlugin struct {
+	mode DeliveryMode
+}
+
+func (p *panicPlugin) Mode() DeliveryMode                                  { return p.mode }
+func (p *panicPlugin) PushVideo(data []byte, pts, dts int64, kf bool) error { panic("video panic") }
+func (p *panicPlugin) PushAudio(data []byte, pts, dts int64) error          { panic("audio panic") }
+func (p *panicPlugin) PushSubtitle(data []byte, pts int64, dur int64) error { panic("subtitle panic") }
+func (p *panicPlugin) EndOfStream()                                         { panic("eos panic") }
+func (p *panicPlugin) ResetForSeek()                                        { panic("seek panic") }
+func (p *panicPlugin) Stop()                                                { panic("stop panic") }
+func (p *panicPlugin) Status() PluginStatus                                 { return PluginStatus{Mode: p.mode, Healthy: true} }
+
+func TestFanOutPanicInPushVideoDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	err := fan.PushVideo([]byte("frame"), 1000, 1000, true)
+	if err == nil {
+		t.Fatal("expected error from panicking plugin")
+	}
+
+	if p2.videoPackets != 1 {
+		t.Fatalf("p2: expected 1 video packet despite p1 panic, got %d", p2.videoPackets)
+	}
+}
+
+func TestFanOutPanicInPushAudioDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	err := fan.PushAudio([]byte("audio"), 2000, 2000)
+	if err == nil {
+		t.Fatal("expected error from panicking plugin")
+	}
+
+	if p2.audioPackets != 1 {
+		t.Fatalf("p2: expected 1 audio packet despite p1 panic, got %d", p2.audioPackets)
+	}
+}
+
+func TestFanOutPanicInPushSubtitleDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	err := fan.PushSubtitle([]byte("sub"), 3000, 500)
+	if err == nil {
+		t.Fatal("expected error from panicking plugin")
+	}
+
+	if p2.subPackets != 1 {
+		t.Fatalf("p2: expected 1 sub packet despite p1 panic, got %d", p2.subPackets)
+	}
+}
+
+func TestFanOutPanicInEndOfStreamDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	fan.EndOfStream()
+
+	if p2.eosCount != 1 {
+		t.Fatalf("p2: expected 1 EOS despite p1 panic, got %d", p2.eosCount)
+	}
+}
+
+func TestFanOutPanicInResetForSeekDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	fan.ResetForSeek()
+
+	if p2.seekCount != 1 {
+		t.Fatalf("p2: expected 1 seek reset despite p1 panic, got %d", p2.seekCount)
+	}
+}
+
+func TestFanOutPanicInStopDoesNotKillOtherPlugins(t *testing.T) {
+	p1 := &panicPlugin{mode: DeliveryRecord}
+	p2 := newMockPlugin(DeliveryHLS)
+	fan := NewFanOut(p1, p2)
+
+	fan.Stop()
+
+	if p2.stopCount != 1 {
+		t.Fatalf("p2: expected 1 stop despite p1 panic, got %d", p2.stopCount)
+	}
+}
+
+func TestFanOutDoubleStopSafe(t *testing.T) {
+	p1 := newMockPlugin(DeliveryMSE)
+	fan := NewFanOut(p1)
+
+	fan.Stop()
+	fan.Stop()
+}

@@ -97,3 +97,63 @@ func TestSessionSeekNoFunc(t *testing.T) {
 
 	s.Seek(5000)
 }
+
+func TestSessionDoubleStopDoesNotPanic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := newSession(ctx, cancel, "stream-1", "http://example.com/stream", "Test", "/tmp/out")
+
+	s.Stop()
+	s.Stop()
+
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("expected done channel to close after Stop")
+	}
+}
+
+func TestSessionStopDuringActivePush(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := newSession(ctx, cancel, "stream-1", "http://example.com/stream", "Test", "/tmp/out")
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			s.FanOut.PushVideo([]byte("frame"), int64(i)*1000, int64(i)*1000, i == 0)
+		}
+		close(done)
+	}()
+
+	time.Sleep(time.Millisecond)
+	s.Stop()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("push goroutine did not complete")
+	}
+}
+
+func TestSessionStopClosesClosers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := newSession(ctx, cancel, "stream-1", "http://example.com/stream", "Test", "/tmp/out")
+
+	closed := false
+	s.AddCloser(closerFunc(func() error { closed = true; return nil }))
+
+	s.Stop()
+
+	if !closed {
+		t.Fatal("expected closer to be called on Stop")
+	}
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }

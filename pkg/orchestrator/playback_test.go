@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -390,6 +391,84 @@ func TestStopRecordingPlayback_Works(t *testing.T) {
 	}
 }
 
+func TestStartPlayback_RecordingFailureDoesNotPreventPlayback(t *testing.T) {
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "stream-1", Name: "Test Stream", URL: "http://example.com/stream"},
+	})
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return nil, fmt.Errorf("simulated recording plugin failure")
+	})
+
+	deps := PlaybackDeps{
+		StreamStore:    ss,
+		SettingsStore:  newMockSettingsStore(nil),
+		SessionMgr:     session.NewManager("/tmp/test-sessions-rec-fail"),
+		Detector:       client.NewDetector(nil),
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: mockPipelineRunner,
+	}
+	defer deps.SessionMgr.StopAll()
+
+	result, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("playback should succeed even when recording plugin fails: %v", err)
+	}
+	if result.Plugin == nil {
+		t.Fatal("expected delivery plugin to be present")
+	}
+
+	hasRecord := false
+	for _, p := range result.Session.FanOut.Plugins() {
+		if p.Mode() == output.DeliveryRecord {
+			hasRecord = true
+		}
+	}
+	if hasRecord {
+		t.Error("expected no recording plugin when creation fails")
+	}
+}
+
+func TestStartPlayback_RecordingPanicDoesNotPreventPlayback(t *testing.T) {
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "stream-1", Name: "Test Stream", URL: "http://example.com/stream"},
+	})
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		panic("simulated recording plugin panic")
+	})
+
+	deps := PlaybackDeps{
+		StreamStore:    ss,
+		SettingsStore:  newMockSettingsStore(nil),
+		SessionMgr:     session.NewManager("/tmp/test-sessions-rec-panic"),
+		Detector:       client.NewDetector(nil),
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: mockPipelineRunner,
+	}
+	defer deps.SessionMgr.StopAll()
+
+	result, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("playback should succeed even when recording plugin panics: %v", err)
+	}
+	if result.Plugin == nil {
+		t.Fatal("expected delivery plugin to be present")
+	}
+}
+
 func TestPlayRecording_IsNotLive(t *testing.T) {
 	var capturedCfg session.PipelineConfig
 	runner := func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error) {
@@ -416,4 +495,158 @@ func TestPlayRecording_IsNotLive(t *testing.T) {
 			t.Error("recording playback should not have a recording plugin attached")
 		}
 	}
+}
+
+func TestStartPlayback_PipelineFailureReturnsError(t *testing.T) {
+	deps := newTestPlaybackDeps([]media.Stream{
+		{ID: "stream-1", Name: "Broken Stream", URL: "http://broken.example.com/stream"},
+	})
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+		return nil, fmt.Errorf("pipeline: open stream: connection refused")
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err == nil {
+		t.Fatal("expected error when pipeline fails")
+	}
+
+	if deps.SessionMgr.ActiveCount() != 0 {
+		t.Fatalf("session should be cleaned up after pipeline failure, got %d active", deps.SessionMgr.ActiveCount())
+	}
+}
+
+func TestStartPlayback_PipelineFailureErrorIncludesStreamName(t *testing.T) {
+	deps := newTestPlaybackDeps([]media.Stream{
+		{ID: "stream-1", Name: "BBC One HD", URL: "http://iptv.example.com/bbc1"},
+	})
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+		return nil, fmt.Errorf("demux: open input: timeout")
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	errMsg := err.Error()
+	if !contains(errMsg, "BBC One HD") {
+		t.Errorf("error should include stream name, got: %s", errMsg)
+	}
+	if !contains(errMsg, "iptv.example.com") {
+		t.Errorf("error should include stream URL, got: %s", errMsg)
+	}
+}
+
+func TestStartPlayback_AudioOnlyStream(t *testing.T) {
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+		return &media.ProbeResult{
+			AudioTracks: []media.AudioTrack{
+				{Index: 0, Codec: "mp3", Channels: 2, SampleRate: 44100},
+			},
+		}, nil
+	}
+
+	deps := newTestPlaybackDeps([]media.Stream{
+		{ID: "radio-1", Name: "Radio Station", URL: "http://example.com/radio"},
+	})
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	result, err := StartPlayback(context.Background(), deps, "radio-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("audio-only stream should not error: %v", err)
+	}
+	if result.ProbeInfo.Video != nil {
+		t.Error("expected nil video for audio-only stream")
+	}
+	if len(result.ProbeInfo.AudioTracks) != 1 {
+		t.Errorf("expected 1 audio track, got %d", len(result.ProbeInfo.AudioTracks))
+	}
+}
+
+func TestStartPlayback_VideoOnlyStream(t *testing.T) {
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+		return &media.ProbeResult{
+			Video: &media.VideoInfo{
+				Index: 0, Codec: "h264", Width: 1920, Height: 1080,
+			},
+		}, nil
+	}
+
+	deps := newTestPlaybackDeps([]media.Stream{
+		{ID: "cam-1", Name: "Security Camera", URL: "rtsp://example.com/cam1"},
+	})
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	result, err := StartPlayback(context.Background(), deps, "cam-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("video-only stream should not error: %v", err)
+	}
+	if result.ProbeInfo.Video == nil {
+		t.Fatal("expected video info")
+	}
+	if len(result.ProbeInfo.AudioTracks) != 0 {
+		t.Errorf("expected 0 audio tracks, got %d", len(result.ProbeInfo.AudioTracks))
+	}
+}
+
+func TestStartPlayback_JoinExistingReturnsDelivery(t *testing.T) {
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream"}},
+		map[string]string{"delivery": "hls"},
+	)
+	defer deps.SessionMgr.StopAll()
+
+	first, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if first.Delivery != "hls" {
+		t.Fatalf("expected hls delivery, got %s", first.Delivery)
+	}
+
+	second, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if second.Delivery != "hls" {
+		t.Errorf("joining session should return existing delivery, got %s", second.Delivery)
+	}
+	if second.IsNew {
+		t.Error("expected IsNew=false for joined session")
+	}
+}
+
+func TestPlayRecording_PipelineFailure(t *testing.T) {
+	deps := newTestPlaybackDeps(nil)
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+		return nil, fmt.Errorf("file not found: /nonexistent.mp4")
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := PlayRecording(context.Background(), deps, "rec-1", "/nonexistent.mp4", "Bad Recording")
+	if err == nil {
+		t.Fatal("expected error for pipeline failure")
+	}
+	if !contains(err.Error(), "Bad Recording") {
+		t.Errorf("error should contain recording title, got: %s", err.Error())
+	}
+	if deps.SessionMgr.ActiveCount() != 0 {
+		t.Error("session should be cleaned up after failure")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

@@ -24,6 +24,7 @@ type Plugin struct {
 	segDir     string
 	videoTB    astiav.Rational
 	audioTB    astiav.Rational
+	hasAudio   bool
 	generation atomic.Int64
 	stopped    bool
 	mu         sync.Mutex
@@ -107,10 +108,11 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 
 	p := &Plugin{
-		muxer:   muxer,
-		segDir:  segDir,
-		videoTB: videoTB,
-		audioTB: audioTB,
+		muxer:    muxer,
+		segDir:   segDir,
+		videoTB:  videoTB,
+		audioTB:  audioTB,
+		hasAudio: cfg.Audio != nil,
 	}
 	p.generation.Store(1)
 
@@ -124,7 +126,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped {
+	if p.stopped || p.muxer == nil {
 		return nil
 	}
 
@@ -145,7 +147,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped {
+	if p.stopped || p.muxer == nil || !p.hasAudio {
 		return nil
 	}
 
@@ -179,7 +181,9 @@ func (p *Plugin) ResetForSeek() {
 	}
 
 	p.generation.Add(1)
-	p.muxer.Reset() //nolint:errcheck
+	if p.muxer != nil {
+		p.muxer.Reset() //nolint:errcheck
+	}
 }
 
 func (p *Plugin) Stop() {

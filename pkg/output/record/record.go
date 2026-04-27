@@ -36,9 +36,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	if cfg.Video == nil {
 		return nil, errors.New("record: Video info is required")
 	}
-	if cfg.Audio == nil {
-		return nil, errors.New("record: Audio info is required")
-	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.OutputFilePath), 0755); err != nil {
 		return nil, fmt.Errorf("record: create directory: %w", err)
@@ -84,36 +81,49 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	videoCP.Free()
 	vs.SetTimeBase(astiav.NewRational(1, 90000))
 
-	audioCP, err := conv.CodecParamsFromAudioProbe(cfg.Audio)
-	if err != nil {
-		ioCtx.Close()
-		fc.Free()
-		return nil, fmt.Errorf("record: audio codec params: %w", err)
+	p := &Plugin{
+		filePath:    cfg.OutputFilePath,
+		fc:          fc,
+		ioCtx:       ioCtx,
+		videoStream: vs,
+		videoTB:     vs.TimeBase(),
 	}
 
-	as := fc.NewStream(nil)
-	if as == nil {
-		audioCP.Free()
-		ioCtx.Close()
-		fc.Free()
-		return nil, errors.New("record: failed to allocate audio stream")
-	}
-	if err := audioCP.Copy(as.CodecParameters()); err != nil {
-		audioCP.Free()
-		ioCtx.Close()
-		fc.Free()
-		return nil, fmt.Errorf("record: copy audio params: %w", err)
-	}
-	audioCP.Free()
-	if as.CodecParameters().CodecID() == astiav.CodecIDAac {
-		as.CodecParameters().SetFrameSize(1024)
-	}
+	if cfg.Audio != nil {
+		audioCP, err := conv.CodecParamsFromAudioProbe(cfg.Audio)
+		if err != nil {
+			ioCtx.Close()
+			fc.Free()
+			return nil, fmt.Errorf("record: audio codec params: %w", err)
+		}
 
-	sampleRate := cfg.Audio.SampleRate
-	if sampleRate <= 0 {
-		sampleRate = 48000
+		as := fc.NewStream(nil)
+		if as == nil {
+			audioCP.Free()
+			ioCtx.Close()
+			fc.Free()
+			return nil, errors.New("record: failed to allocate audio stream")
+		}
+		if err := audioCP.Copy(as.CodecParameters()); err != nil {
+			audioCP.Free()
+			ioCtx.Close()
+			fc.Free()
+			return nil, fmt.Errorf("record: copy audio params: %w", err)
+		}
+		audioCP.Free()
+		if as.CodecParameters().CodecID() == astiav.CodecIDAac {
+			as.CodecParameters().SetFrameSize(1024)
+		}
+
+		sampleRate := cfg.Audio.SampleRate
+		if sampleRate <= 0 {
+			sampleRate = 48000
+		}
+		as.SetTimeBase(astiav.NewRational(1, sampleRate))
+
+		p.audioStream = as
+		p.audioTB = as.TimeBase()
 	}
-	as.SetTimeBase(astiav.NewRational(1, sampleRate))
 
 	if err := fc.WriteHeader(nil); err != nil {
 		ioCtx.Close()
@@ -121,16 +131,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		return nil, fmt.Errorf("record: write header: %w", err)
 	}
 
-	return &Plugin{
-		filePath:      cfg.OutputFilePath,
-		fc:            fc,
-		ioCtx:         ioCtx,
-		videoStream:   vs,
-		audioStream:   as,
-		videoTB:       vs.TimeBase(),
-		audioTB:       as.TimeBase(),
-		headerWritten: true,
-	}, nil
+	p.headerWritten = true
+	return p, nil
 }
 
 func (p *Plugin) Mode() output.DeliveryMode {
@@ -140,8 +142,8 @@ func (p *Plugin) Mode() output.DeliveryMode {
 func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped {
-		return errors.New("record: plugin stopped")
+	if p.stopped || p.fc == nil || p.videoStream == nil {
+		return nil
 	}
 
 	pkt, err := conv.ToAVPacket(&av.Packet{
@@ -166,8 +168,8 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped {
-		return errors.New("record: plugin stopped")
+	if p.stopped || p.fc == nil || p.audioStream == nil {
+		return nil
 	}
 
 	pkt, err := conv.ToAVPacket(&av.Packet{

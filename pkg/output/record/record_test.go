@@ -154,3 +154,84 @@ func TestEndOfStreamStops(t *testing.T) {
 	st := p.Status()
 	assert.False(t, st.Healthy)
 }
+
+func TestConstructionWithNilAudio(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.True(t, p.Status().Healthy)
+}
+
+func TestPushVideoNilAudio(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, true)
+	assert.NoError(t, err)
+
+	p.Stop()
+	st := p.Status()
+	assert.True(t, st.BytesWritten > 0)
+}
+
+func TestPushAudioNoAudioStream(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0)
+	assert.NoError(t, err)
+}
+
+func TestPushVideoAfterStop(t *testing.T) {
+	cfg := testConfig(t)
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	p.Stop()
+
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	assert.NoError(t, err)
+}
+
+func TestPushAudioAfterStop(t *testing.T) {
+	cfg := testConfig(t)
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	p.Stop()
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0)
+	assert.NoError(t, err)
+}

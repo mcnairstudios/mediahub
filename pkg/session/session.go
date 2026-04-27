@@ -26,9 +26,12 @@ type Session struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	done     chan struct{}
+	stopOnce sync.Once
 	seekFunc func(posMs int64)
 	recorded bool
 	closers  []io.Closer
+	err      error
+	finished bool
 }
 
 func newSession(ctx context.Context, cancel context.CancelFunc, streamID, streamURL, streamName, outputDir string) *Session {
@@ -69,16 +72,18 @@ func (s *Session) IsRecorded() bool {
 }
 
 func (s *Session) Stop() {
-	s.cancel()
-	s.FanOut.Stop()
-	s.mu.Lock()
-	closers := s.closers
-	s.closers = nil
-	s.mu.Unlock()
-	for _, c := range closers {
-		c.Close()
-	}
-	close(s.done)
+	s.stopOnce.Do(func() {
+		s.cancel()
+		s.FanOut.Stop()
+		s.mu.Lock()
+		closers := s.closers
+		s.closers = nil
+		s.mu.Unlock()
+		for _, c := range closers {
+			c.Close()
+		}
+		close(s.done)
+	})
 }
 
 func (s *Session) Done() <-chan struct{} {
@@ -99,6 +104,30 @@ func (s *Session) Seek(posMs int64) {
 	if fn != nil {
 		fn(posMs)
 	}
+}
+
+func (s *Session) SetError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
+func (s *Session) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+func (s *Session) MarkDone() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.finished = true
+}
+
+func (s *Session) IsFinished() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.finished
 }
 
 func generateID() string {

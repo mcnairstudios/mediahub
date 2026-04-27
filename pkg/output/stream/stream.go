@@ -148,8 +148,12 @@ func (p *Plugin) Stop() {
 		return
 	}
 	p.stopped = true
-	p.muxer.Close()
-	p.file.Close()
+	if p.muxer != nil {
+		p.muxer.Close()
+	}
+	if p.file != nil {
+		p.file.Close()
+	}
 }
 
 func (p *Plugin) Status() output.PluginStatus {

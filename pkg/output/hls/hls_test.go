@@ -258,3 +258,65 @@ func TestDefaultSegmentDuration(t *testing.T) {
 
 	assert.Equal(t, output.DeliveryHLS, p.Mode())
 }
+
+func TestConstructionNilAudioVideoOnly(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Video: &media.VideoInfo{
+			Codec:      "h264",
+			Width:      1920,
+			Height:     1080,
+			FramerateN: 25,
+			FramerateD: 1,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Equal(t, output.DeliveryHLS, p.Mode())
+	assert.True(t, p.Status().Healthy)
+}
+
+func TestPushAudioNoAudioStreamHLS(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Video: &media.VideoInfo{
+			Codec:      "h264",
+			Width:      1920,
+			Height:     1080,
+			FramerateN: 25,
+			FramerateD: 1,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0)
+	assert.NoError(t, err)
+}
+
+func TestPushVideoAfterStopReturnsNil(t *testing.T) {
+	cfg := testConfig(t)
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	p.Stop()
+
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	assert.NoError(t, err)
+}
+
+func TestPushAudioAfterStopReturnsNil(t *testing.T) {
+	cfg := testConfig(t)
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	p.Stop()
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0)
+	assert.NoError(t, err)
+}
