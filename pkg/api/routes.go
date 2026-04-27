@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"io/fs"
+	"net/http"
+	"strings"
+)
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
@@ -22,6 +26,23 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/sources/{sourceID}/refresh", s.adminOnly(s.handleRefreshSource))
 	s.mux.Handle("GET /api/users", s.adminOnly(s.handleListUsers))
 	s.mux.Handle("POST /api/users", s.adminOnly(s.handleCreateUser))
+
+	if s.deps.StaticFS != nil {
+		staticHandler := http.FileServerFS(s.deps.StaticFS)
+		s.mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.NotFound(w, r)
+				return
+			}
+			path := r.URL.Path
+			if path != "/" {
+				if _, err := fs.Stat(s.deps.StaticFS, strings.TrimPrefix(path, "/")); err != nil {
+					r.URL.Path = "/"
+				}
+			}
+			staticHandler.ServeHTTP(w, r)
+		})
+	}
 }
 
 func (s *Server) authenticated(h http.HandlerFunc) http.Handler {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -36,6 +37,7 @@ import (
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 	"github.com/mcnairstudios/mediahub/pkg/worker"
+	"github.com/mcnairstudios/mediahub/web"
 )
 
 func main() {
@@ -137,6 +139,8 @@ func main() {
 		},
 	})
 
+	staticFS, _ := fs.Sub(web.Assets, "dist")
+
 	apiServer := api.NewServer(api.OrchestratorDeps{
 		StreamStore:    streamStore,
 		ChannelStore:   channelStore,
@@ -149,6 +153,7 @@ func main() {
 		AuthService:    authService,
 		EPGSourceStore: epgSourceStore,
 		Strategy:       strategy.Resolve,
+		StaticFS:       staticFS,
 	})
 
 	mainMux := http.NewServeMux()

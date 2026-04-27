@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
@@ -28,6 +29,7 @@ type OrchestratorDeps struct {
 	AuthService    auth.Service
 	EPGSourceStore epg.SourceStore
 	Strategy       func(strategy.Input, strategy.Output) strategy.Decision
+	StaticFS       fs.FS
 }
 
 type Server struct {
