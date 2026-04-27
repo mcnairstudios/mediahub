@@ -33,4 +33,5 @@ type AudioTrack struct {
 	Channels   int
 	SampleRate int
 	BitRate    int
+	IsAD       bool
 }
