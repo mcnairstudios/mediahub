@@ -165,11 +165,14 @@ func main() {
 		},
 	})
 
+	var epgRefreshFn func(ctx context.Context) error
 	scheduler.Add(worker.Job{
 		Name:     "epg-refresh",
 		Interval: 24 * time.Hour,
 		Fn: func(ctx context.Context) error {
-			log.Println("epg refresh: not yet wired to EPG source instances")
+			if epgRefreshFn != nil {
+				return epgRefreshFn(ctx)
+			}
 			return nil
 		},
 	})
@@ -189,10 +192,14 @@ func main() {
 		RecordingStore:    recordingStore,
 		AuthService:       authService,
 		EPGSourceStore:    epgSourceStore,
+		ProgramStore:      programStore,
+		GroupStore:        groupStore,
 		Strategy:          strategy.Resolve,
 		WGService:         wgService,
 		StaticFS:          staticFS,
 	})
+
+	epgRefreshFn = apiServer.RefreshAllEPGSources
 
 	mainMux := http.NewServeMux()
 

@@ -6,29 +6,29 @@ import (
 )
 
 type Source struct {
-	ID            string
-	Name          string
-	URL           string
-	IsEnabled     bool
-	UseWireGuard  bool
-	LastRefreshed *time.Time
-	ChannelCount  int
-	ProgramCount  int
-	LastError     string
-	ETag          string
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	URL           string     `json:"url"`
+	IsEnabled     bool       `json:"is_enabled"`
+	UseWireGuard  bool       `json:"use_wireguard"`
+	LastRefreshed *time.Time `json:"last_refreshed,omitempty"`
+	ChannelCount  int        `json:"channel_count"`
+	ProgramCount  int        `json:"program_count"`
+	LastError     string     `json:"last_error,omitempty"`
+	ETag          string     `json:"etag,omitempty"`
 }
 
 type Program struct {
-	ChannelID   string
-	Title       string
-	Subtitle    string
-	Description string
-	StartTime   time.Time
-	EndTime     time.Time
-	Categories  []string
-	Rating      string
-	EpisodeNum  string
-	IsNew       bool
+	ChannelID   string    `json:"channel_id"`
+	Title       string    `json:"title"`
+	Subtitle    string    `json:"subtitle,omitempty"`
+	Description string    `json:"description,omitempty"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	Categories  []string  `json:"categories,omitempty"`
+	Rating      string    `json:"rating,omitempty"`
+	EpisodeNum  string    `json:"episode_num,omitempty"`
+	IsNew       bool      `json:"is_new"`
 }
 
 type SourceStore interface {

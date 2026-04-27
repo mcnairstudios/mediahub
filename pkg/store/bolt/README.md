@@ -4,11 +4,11 @@
 Production persistence layer using bbolt (embedded key-value store). Replaces the in-memory stores for deployment. All data survives restarts.
 
 ## Status
-StreamStore and SettingsStore implemented. Channel, EPG, and recording stores planned.
+All domain stores implemented: Streams, Settings, Channels, Groups, EPG Sources, EPG Programs, Recordings, Users, Source Configs.
 
 ## Responsibilities
-- Implement StreamStore, SettingsStore using bbolt buckets
-- JSON serialization for complex values (streams), plain strings for settings
+- Implement all domain store interfaces using bbolt buckets
+- JSON serialization for complex values, plain strings for settings
 - Thread-safe (bbolt handles this internally)
 - Data directory configurable via bolt.Open(path)
 
@@ -17,7 +17,7 @@ StreamStore and SettingsStore implemented. Channel, EPG, and recording stores pl
 - Handle migrations (data format is JSON in bolt, self-describing)
 
 ## Key Design
-- Single bolt database file with multiple buckets ("streams", "settings")
+- Single bolt database file with 9 buckets (streams, settings, channels, groups, epg_sources, epg_programs, recordings, users, source_configs)
 - Stream values stored as JSON, settings values as plain strings
 - Keys are string IDs
 - Bulk operations use bolt transactions for atomicity
@@ -27,6 +27,11 @@ StreamStore and SettingsStore implemented. Channel, EPG, and recording stores pl
 
 ## Files
 - `bolt.go` — DB struct, Open/Close, bucket creation, store accessors
-- `streams.go` — StreamStore implementation (Get, List, ListBySource, BulkUpsert, DeleteBySource, DeleteStaleBySource, Save)
-- `settings.go` — SettingsStore implementation (Get, Set, List)
-- `bolt_test.go` — full test suite mirroring memory store tests + persistence test
+- `streams.go` — StreamStore (Get, List, ListBySource, BulkUpsert, DeleteBySource, DeleteStaleBySource, Save)
+- `settings.go` — SettingsStore (Get, Set, List)
+- `channels.go` — ChannelStore + GroupStore
+- `epg.go` — EPGSourceStore + ProgramStore (cursor-based range queries)
+- `recordings.go` — RecordingStore (user-filtered List, status queries)
+- `users.go` — UserStore (password hash stored alongside user)
+- `source_configs.go` — SourceConfigStore (type-filtered listing)
+- `bolt_test.go` — full test suite

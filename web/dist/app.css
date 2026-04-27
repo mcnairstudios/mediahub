@@ -176,6 +176,43 @@ a:hover{color:var(--accent-hover)}
 }
 .setting-value:focus{border-color:var(--border-focus)}
 
+.settings-section{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);
+  margin-bottom:20px;overflow:hidden;
+}
+.settings-section-header{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  font-size:15px;font-weight:600;color:#fff;
+}
+.settings-section-body{padding:20px}
+.settings-section-desc{font-size:13px;color:var(--text-muted);margin-bottom:16px}
+.settings-field{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.settings-field:last-child{margin-bottom:0}
+.settings-field label{min-width:160px;font-size:13px;font-weight:500;color:var(--text-dim)}
+.settings-field select,.settings-field input[type="text"]{
+  padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);
+  border-radius:var(--radius);color:var(--text);font-size:14px;min-width:240px;
+  font-family:var(--font);outline:none;
+}
+.settings-field select:focus,.settings-field input[type="text"]:focus{border-color:var(--border-focus)}
+.settings-field input[type="checkbox"]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+.settings-field .field-hint{font-size:12px;color:var(--text-muted);margin-left:4px}
+
+.platform-badge{
+  display:inline-block;padding:4px 12px;border-radius:12px;
+  font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+}
+.platform-badge-hw{background:var(--accent);color:#fff}
+.platform-badge-sw{background:var(--border);color:var(--text-dim)}
+.platform-badge-none{background:rgba(85,90,110,.2);color:var(--text-muted)}
+
+.codec-badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.codec-badge{
+  padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500;color:#fff;
+}
+.codec-badge-hw{background:#2ea043}
+.codec-badge-sw{background:#6e7681}
+
 .toast{
   position:fixed;bottom:20px;right:20px;z-index:1000;
   background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);

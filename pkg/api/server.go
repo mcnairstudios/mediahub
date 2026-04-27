@@ -33,6 +33,8 @@ type OrchestratorDeps struct {
 	RecordingStore    recording.Store
 	AuthService       auth.Service
 	EPGSourceStore    epg.SourceStore
+	ProgramStore      epg.ProgramStore
+	GroupStore        channel.GroupStore
 	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
 	WGService         *wg.Service
 	StaticFS          fs.FS

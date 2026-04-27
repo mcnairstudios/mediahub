@@ -72,7 +72,9 @@
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
-    wireguard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M12 8v4M12 16h.01"/></svg>'
+    wireguard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M12 8v4M12 16h.01"/></svg>',
+    epg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
   };
 
   var router = {
@@ -136,6 +138,7 @@
     ];
     if (isAdmin) {
       items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
+      items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
       items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
       items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
       items.push({ id: 'users', label: 'Users', icon: 'users' });
@@ -197,6 +200,7 @@
     else if (page === 'channels') renderChannels(pageEl);
     else if (page === 'recordings') renderRecordings(pageEl);
     else if (page === 'sources') renderSources(pageEl);
+    else if (page === 'epgsources') renderEPGSources(pageEl);
     else if (page === 'wireguard') renderWireGuard(pageEl);
     else if (page === 'settings') renderSettings(pageEl);
     else if (page === 'users') renderUsers(pageEl);
@@ -372,62 +376,307 @@
     });
   }
 
+  var channelGroups = [];
+  var channelStreams = [];
+
   async function renderChannels(el) {
+    var user = api.user;
+    var isAdmin = user && user.is_admin;
+
+    var headerButtons = '';
+    if (isAdmin) {
+      headerButtons = '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+        '<button class="btn btn-primary" id="add-channel-btn">' + icons.plus + ' Add Channel</button>' +
+        '<button class="btn btn-ghost" id="manage-groups-btn">Manage Groups</button>' +
+        '</div>';
+    }
+
     el.innerHTML = '<h1 class="page-title">Channels</h1>' +
+      headerButtons +
       '<div class="search-bar">' + icons.search + '<input id="channel-search" placeholder="Search channels..."></div>' +
-      '<div id="channel-list"><div class="skeleton" style="height:200px"></div></div>';
+      '<div id="channel-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="channel-form" style="display:none" class="card">' +
+      '<div class="card-title" id="channel-form-title">New Channel</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
+      '<div class="form-group"><label class="form-label">Number</label><input class="form-input" id="ch-number" type="number" min="0" placeholder="1"></div>' +
+      '<div class="form-group"><label class="form-label">Group</label><select class="form-input" id="ch-group"><option value="">None</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Logo URL</label><input class="form-input" id="ch-logo" placeholder="http://example.com/logo.png"></div>' +
+      '<div class="form-group"><label class="form-label">Streams</label>' +
+      '<select class="form-input" id="ch-streams" multiple style="height:120px"></select>' +
+      '<span class="field-hint">Hold Ctrl/Cmd to select multiple</span></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="ch-enabled" checked> Enabled</label></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="save-channel-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-channel-btn">Cancel</button></div></div>' +
+      '<div id="group-panel" style="display:none" class="card">' +
+      '<div class="card-title">Channel Groups</div>' +
+      '<div id="group-list"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+      '<input class="form-input" id="new-group-name" placeholder="Group name" style="flex:1">' +
+      '<button class="btn btn-primary" id="create-group-btn">Add</button>' +
+      '</div></div>';
+
+    var channelEditId = null;
+    var formEl = document.getElementById('channel-form');
+    var groupPanel = document.getElementById('group-panel');
+
+    try {
+      var groupResp = await api.get('/api/channel-groups');
+      channelGroups = await groupResp.json();
+      if (!Array.isArray(channelGroups)) channelGroups = [];
+    } catch (e) { channelGroups = []; }
+
+    try {
+      var streamResp = await api.get('/api/streams');
+      channelStreams = await streamResp.json();
+      if (!Array.isArray(channelStreams)) channelStreams = [];
+    } catch (e) { channelStreams = []; }
+
+    function populateForm(ch) {
+      var groupSelect = document.getElementById('ch-group');
+      groupSelect.innerHTML = '<option value="">None</option>';
+      for (var gi = 0; gi < channelGroups.length; gi++) {
+        var g = channelGroups[gi];
+        var sel = ch && ch.group_id === g.id ? ' selected' : '';
+        groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
+      }
+      var streamSelect = document.getElementById('ch-streams');
+      streamSelect.innerHTML = '';
+      var existingStreams = ch && ch.stream_ids ? ch.stream_ids : [];
+      for (var si = 0; si < channelStreams.length; si++) {
+        var st = channelStreams[si];
+        var selected = existingStreams.indexOf(st.id) >= 0 ? ' selected' : '';
+        streamSelect.innerHTML += '<option value="' + esc(st.id) + '"' + selected + '>' + esc(st.name) + '</option>';
+      }
+    }
+
+    if (isAdmin) {
+      document.getElementById('add-channel-btn').addEventListener('click', function() {
+        channelEditId = null;
+        document.getElementById('channel-form-title').textContent = 'New Channel';
+        document.getElementById('save-channel-btn').textContent = 'Create';
+        document.getElementById('ch-name').value = '';
+        document.getElementById('ch-number').value = '';
+        document.getElementById('ch-logo').value = '';
+        document.getElementById('ch-enabled').checked = true;
+        populateForm(null);
+        formEl.style.display = 'block';
+        groupPanel.style.display = 'none';
+      });
+
+      document.getElementById('manage-groups-btn').addEventListener('click', function() {
+        formEl.style.display = 'none';
+        groupPanel.style.display = groupPanel.style.display === 'none' ? 'block' : 'none';
+        renderGroupList();
+      });
+
+      document.getElementById('cancel-channel-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+
+      document.getElementById('save-channel-btn').addEventListener('click', async function() {
+        var name = document.getElementById('ch-name').value.trim();
+        var number = parseInt(document.getElementById('ch-number').value) || 0;
+        var groupId = document.getElementById('ch-group').value;
+        var logoUrl = document.getElementById('ch-logo').value.trim();
+        var enabled = document.getElementById('ch-enabled').checked;
+        var streamSelect = document.getElementById('ch-streams');
+        var selectedStreams = [];
+        for (var i = 0; i < streamSelect.options.length; i++) {
+          if (streamSelect.options[i].selected) selectedStreams.push(streamSelect.options[i].value);
+        }
+        if (!name) { toast('Name required', 'error'); return; }
+        var payload = { name: name, number: number, group_id: groupId, logo_url: logoUrl, is_enabled: enabled, stream_ids: selectedStreams };
+        try {
+          var r;
+          if (channelEditId) {
+            r = await api.put('/api/channels/' + channelEditId, payload);
+          } else {
+            r = await api.post('/api/channels', payload);
+          }
+          if (r.ok) {
+            toast(channelEditId ? 'Channel updated' : 'Channel created');
+            formEl.style.display = 'none';
+            renderChannels(el);
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to save channel', 'error');
+          }
+        } catch (err) {
+          toast('Failed to save channel', 'error');
+        }
+      });
+
+      document.getElementById('create-group-btn').addEventListener('click', async function() {
+        var name = document.getElementById('new-group-name').value.trim();
+        if (!name) { toast('Group name required', 'error'); return; }
+        try {
+          var r = await api.post('/api/channel-groups', { name: name });
+          if (r.ok) {
+            toast('Group created');
+            document.getElementById('new-group-name').value = '';
+            var groupResp2 = await api.get('/api/channel-groups');
+            channelGroups = await groupResp2.json();
+            if (!Array.isArray(channelGroups)) channelGroups = [];
+            renderGroupList();
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to create group', 'error');
+          }
+        } catch (err) {
+          toast('Failed to create group', 'error');
+        }
+      });
+    }
+
+    function renderGroupList() {
+      var container = document.getElementById('group-list');
+      if (!container) return;
+      if (channelGroups.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < channelGroups.length; i++) {
+        var g = channelGroups[i];
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
+          '<span>' + esc(g.name) + '</span>' +
+          '<button class="btn btn-sm btn-danger group-delete-btn" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' + icons.trash + '</button>' +
+          '</div>';
+      }
+      container.innerHTML = html;
+      container.querySelectorAll('.group-delete-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete group "' + name + '"?')) return;
+          try {
+            var r = await api.del('/api/channel-groups/' + id);
+            if (r.ok || r.status === 204) {
+              toast('Group deleted');
+              var groupResp3 = await api.get('/api/channel-groups');
+              channelGroups = await groupResp3.json();
+              if (!Array.isArray(channelGroups)) channelGroups = [];
+              renderGroupList();
+            } else {
+              toast('Failed to delete group', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete group', 'error');
+          }
+        });
+      });
+    }
 
     try {
       var resp = await api.get('/api/channels');
       var channels = await resp.json();
       if (!Array.isArray(channels)) channels = [];
-      renderChannelTable(channels, '');
+
+      var groupMap = {};
+      for (var gi = 0; gi < channelGroups.length; gi++) {
+        groupMap[channelGroups[gi].id] = channelGroups[gi].name;
+      }
+
+      renderChannelTable(channels, '', groupMap, isAdmin, el, channelEditId, formEl, populateForm, function(id) { channelEditId = id; });
       document.getElementById('channel-search').addEventListener('input', function() {
-        renderChannelTable(channels, this.value.toLowerCase());
+        renderChannelTable(channels, this.value.toLowerCase(), groupMap, isAdmin, el, channelEditId, formEl, populateForm, function(id) { channelEditId = id; });
       });
     } catch (e) {
       document.getElementById('channel-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load channels</p></div>';
     }
   }
 
-  function renderChannelTable(channels, filter) {
+  function renderChannelTable(channels, filter, groupMap, isAdmin, el, channelEditId, formEl, populateForm, setEditId) {
     var container = document.getElementById('channel-list');
     if (!container) return;
     var filtered = channels;
     if (filter) {
       filtered = channels.filter(function(c) {
+        var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '';
         return (c.name || '').toLowerCase().indexOf(filter) >= 0 ||
-               (c.group_name || '').toLowerCase().indexOf(filter) >= 0;
+               groupName.toLowerCase().indexOf(filter) >= 0;
       });
     }
     if (filtered.length === 0) {
       container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No channels found</p></div>';
       return;
     }
+
+    filtered.sort(function(a, b) { return (a.number || 0) - (b.number || 0); });
+
     var html = '<table class="list-table"><thead><tr>' +
-      '<th></th><th>#</th><th>Name</th><th>Group</th><th>Status</th><th></th>' +
+      '<th></th><th>#</th><th>Name</th><th>Group</th><th>Streams</th><th>Status</th><th></th>' +
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var c = filtered[i];
       var logo = c.logo_url ? '<img class="logo" src="' + esc(c.logo_url) + '" alt="">' : '';
+      var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '-';
+      var streamCount = c.stream_ids ? c.stream_ids.length : 0;
       var status = c.is_enabled !== false ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
-      html += '<tr class="clickable" data-channel-id="' + esc(c.id) + '">' +
+      var actions = '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_ids && c.stream_ids.length ? c.stream_ids[0] : c.id) + '" data-name="' + esc(c.name) + '">' + icons.play + '</button>';
+      if (isAdmin) {
+        actions += '<button class="btn btn-sm btn-ghost ch-edit-btn" data-id="' + esc(c.id) + '" title="Edit">' + icons.edit + '</button>' +
+          '<button class="btn btn-sm btn-danger ch-delete-btn" data-id="' + esc(c.id) + '" data-name="' + esc(c.name) + '" title="Delete">' + icons.trash + '</button>';
+      }
+      html += '<tr>' +
         '<td>' + logo + '</td>' +
-        '<td>' + esc(c.number || i + 1) + '</td>' +
+        '<td>' + esc(c.number || '-') + '</td>' +
         '<td>' + esc(c.name) + '</td>' +
-        '<td>' + esc(c.group_name || '-') + '</td>' +
+        '<td>' + esc(groupName) + '</td>' +
+        '<td>' + streamCount + '</td>' +
         '<td>' + status + '</td>' +
-        '<td><button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_id || c.id) + '" data-name="' + esc(c.name) + '">' + icons.play + '</button></td>' +
+        '<td style="display:flex;gap:4px">' + actions + '</td>' +
         '</tr>';
     }
     html += '</tbody></table>';
     container.innerHTML = html;
+
     container.querySelectorAll('.play-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
         startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
       });
     });
+
+    if (isAdmin) {
+      container.querySelectorAll('.ch-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var chId = this.getAttribute('data-id');
+          var ch = null;
+          for (var j = 0; j < channels.length; j++) {
+            if (channels[j].id === chId) { ch = channels[j]; break; }
+          }
+          if (!ch) return;
+          setEditId(chId);
+          document.getElementById('channel-form-title').textContent = 'Edit Channel';
+          document.getElementById('save-channel-btn').textContent = 'Update';
+          document.getElementById('ch-name').value = ch.name || '';
+          document.getElementById('ch-number').value = ch.number || '';
+          document.getElementById('ch-logo').value = ch.logo_url || '';
+          document.getElementById('ch-enabled').checked = ch.is_enabled !== false;
+          populateForm(ch);
+          formEl.style.display = 'block';
+        });
+      });
+
+      container.querySelectorAll('.ch-delete-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete channel "' + name + '"?')) return;
+          try {
+            var r = await api.del('/api/channels/' + id);
+            if (r.ok || r.status === 204) {
+              toast('Channel deleted');
+              renderChannels(el);
+            } else {
+              toast('Failed to delete channel', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete channel', 'error');
+          }
+        });
+      });
+    }
   }
 
   async function startPlay(streamID, name, isLive) {
@@ -961,56 +1210,368 @@
     }
   }
 
+  function getSetting(settings, key) {
+    if (Array.isArray(settings)) {
+      var found = settings.find(function(s) { return s.key === key; });
+      return found ? found.value : '';
+    }
+    if (settings && typeof settings === 'object') return settings[key] || '';
+    return '';
+  }
+
+  async function saveSetting(key, value) {
+    var payload = {};
+    payload[key] = value;
+    try {
+      var r = await api.put('/api/settings', payload);
+      if (r.ok) toast('Setting saved');
+      else toast('Failed to save setting', 'error');
+    } catch (err) {
+      toast('Failed to save setting', 'error');
+    }
+  }
+
+  function makeSelect(id, options, currentValue) {
+    var html = '<select id="' + esc(id) + '" class="settings-select">';
+    for (var i = 0; i < options.length; i++) {
+      var o = options[i];
+      if (o.group) {
+        html += '<optgroup label="' + esc(o.group) + '">';
+        for (var j = 0; j < o.items.length; j++) {
+          var item = o.items[j];
+          var sel = item.value === currentValue ? ' selected' : '';
+          html += '<option value="' + esc(item.value) + '"' + sel + '>' + esc(item.label) + '</option>';
+        }
+        html += '</optgroup>';
+      } else {
+        var sel2 = o.value === currentValue ? ' selected' : '';
+        html += '<option value="' + esc(o.value) + '"' + sel2 + '>' + esc(o.label) + '</option>';
+      }
+    }
+    html += '</select>';
+    return html;
+  }
+
+  function bindAutoSave(container, selectId, settingKey) {
+    var sel = container.querySelector('#' + selectId);
+    if (!sel) return;
+    sel.addEventListener('change', function() {
+      saveSetting(settingKey, sel.value);
+    });
+  }
+
+  function bindToggle(container, checkboxId, settingKey) {
+    var cb = container.querySelector('#' + checkboxId);
+    if (!cb) return;
+    cb.addEventListener('change', function() {
+      saveSetting(settingKey, cb.checked ? 'true' : 'false');
+    });
+  }
+
+  function bindTextSave(container, inputId, settingKey) {
+    var inp = container.querySelector('#' + inputId);
+    if (!inp) return;
+    var timeout;
+    inp.addEventListener('input', function() {
+      clearTimeout(timeout);
+      timeout = setTimeout(function() {
+        saveSetting(settingKey, inp.value);
+      }, 800);
+    });
+  }
+
   async function renderSettings(el) {
     el.innerHTML = '<h1 class="page-title">Settings</h1>' +
-      '<div id="settings-list"><div class="skeleton" style="height:200px"></div></div>';
+      '<div id="settings-content"><div class="skeleton" style="height:400px"></div></div>';
+
+    var container = document.getElementById('settings-content');
+    if (!container) return;
+
+    var settings = {};
+    var caps = null;
 
     try {
-      var resp = await api.get('/api/settings');
-      var settings = await resp.json();
-      var container = document.getElementById('settings-list');
-      if (!container) return;
-
-      var entries;
-      if (Array.isArray(settings)) {
-        entries = settings.map(function(s) { return { key: s.key, value: s.value }; });
-      } else if (settings && typeof settings === 'object') {
-        entries = Object.keys(settings).map(function(k) { return { key: k, value: settings[k] }; });
-      } else {
-        entries = [];
-      }
-
-      if (entries.length === 0) {
-        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No settings configured</p></div>';
-        return;
-      }
-
-      var html = '<div class="settings-grid">';
-      for (var i = 0; i < entries.length; i++) {
-        var e = entries[i];
-        html += '<div class="setting-row">' +
-          '<span class="setting-key">' + esc(e.key) + '</span>' +
-          '<input class="setting-value" data-key="' + esc(e.key) + '" value="' + esc(e.value) + '">' +
-          '</div>';
-      }
-      html += '</div><div style="margin-top:16px"><button class="btn btn-primary" id="save-settings-btn">Save Settings</button></div>';
-      container.innerHTML = html;
-
-      document.getElementById('save-settings-btn').addEventListener('click', async function() {
-        var inputs = container.querySelectorAll('.setting-value');
-        var payload = {};
-        inputs.forEach(function(inp) { payload[inp.getAttribute('data-key')] = inp.value; });
-        try {
-          var r = await api.put('/api/settings', payload);
-          if (r.ok) toast('Settings saved');
-          else toast('Failed to save settings', 'error');
-        } catch (err) {
-          toast('Failed to save settings', 'error');
-        }
-      });
+      var results = await Promise.all([
+        api.get('/api/settings').then(function(r) { return r.json(); }),
+        api.get('/api/capabilities').then(function(r) { return r.json(); }).catch(function() { return null; })
+      ]);
+      settings = results[0] || {};
+      caps = results[1];
     } catch (e) {
-      document.getElementById('settings-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load settings</p></div>';
+      container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load settings</p></div>';
+      return;
     }
+
+    var html = '';
+
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Platform Capabilities</div>' +
+      '<div class="settings-section-body">' +
+      '<div id="caps-content">';
+
+    if (caps && (caps.platforms || caps.video_encoders || caps.video_decoders)) {
+      html += '<div style="margin-bottom:16px">' +
+        '<span style="font-weight:500;font-size:14px;margin-right:8px">Detected Platforms</span>';
+      if (caps.platforms && caps.platforms.length > 0) {
+        for (var pi = 0; pi < caps.platforms.length; pi++) {
+          html += '<span class="platform-badge platform-badge-hw">' + esc(caps.platforms[pi]) + '</span> ';
+        }
+      } else {
+        html += '<span class="platform-badge platform-badge-none">Software only</span>';
+      }
+      if (caps.max_bit_depth > 0) {
+        html += ' <span class="platform-badge platform-badge-sw">Max ' + caps.max_bit_depth + '-bit</span>';
+      }
+      html += '</div>';
+
+      var hwEncoders = (caps.video_encoders || []).filter(function(e) { return e.hw; });
+      var swEncoders = (caps.video_encoders || []).filter(function(e) { return !e.hw; });
+
+      if (hwEncoders.length > 0 || swEncoders.length > 0) {
+        html += '<div style="display:flex;gap:24px;margin-bottom:16px;flex-wrap:wrap">';
+        if (hwEncoders.length > 0) {
+          html += '<div style="flex:1;min-width:200px">' +
+            '<div style="font-weight:500;font-size:13px;margin-bottom:8px;color:var(--text-muted)">Hardware Encoders</div>' +
+            '<div class="codec-badges">';
+          for (var he = 0; he < hwEncoders.length; he++) {
+            html += '<span class="codec-badge codec-badge-hw" title="' + esc(hwEncoders[he].codec.toUpperCase() + ' - ' + hwEncoders[he].platform) + '">' + esc(hwEncoders[he].name) + '</span>';
+          }
+          html += '</div></div>';
+        }
+        if (swEncoders.length > 0) {
+          html += '<div style="flex:1;min-width:200px">' +
+            '<div style="font-weight:500;font-size:13px;margin-bottom:8px;color:var(--text-muted)">Software Encoders</div>' +
+            '<div class="codec-badges">';
+          for (var se = 0; se < swEncoders.length; se++) {
+            html += '<span class="codec-badge codec-badge-sw" title="' + esc(swEncoders[se].codec.toUpperCase()) + '">' + esc(swEncoders[se].name) + '</span>';
+          }
+          html += '</div></div>';
+        }
+        html += '</div>';
+      }
+
+      var hwDecoders = (caps.video_decoders || []).filter(function(d) { return d.hw; });
+      var swDecoders = (caps.video_decoders || []).filter(function(d) { return !d.hw; });
+
+      if (hwDecoders.length > 0 || swDecoders.length > 0) {
+        html += '<div style="display:flex;gap:24px;margin-bottom:16px;flex-wrap:wrap">';
+        if (hwDecoders.length > 0) {
+          html += '<div style="flex:1;min-width:200px">' +
+            '<div style="font-weight:500;font-size:13px;margin-bottom:8px;color:var(--text-muted)">Hardware Decoders</div>' +
+            '<div class="codec-badges">';
+          for (var hd = 0; hd < hwDecoders.length; hd++) {
+            html += '<span class="codec-badge codec-badge-hw" title="' + esc(hwDecoders[hd].platform) + '">' + esc(hwDecoders[hd].name + ' (' + hwDecoders[hd].codec.toUpperCase() + ')') + '</span>';
+          }
+          html += '</div></div>';
+        }
+        if (swDecoders.length > 0) {
+          html += '<div style="flex:1;min-width:200px">' +
+            '<div style="font-weight:500;font-size:13px;margin-bottom:8px;color:var(--text-muted)">Software Decoders</div>' +
+            '<div class="codec-badges">';
+          for (var sd = 0; sd < swDecoders.length; sd++) {
+            html += '<span class="codec-badge codec-badge-sw">' + esc(swDecoders[sd].name + ' (' + swDecoders[sd].codec.toUpperCase() + ')') + '</span>';
+          }
+          html += '</div></div>';
+        }
+        html += '</div>';
+      }
+
+      if (caps.audio_encoders && caps.audio_encoders.length > 0) {
+        html += '<div style="margin-bottom:16px">' +
+          '<div style="font-weight:500;font-size:13px;margin-bottom:8px;color:var(--text-muted)">Audio Encoders</div>' +
+          '<div class="codec-badges">';
+        for (var ae = 0; ae < caps.audio_encoders.length; ae++) {
+          html += '<span class="codec-badge codec-badge-sw">' + esc(caps.audio_encoders[ae].name) + '</span>';
+        }
+        html += '</div></div>';
+      }
+
+      var codecNames = { h264: 'H.264', h265: 'H.265 / HEVC', av1: 'AV1' };
+      var encoderCodecs = ['h264', 'h265', 'av1'];
+      var allVideoEncoders = caps.video_encoders || [];
+
+      var hasEncoderDropdowns = false;
+      for (var ci = 0; ci < encoderCodecs.length; ci++) {
+        var matching = allVideoEncoders.filter(function(e) { return e.codec === encoderCodecs[ci]; });
+        if (matching.length > 0) { hasEncoderDropdowns = true; break; }
+      }
+
+      if (hasEncoderDropdowns) {
+        html += '<div style="border-top:1px solid var(--border);padding-top:16px;margin-top:8px">' +
+          '<div style="font-weight:500;font-size:14px;margin-bottom:4px">Encoder Selection</div>' +
+          '<div class="settings-section-desc">Choose which encoder to use for each codec. Hardware encoders are faster and use less CPU.</div>';
+
+        for (var ec = 0; ec < encoderCodecs.length; ec++) {
+          var codec = encoderCodecs[ec];
+          var codecMatching = allVideoEncoders.filter(function(e) { return e.codec === codec; });
+          if (codecMatching.length === 0) continue;
+
+          var hwOpts = codecMatching.filter(function(e) { return e.hw; });
+          var swOpts = codecMatching.filter(function(e) { return !e.hw; });
+          var currentEnc = getSetting(settings, 'encoder_' + codec);
+
+          var selectOpts = [{ value: '', label: 'Auto (fallback chain)' }];
+          if (hwOpts.length > 0) {
+            var hwItems = hwOpts.map(function(e) { return { value: e.name, label: e.name + ' (' + e.platform + ')' }; });
+            selectOpts.push({ group: 'Hardware', items: hwItems });
+          }
+          if (swOpts.length > 0) {
+            var swItems = swOpts.map(function(e) { return { value: e.name, label: e.name }; });
+            selectOpts.push({ group: 'Software', items: swItems });
+          }
+
+          html += '<div class="settings-field">' +
+            '<label>' + codecNames[codec] + '</label>' +
+            makeSelect('enc-' + codec, selectOpts, currentEnc) +
+            '</div>';
+        }
+        html += '</div>';
+      }
+
+      var decoderCodecNames = { h264: 'H.264', h265: 'H.265 / HEVC', av1: 'AV1', mpeg2: 'MPEG-2' };
+      var decoderCodecs = ['h264', 'h265', 'av1', 'mpeg2'];
+      var allVideoDecoders = caps.video_decoders || [];
+
+      var hasDecoderDropdowns = false;
+      for (var di = 0; di < decoderCodecs.length; di++) {
+        var dmatching = allVideoDecoders.filter(function(d) { return d.codec === decoderCodecs[di]; });
+        if (dmatching.length > 0) { hasDecoderDropdowns = true; break; }
+      }
+
+      if (hasDecoderDropdowns) {
+        html += '<div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">' +
+          '<div style="font-weight:500;font-size:14px;margin-bottom:4px">Decoder Selection</div>' +
+          '<div class="settings-section-desc">Choose which decoder to use for each source codec. Hardware decoders offload CPU.</div>';
+
+        for (var dc = 0; dc < decoderCodecs.length; dc++) {
+          var dcodec = decoderCodecs[dc];
+          var dcodecMatching = allVideoDecoders.filter(function(d) { return d.codec === dcodec; });
+          if (dcodecMatching.length === 0) continue;
+
+          var dhwOpts = dcodecMatching.filter(function(d) { return d.hw; });
+          var dswOpts = dcodecMatching.filter(function(d) { return !d.hw; });
+          var currentDec = getSetting(settings, 'decoder_' + dcodec);
+
+          var dselectOpts = [{ value: '', label: 'Auto (fallback chain)' }];
+          if (dhwOpts.length > 0) {
+            var dhwItems = dhwOpts.map(function(d) { return { value: d.name, label: d.name + ' (' + d.platform + ')' }; });
+            dselectOpts.push({ group: 'Hardware', items: dhwItems });
+          }
+          if (dswOpts.length > 0) {
+            var dswItems = dswOpts.map(function(d) { return { value: d.name, label: d.name }; });
+            dselectOpts.push({ group: 'Software', items: dswItems });
+          }
+
+          html += '<div class="settings-field">' +
+            '<label>' + decoderCodecNames[dcodec] + '</label>' +
+            makeSelect('dec-' + dcodec, dselectOpts, currentDec) +
+            '</div>';
+        }
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px">Could not load platform capabilities.</div>';
+    }
+
+    html += '</div></div></div>';
+
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Playback Settings</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-section-desc">Default output settings for playback sessions.</div>' +
+      '<div class="settings-field">' +
+        '<label>Delivery Mode</label>' +
+        makeSelect('setting-delivery', [
+          { value: 'mse', label: 'MSE (browser)' },
+          { value: 'hls', label: 'HLS (Jellyfin / Apple TV)' },
+          { value: 'stream', label: 'Stream (direct)' }
+        ], getSetting(settings, 'default_delivery') || 'mse') +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>Container</label>' +
+        makeSelect('setting-container', [
+          { value: 'mp4', label: 'MP4' },
+          { value: 'mpegts', label: 'MPEG-TS' }
+        ], getSetting(settings, 'default_container') || 'mp4') +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>Video Codec</label>' +
+        makeSelect('setting-video-codec', [
+          { value: 'copy', label: 'Passthrough (copy)' },
+          { value: 'h264', label: 'H.264' },
+          { value: 'h265', label: 'H.265 / HEVC' },
+          { value: 'av1', label: 'AV1' }
+        ], getSetting(settings, 'default_video_codec') || 'copy') +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>Audio Codec</label>' +
+        makeSelect('setting-audio-codec', [
+          { value: 'aac', label: 'AAC' },
+          { value: 'copy', label: 'Passthrough (copy)' },
+          { value: 'mp3', label: 'MP3' },
+          { value: 'opus', label: 'Opus' },
+          { value: 'ac3', label: 'AC3' }
+        ], getSetting(settings, 'default_audio_codec') || 'aac') +
+      '</div>' +
+      '</div></div>';
+
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Recording Settings</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-section-desc">Default codec for scheduled recordings. Container is always MP4.</div>' +
+      '<div class="settings-field">' +
+        '<label>Recording Codec</label>' +
+        makeSelect('setting-rec-codec', [
+          { value: 'copy', label: 'Passthrough (copy)' },
+          { value: 'h264', label: 'H.264' },
+          { value: 'h265', label: 'H.265 / HEVC' },
+          { value: 'av1', label: 'AV1' }
+        ], getSetting(settings, 'recording_video_codec') || 'copy') +
+      '</div>' +
+      '</div></div>';
+
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Network Settings</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-field">' +
+        '<label>Base URL</label>' +
+        '<input type="text" id="setting-base-url" value="' + esc(getSetting(settings, 'base_url')) + '" placeholder="http://192.168.1.100:8080">' +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>User Agent</label>' +
+        '<input type="text" id="setting-user-agent" value="' + esc(getSetting(settings, 'user_agent')) + '" placeholder="MediaHub">' +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>DLNA Enabled</label>' +
+        '<input type="checkbox" id="setting-dlna"' + (getSetting(settings, 'dlna_enabled') === 'true' ? ' checked' : '') + '>' +
+        '<span class="field-hint">Advertise as DLNA MediaServer on the network</span>' +
+      '</div>' +
+      '</div></div>';
+
+    container.innerHTML = html;
+
+    if (caps && caps.video_encoders) {
+      var encCodecs = ['h264', 'h265', 'av1'];
+      for (var bi = 0; bi < encCodecs.length; bi++) {
+        bindAutoSave(container, 'enc-' + encCodecs[bi], 'encoder_' + encCodecs[bi]);
+      }
+    }
+    if (caps && caps.video_decoders) {
+      var decCodecs = ['h264', 'h265', 'av1', 'mpeg2'];
+      for (var bdi = 0; bdi < decCodecs.length; bdi++) {
+        bindAutoSave(container, 'dec-' + decCodecs[bdi], 'decoder_' + decCodecs[bdi]);
+      }
+    }
+
+    bindAutoSave(container, 'setting-delivery', 'default_delivery');
+    bindAutoSave(container, 'setting-container', 'default_container');
+    bindAutoSave(container, 'setting-video-codec', 'default_video_codec');
+    bindAutoSave(container, 'setting-audio-codec', 'default_audio_codec');
+    bindAutoSave(container, 'setting-rec-codec', 'recording_video_codec');
+
+    bindTextSave(container, 'setting-base-url', 'base_url');
+    bindTextSave(container, 'setting-user-agent', 'user_agent');
+    bindToggle(container, 'setting-dlna', 'dlna_enabled');
   }
 
   async function renderUsers(el) {
@@ -1294,12 +1855,154 @@
     }
   }
 
+  async function renderEPGSources(el) {
+    el.innerHTML = '<h1 class="page-title">EPG Sources</h1>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-epg-btn">' + icons.plus + ' Add EPG Source</button></div>' +
+      '<div id="epg-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="epg-form" style="display:none" class="card">' +
+      '<div class="card-title" id="epg-form-title">New EPG Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="epg-name" placeholder="UK XMLTV"></div>' +
+      '<div class="form-group"><label class="form-label">XMLTV URL</label><input class="form-input" id="epg-url" placeholder="http://example.com/guide.xml"></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="epg-wireguard"> Route through WireGuard</label></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="save-epg-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-epg-btn">Cancel</button></div></div>';
+
+    var epgEditId = null;
+    var addBtn = document.getElementById('add-epg-btn');
+    var formEl = document.getElementById('epg-form');
+    addBtn.addEventListener('click', function() {
+      epgEditId = null;
+      document.getElementById('epg-form-title').textContent = 'New EPG Source';
+      document.getElementById('save-epg-btn').textContent = 'Create';
+      document.getElementById('epg-name').value = '';
+      document.getElementById('epg-url').value = '';
+      document.getElementById('epg-wireguard').checked = false;
+      formEl.style.display = 'block';
+    });
+    document.getElementById('cancel-epg-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+
+    document.getElementById('save-epg-btn').addEventListener('click', async function() {
+      var name = document.getElementById('epg-name').value.trim();
+      var url = document.getElementById('epg-url').value.trim();
+      var wg = document.getElementById('epg-wireguard').checked;
+      if (!name || !url) { toast('Name and URL required', 'error'); return; }
+      try {
+        var r;
+        if (epgEditId) {
+          r = await api.put('/api/epg/sources/' + epgEditId, { name: name, url: url, use_wireguard: wg });
+        } else {
+          r = await api.post('/api/epg/sources', { name: name, url: url, use_wireguard: wg });
+        }
+        if (r.ok) {
+          toast(epgEditId ? 'EPG source updated' : 'EPG source created');
+          formEl.style.display = 'none';
+          renderEPGSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save EPG source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save EPG source', 'error');
+      }
+    });
+
+    try {
+      var resp = await api.get('/api/epg/sources');
+      var sources = await resp.json();
+      if (!Array.isArray(sources)) sources = [];
+      var container = document.getElementById('epg-list');
+      if (!container) return;
+
+      if (sources.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No EPG sources configured</p></div>';
+        return;
+      }
+
+      var html = '<table class="list-table"><thead><tr>' +
+        '<th>Name</th><th>Channels</th><th>Programs</th><th>Last Refreshed</th><th>Status</th><th></th>' +
+        '</tr></thead><tbody>';
+      for (var i = 0; i < sources.length; i++) {
+        var s = sources[i];
+        var statusBadge = s.is_enabled ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
+        if (s.last_error) {
+          statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
+        }
+        var lastRefreshed = s.last_refreshed ? new Date(s.last_refreshed).toLocaleString() : 'Never';
+        html += '<tr>' +
+          '<td>' + esc(s.name) + '</td>' +
+          '<td>' + (s.channel_count || 0) + '</td>' +
+          '<td>' + (s.program_count || 0) + '</td>' +
+          '<td>' + esc(lastRefreshed) + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td style="display:flex;gap:4px">' +
+          '<button class="btn btn-sm btn-ghost epg-refresh-btn" data-id="' + esc(s.id) + '" title="Refresh">' + icons.refresh + '</button>' +
+          '<button class="btn btn-sm btn-ghost epg-edit-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" data-url="' + esc(s.url) + '" data-wg="' + (s.use_wireguard ? '1' : '0') + '" title="Edit">' + icons.edit + '</button>' +
+          '<button class="btn btn-sm btn-danger epg-delete-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" title="Delete">' + icons.trash + '</button>' +
+          '</td></tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+
+      container.querySelectorAll('.epg-refresh-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          try {
+            var r = await api.post('/api/epg/sources/' + id + '/refresh', {});
+            if (r.ok || r.status === 202) {
+              toast('EPG refresh started');
+            } else {
+              toast('Failed to refresh EPG', 'error');
+            }
+          } catch (err) {
+            toast('Failed to refresh EPG', 'error');
+          }
+        });
+      });
+
+      container.querySelectorAll('.epg-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          epgEditId = this.getAttribute('data-id');
+          document.getElementById('epg-form-title').textContent = 'Edit EPG Source';
+          document.getElementById('save-epg-btn').textContent = 'Update';
+          document.getElementById('epg-name').value = this.getAttribute('data-name') || '';
+          document.getElementById('epg-url').value = this.getAttribute('data-url') || '';
+          document.getElementById('epg-wireguard').checked = this.getAttribute('data-wg') === '1';
+          formEl.style.display = 'block';
+        });
+      });
+
+      container.querySelectorAll('.epg-delete-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete EPG source "' + name + '"? All its program data will be removed.')) return;
+          try {
+            var r = await api.del('/api/epg/sources/' + id);
+            if (r.ok || r.status === 204) {
+              toast('EPG source deleted');
+              renderEPGSources(el);
+            } else {
+              toast('Failed to delete EPG source', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete EPG source', 'error');
+          }
+        });
+      });
+    } catch (e) {
+      var epgList = document.getElementById('epg-list');
+      if (epgList) epgList.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load EPG sources</p></div>';
+    }
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
     channels: renderChannels,
     recordings: renderRecordings,
     sources: renderSources,
+    epgsources: renderEPGSources,
     wireguard: renderWireGuard,
     settings: renderSettings,
     users: renderUsers,

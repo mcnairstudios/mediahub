@@ -15,7 +15,19 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/settings", s.authenticated(s.handleGetSettings))
 	s.mux.Handle("PUT /api/settings", s.adminOnly(s.handleUpdateSettings))
 	s.mux.Handle("GET /api/epg/sources", s.authenticated(s.handleListEPGSources))
+	s.mux.Handle("POST /api/epg/sources", s.adminOnly(s.handleCreateEPGSource))
+	s.mux.Handle("PUT /api/epg/sources/{id}", s.adminOnly(s.handleUpdateEPGSource))
+	s.mux.Handle("DELETE /api/epg/sources/{id}", s.adminOnly(s.handleDeleteEPGSource))
+	s.mux.Handle("POST /api/epg/sources/{id}/refresh", s.adminOnly(s.handleRefreshEPGSource))
 	s.mux.Handle("GET /api/recordings", s.authenticated(s.handleListRecordings))
+
+	s.mux.Handle("POST /api/channels", s.adminOnly(s.handleCreateChannel))
+	s.mux.Handle("PUT /api/channels/{id}", s.adminOnly(s.handleUpdateChannel))
+	s.mux.Handle("DELETE /api/channels/{id}", s.adminOnly(s.handleDeleteChannel))
+	s.mux.Handle("POST /api/channels/{id}/streams", s.adminOnly(s.handleAssignStreams))
+	s.mux.Handle("GET /api/channel-groups", s.authenticated(s.handleListGroups))
+	s.mux.Handle("POST /api/channel-groups", s.adminOnly(s.handleCreateGroup))
+	s.mux.Handle("DELETE /api/channel-groups/{id}", s.adminOnly(s.handleDeleteGroup))
 
 	s.mux.Handle("POST /api/play/{streamID}", s.authenticated(s.handleStartPlayback))
 	s.mux.Handle("DELETE /api/play/{streamID}", s.authenticated(s.handleStopPlayback))
@@ -41,6 +53,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/wireguard/profiles/{id}/activate", s.adminOnly(s.handleActivateWGProfile))
 	s.mux.Handle("POST /api/wireguard/profiles/{id}/test", s.adminOnly(s.handleTestWGProfile))
 	s.mux.Handle("GET /api/wireguard/status", s.adminOnly(s.handleWGStatus))
+
+	s.mux.Handle("GET /api/capabilities", s.authenticated(s.handleCapabilities))
 
 	if s.deps.StaticFS != nil {
 		staticHandler := http.FileServerFS(s.deps.StaticFS)

@@ -3,20 +3,20 @@ package channel
 import "context"
 
 type Channel struct {
-	ID         string
-	Name       string
-	Number     int
-	GroupID    string
-	StreamIDs  []string
-	LogoURL    string
-	TvgID      string
-	IsEnabled  bool
-	IsFavorite bool
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Number     int      `json:"number"`
+	GroupID    string   `json:"group_id,omitempty"`
+	StreamIDs  []string `json:"stream_ids,omitempty"`
+	LogoURL    string   `json:"logo_url,omitempty"`
+	TvgID      string   `json:"tvg_id,omitempty"`
+	IsEnabled  bool     `json:"is_enabled"`
+	IsFavorite bool     `json:"is_favorite"`
 }
 
 type Group struct {
-	ID   string
-	Name string
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Store interface {

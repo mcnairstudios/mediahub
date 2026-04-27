@@ -66,6 +66,9 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	sourceConfigStore := sourceconfig.NewMemoryStore()
 
+	programStore := store.NewMemoryProgramStore()
+	groupStore := store.NewMemoryGroupStore()
+
 	deps := OrchestratorDeps{
 		StreamStore:       streamStore,
 		ChannelStore:      channelStore,
@@ -78,6 +81,8 @@ func newTestEnv(t *testing.T) *testEnv {
 		RecordingStore:    recordingStore,
 		AuthService:       authService,
 		EPGSourceStore:    epgSourceStore,
+		ProgramStore:      programStore,
+		GroupStore:        groupStore,
 		Strategy: func(in strategy.Input, out strategy.Output) strategy.Decision {
 			return strategy.Resolve(in, out)
 		},
@@ -561,5 +566,468 @@ func TestSourceStatusEndpoint(t *testing.T) {
 	decodeBody(resp, &status)
 	if status["state"] != "idle" {
 		t.Errorf("state = %q, want %q", status["state"], "idle")
+	}
+}
+
+func TestCreateEPGSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "UK EPG",
+		"url":  "http://example.com/uk.xml",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var src map[string]any
+	decodeBody(resp, &src)
+
+	if src["id"] == "" {
+		t.Fatal("expected non-empty ID")
+	}
+	if src["name"] != "UK EPG" {
+		t.Errorf("name = %q, want %q", src["name"], "UK EPG")
+	}
+	if src["url"] != "http://example.com/uk.xml" {
+		t.Errorf("url = %q, want %q", src["url"], "http://example.com/uk.xml")
+	}
+}
+
+func TestCreateEPGSourceMissingFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "No URL",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateEPGSourceRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "UK EPG",
+		"url":  "http://example.com/uk.xml",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateEPGSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "Original",
+		"url":  "http://example.com/orig.xml",
+	}, env.adminToken)
+
+	var src map[string]any
+	decodeBody(resp, &src)
+	id := src["id"].(string)
+
+	resp = env.request("PUT", "/api/epg/sources/"+id, map[string]any{
+		"name": "Updated EPG",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated map[string]any
+	decodeBody(resp, &updated)
+	if updated["name"] != "Updated EPG" {
+		t.Errorf("name = %q, want %q", updated["name"], "Updated EPG")
+	}
+}
+
+func TestUpdateEPGSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/epg/sources/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteEPGSource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "To Delete",
+		"url":  "http://example.com/del.xml",
+	}, env.adminToken)
+
+	var src map[string]any
+	decodeBody(resp, &src)
+	id := src["id"].(string)
+
+	resp = env.request("DELETE", "/api/epg/sources/"+id, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = env.request("GET", "/api/epg/sources", nil, env.adminToken)
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 0 {
+		t.Fatalf("expected 0 sources after delete, got %d", len(sources))
+	}
+}
+
+func TestRefreshEPGSourceAsync(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources", map[string]any{
+		"name": "Refreshable",
+		"url":  "http://example.com/test.xml",
+	}, env.adminToken)
+
+	var src map[string]any
+	decodeBody(resp, &src)
+	id := src["id"].(string)
+
+	resp = env.request("POST", "/api/epg/sources/"+id+"/refresh", nil, env.adminToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+}
+
+func TestRefreshEPGSourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/epg/sources/nonexistent/refresh", nil, env.adminToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateChannel(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":       "BBC One",
+		"number":     1,
+		"stream_ids": []string{"stream-1"},
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var ch map[string]any
+	decodeBody(resp, &ch)
+
+	if ch["id"] == "" {
+		t.Fatal("expected non-empty ID")
+	}
+	if ch["name"] != "BBC One" {
+		t.Errorf("name = %q, want %q", ch["name"], "BBC One")
+	}
+	if ch["number"] != float64(1) {
+		t.Errorf("number = %v, want 1", ch["number"])
+	}
+}
+
+func TestCreateChannelMissingName(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"number": 1,
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateChannelRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "BBC One",
+		"number": 1,
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateChannelDuplicateNumber(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	env.request("POST", "/api/channels", map[string]any{
+		"name":   "BBC One",
+		"number": 1,
+	}, env.adminToken)
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "BBC Two",
+		"number": 1,
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateChannel(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "Original",
+		"number": 1,
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(resp, &ch)
+	id := ch["id"].(string)
+
+	resp = env.request("PUT", "/api/channels/"+id, map[string]any{
+		"name": "Updated Channel",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated map[string]any
+	decodeBody(resp, &updated)
+	if updated["name"] != "Updated Channel" {
+		t.Errorf("name = %q, want %q", updated["name"], "Updated Channel")
+	}
+}
+
+func TestUpdateChannelNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/channels/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdateChannelDuplicateNumber(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	env.request("POST", "/api/channels", map[string]any{
+		"name":   "Channel One",
+		"number": 1,
+	}, env.adminToken)
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "Channel Two",
+		"number": 2,
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(resp, &ch)
+	id := ch["id"].(string)
+
+	resp = env.request("PUT", "/api/channels/"+id, map[string]any{
+		"number": 1,
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteChannel(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "To Delete",
+		"number": 1,
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(resp, &ch)
+	id := ch["id"].(string)
+
+	resp = env.request("DELETE", "/api/channels/"+id, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = env.request("GET", "/api/channels", nil, env.adminToken)
+	var channels []map[string]any
+	decodeBody(resp, &channels)
+	if len(channels) != 0 {
+		t.Fatalf("expected 0 channels after delete, got %d", len(channels))
+	}
+}
+
+func TestAssignStreams(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels", map[string]any{
+		"name":   "Channel",
+		"number": 1,
+	}, env.adminToken)
+
+	var ch map[string]any
+	decodeBody(resp, &ch)
+	id := ch["id"].(string)
+
+	resp = env.request("POST", "/api/channels/"+id+"/streams", map[string]any{
+		"stream_ids": []string{"stream-1", "stream-2"},
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestAssignStreamsNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channels/nonexistent/streams", map[string]any{
+		"stream_ids": []string{"stream-1"},
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestListGroups(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/channel-groups", nil, env.standardToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var groups []map[string]any
+	decodeBody(resp, &groups)
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups, got %d", len(groups))
+	}
+}
+
+func TestCreateGroup(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channel-groups", map[string]any{
+		"name": "News",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var g map[string]any
+	decodeBody(resp, &g)
+	if g["name"] != "News" {
+		t.Errorf("name = %q, want %q", g["name"], "News")
+	}
+}
+
+func TestCreateGroupMissingName(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channel-groups", map[string]any{}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateGroupRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channel-groups", map[string]any{
+		"name": "News",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteGroup(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/channel-groups", map[string]any{
+		"name": "To Delete",
+	}, env.adminToken)
+
+	var g map[string]any
+	decodeBody(resp, &g)
+	id := g["id"].(string)
+
+	resp = env.request("DELETE", "/api/channel-groups/"+id, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = env.request("GET", "/api/channel-groups", nil, env.adminToken)
+	var groups []map[string]any
+	decodeBody(resp, &groups)
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups after delete, got %d", len(groups))
+	}
+}
+
+func TestCreateAndListChannels(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	env.request("POST", "/api/channels", map[string]any{
+		"name":   "BBC One",
+		"number": 1,
+	}, env.adminToken)
+
+	env.request("POST", "/api/channels", map[string]any{
+		"name":   "BBC Two",
+		"number": 2,
+	}, env.adminToken)
+
+	resp := env.request("GET", "/api/channels", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var channels []map[string]any
+	decodeBody(resp, &channels)
+	if len(channels) != 2 {
+		t.Fatalf("expected 2 channels, got %d", len(channels))
 	}
 }
