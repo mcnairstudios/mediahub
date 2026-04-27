@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/session"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
@@ -15,13 +17,15 @@ import (
 type PipelineRunner func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error)
 
 type PlaybackDeps struct {
-	StreamStore    store.StreamStore
-	SessionMgr     *session.Manager
-	Detector       *client.Detector
-	OutputReg      *output.Registry
-	Strategy       func(strategy.Input, strategy.Output) strategy.Decision
-	UserAgent      string
-	PipelineRunner PipelineRunner
+	StreamStore       store.StreamStore
+	SourceConfigStore sourceconfig.Store
+	ConnRegistry      *connectivity.Registry
+	SessionMgr        *session.Manager
+	Detector          *client.Detector
+	OutputReg         *output.Registry
+	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
+	UserAgent         string
+	PipelineRunner    PipelineRunner
 }
 
 type PlaybackResult struct {
@@ -80,12 +84,23 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	if isNew {
+		pipelineURL := stream.URL
+
+		if deps.SourceConfigStore != nil && deps.ConnRegistry != nil && stream.SourceID != "" {
+			sc, _ := deps.SourceConfigStore.Get(ctx, stream.SourceID)
+			if sc != nil && sc.Config["use_wireguard"] == "true" {
+				if active := deps.ConnRegistry.Active(); active != nil {
+					pipelineURL = active.ProxyURL(stream.URL)
+				}
+			}
+		}
+
 		runner := deps.PipelineRunner
 		if runner == nil {
 			runner = deps.SessionMgr.RunPipeline
 		}
 		info, err := runner(sess, session.PipelineConfig{
-			StreamURL: stream.URL,
+			StreamURL: pipelineURL,
 			StreamID:  stream.ID,
 			UserAgent: deps.UserAgent,
 		})

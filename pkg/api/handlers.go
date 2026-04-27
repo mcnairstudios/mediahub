@@ -133,11 +133,13 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deps := orchestrator.PlaybackDeps{
-		StreamStore: s.deps.StreamStore,
-		SessionMgr:  s.deps.SessionMgr,
-		Detector:    s.deps.Detector,
-		OutputReg:   s.deps.OutputReg,
-		Strategy:    s.deps.Strategy,
+		StreamStore:       s.deps.StreamStore,
+		SourceConfigStore: s.deps.SourceConfigStore,
+		ConnRegistry:      s.deps.ConnRegistry,
+		SessionMgr:        s.deps.SessionMgr,
+		Detector:          s.deps.Detector,
+		OutputReg:         s.deps.OutputReg,
+		Strategy:          s.deps.Strategy,
 	}
 
 	headers := make(map[string]string)

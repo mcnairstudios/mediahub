@@ -7,6 +7,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
@@ -24,6 +25,7 @@ type OrchestratorDeps struct {
 	ChannelStore      channel.Store
 	SettingsStore     store.SettingsStore
 	SourceConfigStore sourceconfig.Store
+	ConnRegistry      *connectivity.Registry
 	SessionMgr        *session.Manager
 	Detector          *client.Detector
 	OutputReg         *output.Registry

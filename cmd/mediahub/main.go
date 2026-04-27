@@ -181,6 +181,7 @@ func main() {
 		ChannelStore:      channelStore,
 		SettingsStore:     settingsStore,
 		SourceConfigStore: sourceConfigStore,
+		ConnRegistry:      connReg,
 		SessionMgr:        sessionMgr,
 		Detector:          detector,
 		OutputReg:         outputReg,
