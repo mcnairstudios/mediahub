@@ -520,8 +520,11 @@
       if (details.dataset.loaded) return;
       details.dataset.loaded = '1';
 
-      var streamData = JSON.parse(details.dataset.streams || '[]');
+      var groupKey = details.dataset.group;
       var section = details.dataset.section;
+      var maps = container._groupMaps || {};
+      var sectionMap = maps[section] || {};
+      var streamData = sectionMap[groupKey] || [];
       var tableEl = document.createElement('table');
       tableEl.className = 'stream-group-table';
 
@@ -575,16 +578,21 @@
 
     for (var i = 0; i < allStreams.length; i++) {
       var s = allStreams[i];
-      if (s.vod_type === 'movie') {
+      var classified = s.vod_type;
+      if (!classified) {
+        classified = (s.season > 0 || s.episode > 0) ? 'series' : 'movie';
+      }
+      if (classified === 'movie') {
         movies.push(s);
         var mg = s.group || '(Ungrouped)';
         if (!movieGroups[mg]) movieGroups[mg] = [];
         movieGroups[mg].push(s);
-      } else if (s.vod_type === 'series' || s.vod_type === 'episode') {
+      } else if (classified === 'series' || classified === 'episode') {
         var sg = s.group || s.name || '(Unknown Series)';
         if (!seriesGroups[sg]) seriesGroups[sg] = [];
         seriesGroups[sg].push(s);
       } else {
+        movies.push(s);
         var lg = s.group || '(Ungrouped)';
         if (!movieGroups[lg]) movieGroups[lg] = [];
         movieGroups[lg].push(s);
@@ -610,10 +618,6 @@
 
     var groupsContainer = document.createElement('div');
 
-    function escJson(arr) {
-      return esc(JSON.stringify(arr));
-    }
-
     function renderMoviesTab() {
       var html = [];
       var visibleCount = 0;
@@ -624,7 +628,7 @@
         if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
         var items = movieGroups[gk];
         visibleCount += items.length;
-        html.push('<details class="stream-group" data-section="movies" data-streams="' + escJson(items) + '"><summary>' +
+        html.push('<details class="stream-group" data-section="movies" data-group="' + esc(gk) + '"><summary>' +
           esc(display) + '<span class="stream-group-count">' + items.length + '</span></summary></details>');
       }
       summaryEl.textContent = visibleCount.toLocaleString() + ' movies in ' + html.length + ' group' + (html.length !== 1 ? 's' : '');
@@ -643,7 +647,7 @@
         if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
         var items = seriesGroups[sk];
         visibleCount += items.length;
-        html.push('<details class="stream-group" data-section="series" data-streams="' + escJson(items) + '"><summary>' +
+        html.push('<details class="stream-group" data-section="series" data-group="' + esc(sk) + '"><summary>' +
           esc(display) + ' <span class="stream-badge" style="background:rgba(52,211,153,.15);color:var(--success);font-size:10px;margin-left:4px">SERIES</span>' +
           '<span class="stream-group-count">' + items.length + '</span></summary></details>');
       }
@@ -679,6 +683,7 @@
       }, 300);
     });
 
+    groupsContainer._groupMaps = { movies: movieGroups, series: seriesGroups };
     bindStreamGroupEvents(groupsContainer);
 
     container.innerHTML = '';
@@ -717,10 +722,6 @@
     searchInput.className = 'form-input';
     searchInput.style.cssText = 'min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;';
 
-    function escJson(arr) {
-      return esc(JSON.stringify(arr));
-    }
-
     function renderGroups() {
       var html = [];
       var visibleCount = 0;
@@ -736,7 +737,7 @@
         if (searchTerm && lDisplay.toLowerCase().indexOf(searchTerm) === -1) continue;
         var items = liveGroups[lk];
         visibleCount += items.length;
-        html.push('<details class="stream-group" data-section="live" data-streams="' + escJson(items) + '"><summary>' +
+        html.push('<details class="stream-group" data-section="live" data-group="' + esc(lk) + '"><summary>' +
           esc(lDisplay) + '<span class="stream-group-count">' + items.length + '</span></summary></details>');
       }
 
@@ -757,6 +758,7 @@
       }, 300);
     });
 
+    groupsContainer._groupMaps = { live: liveGroups };
     bindStreamGroupEvents(groupsContainer);
 
     container.innerHTML = '';
