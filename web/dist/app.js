@@ -409,7 +409,9 @@
       '<button class="btn btn-primary" id="save-channel-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-channel-btn">Cancel</button></div></div>' +
       '<div id="group-panel" style="display:none" class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<div class="card-title">Channel Groups</div>' +
+      '<button class="btn btn-ghost" id="close-groups-btn" style="padding:4px 8px">&times;</button></div>' +
       '<div id="group-list"></div>' +
       '<div style="display:flex;gap:8px;margin-top:12px">' +
       '<input class="form-input" id="new-group-name" placeholder="Group name" style="flex:1">' +
@@ -471,6 +473,7 @@
       });
 
       document.getElementById('cancel-channel-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+      document.getElementById('close-groups-btn').addEventListener('click', function() { groupPanel.style.display = 'none'; });
 
       document.getElementById('save-channel-btn').addEventListener('click', async function() {
         var name = document.getElementById('ch-name').value.trim();
