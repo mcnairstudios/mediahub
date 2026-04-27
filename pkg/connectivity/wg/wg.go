@@ -99,7 +99,7 @@ func (p *Plugin) ProxyURL(upstreamURL string) string {
 func (p *Plugin) HTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &proxyTransport{proxyBase: fmt.Sprintf("http://127.0.0.1:%d", p.port)},
-		Timeout:   60 * time.Second,
+		Timeout:   5 * time.Minute,
 	}
 }
 
