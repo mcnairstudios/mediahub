@@ -34,6 +34,14 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/users", s.adminOnly(s.handleListUsers))
 	s.mux.Handle("POST /api/users", s.adminOnly(s.handleCreateUser))
 
+	s.mux.Handle("GET /api/wireguard/profiles", s.adminOnly(s.handleListWGProfiles))
+	s.mux.Handle("POST /api/wireguard/profiles", s.adminOnly(s.handleCreateWGProfile))
+	s.mux.Handle("PUT /api/wireguard/profiles/{id}", s.adminOnly(s.handleUpdateWGProfile))
+	s.mux.Handle("DELETE /api/wireguard/profiles/{id}", s.adminOnly(s.handleDeleteWGProfile))
+	s.mux.Handle("POST /api/wireguard/profiles/{id}/activate", s.adminOnly(s.handleActivateWGProfile))
+	s.mux.Handle("POST /api/wireguard/profiles/{id}/test", s.adminOnly(s.handleTestWGProfile))
+	s.mux.Handle("GET /api/wireguard/status", s.adminOnly(s.handleWGStatus))
+
 	if s.deps.StaticFS != nil {
 		staticHandler := http.FileServerFS(s.deps.StaticFS)
 		s.mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

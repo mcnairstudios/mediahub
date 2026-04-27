@@ -7,6 +7,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/output"
@@ -31,6 +32,7 @@ type OrchestratorDeps struct {
 	AuthService       auth.Service
 	EPGSourceStore    epg.SourceStore
 	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
+	WGService         *wg.Service
 	StaticFS          fs.FS
 }
 

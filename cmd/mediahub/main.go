@@ -24,6 +24,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/config"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
+	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/dlna"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/jellyfin"
@@ -126,7 +127,15 @@ func main() {
 	})
 
 	connReg := connectivity.NewRegistry()
-	_ = connReg
+
+	wgService := wg.NewService(settingsStore)
+	if err := wgService.RestoreActive(ctx); err != nil {
+		log.Printf("wireguard: failed to restore active profile: %v", err)
+	} else if plugin := wgService.ActivePlugin(); plugin != nil {
+		connReg.Register(plugin)
+		connReg.SetActive("wireguard")
+		log.Printf("wireguard: restored active tunnel (proxy port %d)", plugin.Port())
+	}
 
 	tmdbCache := tmdbcache.New()
 	cacheReg := cache.NewRegistry()
@@ -173,6 +182,7 @@ func main() {
 		AuthService:       authService,
 		EPGSourceStore:    epgSourceStore,
 		Strategy:          strategy.Resolve,
+		WGService:         wgService,
 		StaticFS:          staticFS,
 	})
 
@@ -266,6 +276,7 @@ func main() {
 	cancel()
 	scheduler.Stop()
 	sessionMgr.StopAll()
+	wgService.Close()
 
 	fmt.Println("mediahub stopped")
 }

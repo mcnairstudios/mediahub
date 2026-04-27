@@ -71,7 +71,8 @@
     refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-    empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>'
+    empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
+    wireguard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M12 8v4M12 16h.01"/></svg>'
   };
 
   var router = {
@@ -135,6 +136,7 @@
     ];
     if (isAdmin) {
       items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
+      items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
       items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
       items.push({ id: 'users', label: 'Users', icon: 'users' });
     }
@@ -1074,12 +1076,230 @@
     }
   }
 
+  async function renderWireGuard(el) {
+    el.innerHTML = '<h1 class="page-title">WireGuard</h1>' +
+      '<div id="wg-status-bar" style="margin-bottom:16px"><div class="skeleton" style="height:48px"></div></div>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-wg-btn">' + icons.plus + ' Add Profile</button></div>' +
+      '<div id="wg-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="wg-form" style="display:none" class="card">' +
+      '<div class="card-title" id="wg-form-title">New WireGuard Profile</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="wg-name" placeholder="My VPN"></div>' +
+      '<div class="form-group"><label class="form-label">Private Key</label><input class="form-input" id="wg-privkey" placeholder="base64 private key"></div>' +
+      '<div class="form-group"><label class="form-label">Endpoint</label><input class="form-input" id="wg-endpoint" placeholder="vpn.example.com:51820"></div>' +
+      '<div class="form-group"><label class="form-label">Peer Public Key</label><input class="form-input" id="wg-pubkey" placeholder="base64 public key"></div>' +
+      '<div class="form-group"><label class="form-label">Address</label><input class="form-input" id="wg-address" placeholder="10.0.0.2/24"></div>' +
+      '<div class="form-group"><label class="form-label">Allowed IPs</label><input class="form-input" id="wg-allowedips" value="0.0.0.0/0" placeholder="0.0.0.0/0"></div>' +
+      '<div class="form-group"><label class="form-label">DNS (optional)</label><input class="form-input" id="wg-dns" placeholder="1.1.1.1"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="save-wg-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-wg-btn">Cancel</button></div></div>';
+
+    var wgEditId = null;
+    var addBtn = document.getElementById('add-wg-btn');
+    var formEl = document.getElementById('wg-form');
+    addBtn.addEventListener('click', function() {
+      wgEditId = null;
+      document.getElementById('wg-form-title').textContent = 'New WireGuard Profile';
+      document.getElementById('save-wg-btn').textContent = 'Create';
+      document.getElementById('wg-name').value = '';
+      document.getElementById('wg-privkey').value = '';
+      document.getElementById('wg-endpoint').value = '';
+      document.getElementById('wg-pubkey').value = '';
+      document.getElementById('wg-address').value = '';
+      document.getElementById('wg-allowedips').value = '0.0.0.0/0';
+      document.getElementById('wg-dns').value = '';
+      formEl.style.display = 'block';
+    });
+    document.getElementById('cancel-wg-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+
+    document.getElementById('save-wg-btn').addEventListener('click', async function() {
+      var payload = {
+        name: document.getElementById('wg-name').value.trim(),
+        private_key: document.getElementById('wg-privkey').value.trim(),
+        endpoint: document.getElementById('wg-endpoint').value.trim(),
+        public_key: document.getElementById('wg-pubkey').value.trim(),
+        address: document.getElementById('wg-address').value.trim(),
+        allowed_ips: document.getElementById('wg-allowedips').value.trim(),
+        dns: document.getElementById('wg-dns').value.trim()
+      };
+      if (!payload.name) { toast('Name required', 'error'); return; }
+      try {
+        var r;
+        if (wgEditId) {
+          r = await api.put('/api/wireguard/profiles/' + wgEditId, payload);
+        } else {
+          if (!payload.private_key || !payload.endpoint || !payload.public_key || !payload.address) {
+            toast('All fields except DNS are required', 'error');
+            return;
+          }
+          r = await api.post('/api/wireguard/profiles', payload);
+        }
+        if (r.ok) {
+          toast(wgEditId ? 'Profile updated' : 'Profile created');
+          formEl.style.display = 'none';
+          renderWireGuard(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save profile', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save profile', 'error');
+      }
+    });
+
+    try {
+      var statusResp = await api.get('/api/wireguard/status');
+      var status = await statusResp.json();
+      var statusBar = document.getElementById('wg-status-bar');
+      if (statusBar) {
+        if (status.connected) {
+          statusBar.innerHTML = '<div class="card" style="background:var(--success-bg, #e6f4ea);border:1px solid var(--success-border, #34a853);padding:12px 16px;display:flex;align-items:center;gap:12px">' +
+            '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#34a853"></span>' +
+            '<strong>Connected</strong> &mdash; ' + esc(status.profile_name) + ' (' + esc(status.endpoint) + ')' +
+            '<span style="margin-left:auto;font-size:0.85em;opacity:0.7">Proxy port: ' + status.proxy_port + '</span>' +
+            '</div>';
+        } else {
+          statusBar.innerHTML = '<div class="card" style="background:var(--warning-bg, #fef7e0);border:1px solid var(--warning-border, #f9ab00);padding:12px 16px;display:flex;align-items:center;gap:12px">' +
+            '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#f9ab00"></span>' +
+            '<strong>Disconnected</strong> &mdash; No active WireGuard tunnel' +
+            '</div>';
+        }
+      }
+    } catch (e) {
+      var sb = document.getElementById('wg-status-bar');
+      if (sb) sb.innerHTML = '';
+    }
+
+    try {
+      var resp = await api.get('/api/wireguard/profiles');
+      var profiles = await resp.json();
+      if (!Array.isArray(profiles)) profiles = [];
+      var container = document.getElementById('wg-list');
+      if (!container) return;
+
+      if (profiles.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No WireGuard profiles configured</p></div>';
+        return;
+      }
+
+      var html = '<table class="list-table"><thead><tr>' +
+        '<th>Name</th><th>Endpoint</th><th>Address</th><th>Status</th><th></th>' +
+        '</tr></thead><tbody>';
+      for (var i = 0; i < profiles.length; i++) {
+        var p = profiles[i];
+        var badge = p.is_active
+          ? '<span class="badge badge-enabled">ACTIVE</span>'
+          : '<span class="badge badge-disabled">INACTIVE</span>';
+        html += '<tr>' +
+          '<td>' + esc(p.name) + '</td>' +
+          '<td>' + esc(p.endpoint) + '</td>' +
+          '<td>' + esc(p.address) + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td style="display:flex;gap:4px">' +
+          (p.is_active
+            ? ''
+            : '<button class="btn btn-sm btn-primary wg-activate-btn" data-id="' + esc(p.id) + '" title="Activate">Activate</button>') +
+          '<button class="btn btn-sm btn-ghost wg-test-btn" data-id="' + esc(p.id) + '" title="Test">Test</button>' +
+          '<button class="btn btn-sm btn-ghost wg-edit-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '" data-endpoint="' + esc(p.endpoint) + '" data-pubkey="' + esc(p.public_key) + '" data-address="' + esc(p.address) + '" data-allowedips="' + esc(p.allowed_ips) + '" data-dns="' + esc(p.dns || '') + '" title="Edit">Edit</button>' +
+          '<button class="btn btn-sm btn-danger wg-delete-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '" title="Delete">' + icons.trash + '</button>' +
+          '</td></tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+
+      container.querySelectorAll('.wg-activate-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          this.textContent = 'Connecting...';
+          this.disabled = true;
+          try {
+            var r = await api.post('/api/wireguard/profiles/' + id + '/activate', {});
+            if (r.ok) {
+              toast('WireGuard tunnel activated');
+              renderWireGuard(el);
+            } else {
+              var data = await r.json().catch(function() { return {}; });
+              toast(data.error || 'Failed to activate', 'error');
+              this.textContent = 'Activate';
+              this.disabled = false;
+            }
+          } catch (err) {
+            toast('Failed to activate', 'error');
+            this.textContent = 'Activate';
+            this.disabled = false;
+          }
+        });
+      });
+
+      container.querySelectorAll('.wg-test-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var origText = this.textContent;
+          this.textContent = 'Testing...';
+          this.disabled = true;
+          try {
+            var r = await api.post('/api/wireguard/profiles/' + id + '/test', {});
+            var result = await r.json();
+            if (result.success) {
+              toast('Connection OK (' + Math.round(result.latency_ms) + 'ms)');
+            } else {
+              toast('Test failed: ' + (result.error || 'unknown error'), 'error');
+            }
+          } catch (err) {
+            toast('Test failed', 'error');
+          }
+          this.textContent = origText;
+          this.disabled = false;
+        });
+      });
+
+      container.querySelectorAll('.wg-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          wgEditId = this.getAttribute('data-id');
+          document.getElementById('wg-form-title').textContent = 'Edit WireGuard Profile';
+          document.getElementById('save-wg-btn').textContent = 'Update';
+          document.getElementById('wg-name').value = this.getAttribute('data-name') || '';
+          document.getElementById('wg-privkey').value = '';
+          document.getElementById('wg-endpoint').value = this.getAttribute('data-endpoint') || '';
+          document.getElementById('wg-pubkey').value = this.getAttribute('data-pubkey') || '';
+          document.getElementById('wg-address').value = this.getAttribute('data-address') || '';
+          document.getElementById('wg-allowedips').value = this.getAttribute('data-allowedips') || '0.0.0.0/0';
+          document.getElementById('wg-dns').value = this.getAttribute('data-dns') || '';
+          formEl.style.display = 'block';
+        });
+      });
+
+      container.querySelectorAll('.wg-delete-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete WireGuard profile "' + name + '"?')) return;
+          try {
+            var r = await api.del('/api/wireguard/profiles/' + id);
+            if (r.ok || r.status === 204) {
+              toast('Profile deleted');
+              renderWireGuard(el);
+            } else {
+              toast('Failed to delete profile', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete profile', 'error');
+          }
+        });
+      });
+    } catch (e) {
+      var wgList = document.getElementById('wg-list');
+      if (wgList) wgList.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load profiles</p></div>';
+    }
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
     channels: renderChannels,
     recordings: renderRecordings,
     sources: renderSources,
+    wireguard: renderWireGuard,
     settings: renderSettings,
     users: renderUsers,
     player: renderPlayer
