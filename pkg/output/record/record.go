@@ -44,7 +44,11 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		return nil, fmt.Errorf("record: create directory: %w", err)
 	}
 
-	fc, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
+	format := cfg.OutputFormat
+	if format == "" {
+		format = "mpegts"
+	}
+	fc, err := astiav.AllocOutputFormatContext(nil, format, "")
 	if err != nil {
 		return nil, fmt.Errorf("record: alloc output format: %w", err)
 	}

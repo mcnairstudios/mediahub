@@ -146,7 +146,8 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 
 		recCfg := pluginCfg
-		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.mp4")
+		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
+		recCfg.OutputFormat = "mpegts"
 		recPlugin, recErr := deps.OutputReg.Create(output.DeliveryRecord, recCfg)
 		if recErr == nil && recPlugin != nil {
 			sess.FanOut.Add(recPlugin)

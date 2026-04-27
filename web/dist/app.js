@@ -342,18 +342,14 @@
 
   async function renderStreams(el) {
     el.innerHTML = '<h1 class="page-title">Streams</h1>' +
-      '<div class="search-bar">' + icons.search + '<input id="stream-search" placeholder="Search streams..."></div>' +
       '<div id="stream-list"><div class="skeleton" style="height:200px"></div></div>';
 
     try {
       await loadFavorites();
       var resp = await api.get('/api/streams');
-      var streams = await resp.json();
-      if (!Array.isArray(streams)) streams = [];
-      renderStreamTable(streams, '');
-      document.getElementById('stream-search').addEventListener('input', function() {
-        renderStreamTable(streams, this.value.toLowerCase());
-      });
+      var allStreams = await resp.json();
+      if (!Array.isArray(allStreams)) allStreams = [];
+      buildStreamGroups(el, allStreams);
     } catch (e) {
       document.getElementById('stream-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load streams</p></div>';
     }
@@ -386,69 +382,269 @@
     }
   }
 
-  function renderStreamTable(streams, filter) {
+  function streamLogoHtml(s) {
+    var logoUrl = s.tvg_logo || '';
+    if (!logoUrl) return '';
+    return '<img class="stream-group-logo" src="/logo?url=' + encodeURIComponent(logoUrl) + '" loading="lazy" alt="">';
+  }
+
+  function streamBadgesHtml(s) {
+    var badges = '';
+    if (s.video_codec) badges += '<span class="stream-badge stream-badge-codec">' + esc(s.video_codec) + '</span>';
+    if (s.height) {
+      var label = s.height >= 2160 ? '4K' : s.height >= 1080 ? '1080p' : s.height >= 720 ? '720p' : s.height + 'p';
+      badges += '<span class="stream-badge stream-badge-res">' + label + '</span>';
+    }
+    if (s.audio_codec) badges += '<span class="stream-badge stream-badge-codec">' + esc(s.audio_codec) + '</span>';
+    return badges;
+  }
+
+  function streamIsLive(s) {
+    return !s.vod_type;
+  }
+
+  function buildStreamRow(s) {
+    var logo = streamLogoHtml(s);
+    var badges = streamBadgesHtml(s);
+    var isFav = streamFavorites[s.id];
+    var favClass = isFav ? ' favorited' : '';
+    var favChar = isFav ? '\u2B50' : '\u2606';
+    var favColor = isFav ? '#eab308' : 'var(--text-muted)';
+    var displayName = s.name;
+    if (s.vod_type === 'episode' || (s.season && s.episode)) {
+      var se = 'S' + String(s.season || 0).padStart(2, '0') + 'E' + String(s.episode || 0).padStart(2, '0');
+      displayName = se + (s.episode_name ? ' - ' + s.episode_name : ' - ' + s.name);
+    }
+    var groupLabel = s.group ? ' <span style="color:var(--text-muted);font-size:12px">' + esc(s.group) + '</span>' : '';
+    return '<tr>' +
+      '<td>' + logo + '</td>' +
+      '<td>' + esc(displayName) + badges + groupLabel + '</td>' +
+      '<td style="width:100px"><div style="display:flex;gap:4px;justify-content:flex-end">' +
+      '<button class="stream-fav-btn' + favClass + '" data-fav="1" data-sid="' + esc(s.id) + '" style="color:' + favColor + '">' + favChar + '</button>' +
+      '<button class="stream-add-btn" data-qadd="1" data-sid="' + esc(s.id) + '" data-sname="' + esc(s.name) + '" title="Add to channel">+</button>' +
+      '<button class="stream-play-btn" data-sid="' + esc(s.id) + '" data-sname="' + esc(s.name) + '" data-live="' + (streamIsLive(s) ? '1' : '0') + '" title="Play">\u25B6</button>' +
+      '</div></td></tr>';
+  }
+
+  function buildSeriesRows(streams) {
+    var rows = [];
+    var seasons = {};
+    for (var i = 0; i < streams.length; i++) {
+      var s = streams[i];
+      var sn = s.season || 0;
+      if (!seasons[sn]) seasons[sn] = [];
+      seasons[sn].push(s);
+    }
+    var seasonNums = Object.keys(seasons).map(Number).sort(function(a, b) { return a - b; });
+    for (var si = 0; si < seasonNums.length; si++) {
+      var num = seasonNums[si];
+      var eps = seasons[num];
+      eps.sort(function(a, b) { return (a.episode || 0) - (b.episode || 0); });
+      if (seasonNums.length > 1 || num > 0) {
+        rows.push('<tr><td colspan="3" class="series-season-header">Season ' + num + '</td></tr>');
+      }
+      for (var ei = 0; ei < eps.length; ei++) {
+        rows.push(buildStreamRow(eps[ei]));
+      }
+    }
+    return rows;
+  }
+
+  function buildStreamGroups(el, allStreams) {
+    var movies = [];
+    var seriesGroups = {};
+    var liveGroups = {};
+    var totalCount = allStreams.length;
+
+    for (var i = 0; i < allStreams.length; i++) {
+      var s = allStreams[i];
+      if (s.vod_type === 'movie') {
+        movies.push(s);
+      } else if (s.vod_type === 'series' || s.vod_type === 'episode') {
+        var sg = s.group || s.name || '(Unknown Series)';
+        if (!seriesGroups[sg]) seriesGroups[sg] = [];
+        seriesGroups[sg].push(s);
+      } else {
+        var lg = s.group || '(No Group)';
+        if (!liveGroups[lg]) liveGroups[lg] = [];
+        liveGroups[lg].push(s);
+      }
+    }
+
+    var searchTerm = '';
+    var searchTimer = null;
+
     var container = document.getElementById('stream-list');
     if (!container) return;
-    var filtered = streams;
-    if (filter) {
-      filtered = streams.filter(function(s) {
-        return (s.name || '').toLowerCase().indexOf(filter) >= 0 ||
-               (s.group || '').toLowerCase().indexOf(filter) >= 0 ||
-               (s.url || '').toLowerCase().indexOf(filter) >= 0;
-      });
-    }
-    if (filtered.length === 0) {
-      container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No streams found</p></div>';
-      return;
-    }
-    var html = '<table class="list-table"><thead><tr>' +
-      '<th></th><th>Name</th><th>Group</th><th>Type</th><th>Actions</th>' +
-      '</tr></thead><tbody>';
-    for (var i = 0; i < filtered.length; i++) {
-      var s = filtered[i];
-      var logo = s.logo_url ? '<img class="logo" src="' + esc(s.logo_url) + '" alt="">' : '';
-      var typeBadge = s.is_live ? '<span class="badge badge-live">LIVE</span>' : '<span class="badge badge-vod">VOD</span>';
-      var isFav = streamFavorites[s.id];
-      var starIcon = isFav ? icons.starFilled : icons.star;
-      var starClass = isFav ? ' favorited' : '';
-      html += '<tr class="clickable" data-stream-id="' + esc(s.id) + '">' +
-        '<td>' + logo + '</td>' +
-        '<td>' + esc(s.name) + '</td>' +
-        '<td>' + esc(s.group || '-') + '</td>' +
-        '<td>' + typeBadge + '</td>' +
-        '<td class="actions-cell">' +
-        '<button class="btn btn-sm btn-icon fav-btn' + starClass + '" data-id="' + esc(s.id) + '" title="Toggle favorite">' + starIcon + '</button>' +
-        '<button class="btn btn-sm btn-icon add-channel-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" title="Add to channel">' + icons.addChannel + '</button>' +
-        '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icons.play + '</button>' +
-        '</td></tr>';
-    }
-    html += '</tbody></table>';
-    container.innerHTML = html;
-    container.querySelectorAll('.play-btn').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
-      });
+
+    var summaryEl = document.createElement('h3');
+    var groupsContainer = document.createElement('div');
+
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search streams...';
+    searchInput.className = 'form-input';
+    searchInput.style.cssText = 'min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;';
+
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        searchTerm = searchInput.value.toLowerCase();
+        if (searchTerm.length >= 2) {
+          renderSearchResults(allStreams, searchTerm, groupsContainer, summaryEl);
+        } else {
+          renderGroups();
+        }
+      }, 300);
     });
-    container.querySelectorAll('.fav-btn').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var sid = this.getAttribute('data-id');
-        var self = this;
+
+    function renderGroups() {
+      var html = [];
+      var visibleCount = 0;
+
+      if (movies.length > 0) {
+        var mFiltered = searchTerm ? movies.filter(function(m) { return matchStream(m, searchTerm); }) : movies;
+        if (mFiltered.length > 0) {
+          visibleCount += mFiltered.length;
+          html.push('<details class="stream-group" data-section="movies"><summary>Movies<span class="stream-group-count">' + mFiltered.length + '</span></summary></details>');
+        }
+      }
+
+      var seriesKeys = Object.keys(seriesGroups).sort();
+      for (var si = 0; si < seriesKeys.length; si++) {
+        var sk = seriesKeys[si];
+        var display = sk.replace(/^(TV|Movie)\|/, '');
+        if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
+        var count = seriesGroups[sk].length;
+        visibleCount += count;
+        html.push('<details class="stream-group" data-section="series" data-group="' + esc(sk) + '"><summary>' + esc(display) + ' <span class="stream-badge" style="background:rgba(52,211,153,.15);color:var(--success);font-size:10px;margin-left:4px">SERIES</span><span class="stream-group-count">' + count + '</span></summary></details>');
+      }
+
+      var liveKeys = Object.keys(liveGroups).sort(function(a, b) {
+        if (a === '(No Group)') return 1;
+        if (b === '(No Group)') return -1;
+        return a.localeCompare(b);
+      });
+      for (var li = 0; li < liveKeys.length; li++) {
+        var lk = liveKeys[li];
+        var lDisplay = lk.replace(/^(TV|Movie)\|/, '');
+        if (searchTerm && lDisplay.toLowerCase().indexOf(searchTerm) === -1) continue;
+        var lCount = liveGroups[lk].length;
+        visibleCount += lCount;
+        html.push('<details class="stream-group" data-group="' + esc(lk) + '"><summary>' + esc(lDisplay) + '<span class="stream-group-count">' + lCount + '</span></summary></details>');
+      }
+
+      summaryEl.textContent = visibleCount.toLocaleString() + ' streams in ' + html.length + ' group' + (html.length !== 1 ? 's' : '');
+      if (html.length === 0) {
+        groupsContainer.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
+          (searchTerm ? 'No groups match "' + esc(searchInput.value) + '"' : 'No streams found') + '</div>';
+        return;
+      }
+      groupsContainer.innerHTML = html.join('');
+    }
+
+    groupsContainer.addEventListener('toggle', function(e) {
+      var details = e.target;
+      if (!details.open || details.tagName !== 'DETAILS') return;
+      if (details.dataset.loaded) return;
+      details.dataset.loaded = '1';
+
+      var section = details.dataset.section;
+      var groupName = details.dataset.group;
+      var streams;
+
+      if (section === 'movies') {
+        streams = movies.slice();
+        streams.sort(function(a, b) {
+          if ((a.year || '') !== (b.year || '')) return (a.year || '').localeCompare(b.year || '');
+          return a.name.localeCompare(b.name);
+        });
+        var tableEl = document.createElement('table');
+        tableEl.className = 'stream-group-table';
+        var rows = [];
+        for (var mi = 0; mi < streams.length; mi++) rows.push(buildStreamRow(streams[mi]));
+        tableEl.innerHTML = '<tbody>' + rows.join('') + '</tbody>';
+        details.appendChild(tableEl);
+      } else if (section === 'series') {
+        streams = seriesGroups[groupName] || [];
+        var tableEl2 = document.createElement('table');
+        tableEl2.className = 'stream-group-table';
+        tableEl2.innerHTML = '<tbody>' + buildSeriesRows(streams).join('') + '</tbody>';
+        details.appendChild(tableEl2);
+      } else {
+        streams = liveGroups[groupName] || [];
+        streams.sort(function(a, b) { return a.name.localeCompare(b.name); });
+        var tableEl3 = document.createElement('table');
+        tableEl3.className = 'stream-group-table';
+        var lRows = [];
+        for (var li = 0; li < streams.length; li++) lRows.push(buildStreamRow(streams[li]));
+        tableEl3.innerHTML = '<tbody>' + lRows.join('') + '</tbody>';
+        details.appendChild(tableEl3);
+      }
+    }, true);
+
+    groupsContainer.addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-sid]');
+      if (!btn) return;
+      e.stopPropagation();
+      if (btn.dataset.fav) {
+        var sid = btn.dataset.sid;
+        var isFav = streamFavorites[sid];
         toggleFavorite(sid).then(function() {
           var nowFav = streamFavorites[sid];
-          self.innerHTML = nowFav ? icons.starFilled : icons.star;
-          if (nowFav) self.classList.add('favorited');
-          else self.classList.remove('favorited');
+          btn.textContent = nowFav ? '\u2B50' : '\u2606';
+          btn.style.color = nowFav ? '#eab308' : 'var(--text-muted)';
+          if (nowFav) btn.classList.add('favorited');
+          else btn.classList.remove('favorited');
         });
-      });
+        return;
+      }
+      if (btn.dataset.qadd) {
+        showAddToChannelModal(btn.dataset.sid, btn.dataset.sname);
+        return;
+      }
+      var isLive = btn.dataset.live !== '0';
+      startPlay(btn.dataset.sid, btn.dataset.sname, isLive);
     });
-    container.querySelectorAll('.add-channel-btn').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showAddToChannelModal(this.getAttribute('data-id'), this.getAttribute('data-name'));
-      });
-    });
+
+    container.innerHTML = '';
+    var headerDiv = document.createElement('div');
+    headerDiv.className = 'stream-groups-header';
+    headerDiv.appendChild(summaryEl);
+    var searchWrap = document.createElement('div');
+    searchWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    searchWrap.appendChild(searchInput);
+    headerDiv.appendChild(searchWrap);
+    container.appendChild(headerDiv);
+    container.appendChild(groupsContainer);
+
+    renderGroups();
+  }
+
+  function matchStream(s, term) {
+    return (s.name || '').toLowerCase().indexOf(term) >= 0 ||
+           (s.group || '').toLowerCase().indexOf(term) >= 0 ||
+           (s.url || '').toLowerCase().indexOf(term) >= 0;
+  }
+
+  function renderSearchResults(allStreams, term, groupsContainer, summaryEl) {
+    var filtered = allStreams.filter(function(s) { return matchStream(s, term); });
+    summaryEl.textContent = filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + term + '"';
+    if (filtered.length === 0) {
+      groupsContainer.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">No streams match "' + term + '"</div>';
+      return;
+    }
+    var maxShow = 200;
+    var shown = filtered.slice(0, maxShow);
+    var html = '<table class="stream-group-table"><tbody>';
+    for (var i = 0; i < shown.length; i++) {
+      html += buildStreamRow(shown[i]);
+    }
+    html += '</tbody></table>';
+    if (filtered.length > maxShow) {
+      html += '<div style="padding:12px 16px;text-align:center;color:var(--text-muted);font-size:13px">Showing ' + maxShow + ' of ' + filtered.length + ' results. Narrow your search for more.</div>';
+    }
+    groupsContainer.innerHTML = html;
   }
 
   async function showAddToChannelModal(streamID, streamName) {
@@ -1382,7 +1578,7 @@
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var s = filtered[i];
-      var logo = s.logo_url ? '<img class="logo" src="' + esc(s.logo_url) + '" alt="">' : '';
+      var logo = s.tvg_logo ? '<img class="logo" src="/logo?url=' + encodeURIComponent(s.tvg_logo) + '" alt="">' : '';
       html += '<tr>' +
         '<td>' + logo + '</td>' +
         '<td>' + esc(s.name) + '</td>' +
