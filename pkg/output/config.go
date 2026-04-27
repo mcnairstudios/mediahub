@@ -1,8 +1,13 @@
 package output
 
+import "github.com/mcnairstudios/mediahub/pkg/media"
+
 // PluginConfig holds configuration for creating an OutputPlugin.
-// Additional fields will be added as concrete plugins are implemented.
 type PluginConfig struct {
-	OutputDir string
-	IsLive    bool
+	OutputDir      string
+	OutputFilePath string
+	OutputFormat   string
+	IsLive         bool
+	Video          *media.VideoInfo
+	Audio          *media.AudioTrack
 }
