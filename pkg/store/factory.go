@@ -8,6 +8,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 )
 
@@ -126,6 +127,21 @@ func (f *Factory) RecordingStore(backend BackendType) (recording.Store, error) {
 			return nil, fmt.Errorf("open bolt db: %w", err)
 		}
 		return db.RecordingStore(), nil
+	default:
+		return nil, fmt.Errorf("unknown backend: %q", backend)
+	}
+}
+
+func (f *Factory) SourceConfigStore(backend BackendType) (sourceconfig.Store, error) {
+	switch backend {
+	case BackendMemory:
+		return sourceconfig.NewMemoryStore(), nil
+	case BackendBolt:
+		db, err := boltstore.Open(filepath.Join(f.dataDir, "mediahub.db"))
+		if err != nil {
+			return nil, fmt.Errorf("open bolt db: %w", err)
+		}
+		return db.SourceConfigStore(), nil
 	default:
 		return nil, fmt.Errorf("unknown backend: %q", backend)
 	}

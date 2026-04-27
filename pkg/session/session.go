@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"path/filepath"
 	"sync"
 	"time"
@@ -19,15 +20,18 @@ type Session struct {
 	OutputDir  string
 	FanOut     *output.FanOut
 	CreatedAt  time.Time
+	Delivery   string
 
 	mu       sync.Mutex
+	ctx      context.Context
 	cancel   context.CancelFunc
 	done     chan struct{}
 	seekFunc func(posMs int64)
 	recorded bool
+	closers  []io.Closer
 }
 
-func newSession(_ context.Context, cancel context.CancelFunc, streamID, streamURL, streamName, outputDir string) *Session {
+func newSession(ctx context.Context, cancel context.CancelFunc, streamID, streamURL, streamName, outputDir string) *Session {
 	return &Session{
 		ID:         generateID(),
 		StreamID:   streamID,
@@ -36,9 +40,20 @@ func newSession(_ context.Context, cancel context.CancelFunc, streamID, streamUR
 		OutputDir:  filepath.Join(outputDir, streamID),
 		FanOut:     output.NewFanOut(),
 		CreatedAt:  time.Now(),
+		ctx:        ctx,
 		cancel:     cancel,
 		done:       make(chan struct{}),
 	}
+}
+
+func (s *Session) Context() context.Context {
+	return s.ctx
+}
+
+func (s *Session) AddCloser(c io.Closer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closers = append(s.closers, c)
 }
 
 func (s *Session) SetRecorded(v bool) {
@@ -56,6 +71,13 @@ func (s *Session) IsRecorded() bool {
 func (s *Session) Stop() {
 	s.cancel()
 	s.FanOut.Stop()
+	s.mu.Lock()
+	closers := s.closers
+	s.closers = nil
+	s.mu.Unlock()
+	for _, c := range closers {
+		c.Close()
+	}
 	close(s.done)
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 )
 
 func tempDB(t *testing.T) (*DB, string) {
@@ -1234,5 +1235,254 @@ func TestUserStore_GetPasswordHashNotFound(t *testing.T) {
 	_, err := s.GetPasswordHash(ctx, "nonexistent")
 	if err != auth.ErrUserNotFound {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
+func TestSettingsStore_SeedDefaults(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SettingsStore()
+	ctx := context.Background()
+
+	defaults := map[string]string{
+		"default_hwaccel":        "none",
+		"default_video_codec":    "copy",
+		"default_decode_hwaccel": "",
+		"dlna_enabled":           "true",
+		"delivery":               "mse",
+		"container":              "mp4",
+	}
+	for k, v := range defaults {
+		existing, _ := s.Get(ctx, k)
+		if existing == "" {
+			s.Set(ctx, k, v)
+		}
+	}
+
+	val, _ := s.Get(ctx, "default_hwaccel")
+	if val != "none" {
+		t.Errorf("default_hwaccel = %q, want %q", val, "none")
+	}
+	val, _ = s.Get(ctx, "dlna_enabled")
+	if val != "true" {
+		t.Errorf("dlna_enabled = %q, want %q", val, "true")
+	}
+
+	s.Set(ctx, "default_hwaccel", "vaapi")
+
+	for k, v := range defaults {
+		existing, _ := s.Get(ctx, k)
+		if existing == "" {
+			s.Set(ctx, k, v)
+		}
+	}
+
+	val, _ = s.Get(ctx, "default_hwaccel")
+	if val != "vaapi" {
+		t.Errorf("default_hwaccel after re-seed = %q, want %q (should not overwrite)", val, "vaapi")
+	}
+}
+
+func TestSourceConfigStore_CreateAndGet(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	sc := &sourceconfig.SourceConfig{
+		ID:        "src-1",
+		Type:      "m3u",
+		Name:      "UK IPTV",
+		IsEnabled: true,
+		Config: map[string]string{
+			"url":      "http://example.com/playlist.m3u",
+			"username": "user1",
+			"password": "pass1",
+		},
+	}
+
+	if err := s.Create(ctx, sc); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := s.Get(ctx, "src-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got == nil {
+		t.Fatal("Get returned nil")
+	}
+	if got.Name != "UK IPTV" {
+		t.Errorf("Name = %q, want %q", got.Name, "UK IPTV")
+	}
+	if got.Type != "m3u" {
+		t.Errorf("Type = %q, want %q", got.Type, "m3u")
+	}
+	if !got.IsEnabled {
+		t.Error("IsEnabled should be true")
+	}
+	if got.Config["url"] != "http://example.com/playlist.m3u" {
+		t.Errorf("Config[url] = %q, want %q", got.Config["url"], "http://example.com/playlist.m3u")
+	}
+}
+
+func TestSourceConfigStore_GetUnknownID(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	got, err := s.Get(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("Get should not error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got %+v", got)
+	}
+}
+
+func TestSourceConfigStore_List(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-1", Type: "m3u", Name: "One", Config: map[string]string{}})
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-2", Type: "hdhr", Name: "Two", Config: map[string]string{}})
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-3", Type: "m3u", Name: "Three", Config: map[string]string{}})
+
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 3 {
+		t.Errorf("got %d sources, want 3", len(list))
+	}
+}
+
+func TestSourceConfigStore_ListByType(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-1", Type: "m3u", Name: "One", Config: map[string]string{}})
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-2", Type: "hdhr", Name: "Two", Config: map[string]string{}})
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-3", Type: "m3u", Name: "Three", Config: map[string]string{}})
+
+	list, err := s.ListByType(ctx, "m3u")
+	if err != nil {
+		t.Fatalf("ListByType: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d m3u sources, want 2", len(list))
+	}
+
+	names := []string{list[0].Name, list[1].Name}
+	sort.Strings(names)
+	if names[0] != "One" || names[1] != "Three" {
+		t.Errorf("names = %v, want [One Three]", names)
+	}
+}
+
+func TestSourceConfigStore_Update(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-1", Type: "m3u", Name: "Old Name", Config: map[string]string{"url": "http://old.com"}})
+
+	err := s.Update(ctx, &sourceconfig.SourceConfig{ID: "src-1", Type: "m3u", Name: "New Name", Config: map[string]string{"url": "http://new.com"}})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, _ := s.Get(ctx, "src-1")
+	if got.Name != "New Name" {
+		t.Errorf("Name = %q, want %q", got.Name, "New Name")
+	}
+	if got.Config["url"] != "http://new.com" {
+		t.Errorf("Config[url] = %q, want %q", got.Config["url"], "http://new.com")
+	}
+}
+
+func TestSourceConfigStore_UpdateNotFound(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	err := s.Update(ctx, &sourceconfig.SourceConfig{ID: "nonexistent", Config: map[string]string{}})
+	if err != ErrSourceConfigNotFound {
+		t.Errorf("expected ErrSourceConfigNotFound, got %v", err)
+	}
+}
+
+func TestSourceConfigStore_Delete(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.SourceConfigStore()
+	ctx := context.Background()
+
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-1", Config: map[string]string{}})
+	s.Create(ctx, &sourceconfig.SourceConfig{ID: "src-2", Config: map[string]string{}})
+
+	if err := s.Delete(ctx, "src-1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	got, _ := s.Get(ctx, "src-1")
+	if got != nil {
+		t.Errorf("expected nil after delete, got %+v", got)
+	}
+
+	list, _ := s.List(ctx)
+	if len(list) != 1 {
+		t.Errorf("got %d sources, want 1", len(list))
+	}
+}
+
+func TestSourceConfigStore_Persistence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "persist.db")
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	ctx := context.Background()
+	db.SourceConfigStore().Create(ctx, &sourceconfig.SourceConfig{
+		ID:     "src-1",
+		Type:   "m3u",
+		Name:   "Persisted",
+		Config: map[string]string{"url": "http://example.com"},
+	})
+	db.Close()
+
+	db2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	defer db2.Close()
+
+	got, err := db2.SourceConfigStore().Get(ctx, "src-1")
+	if err != nil {
+		t.Fatalf("Get after reopen: %v", err)
+	}
+	if got == nil {
+		t.Fatal("source config should persist across close/reopen")
+	}
+	if got.Name != "Persisted" {
+		t.Errorf("Name = %q, want %q", got.Name, "Persisted")
 	}
 }

@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
+	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 )
 
@@ -149,10 +151,11 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"session_id": result.Session.ID,
 		"stream_id":  result.Session.StreamID,
 		"is_new":     result.IsNew,
+		"delivery":   result.Delivery,
 		"decision": map[string]any{
 			"needs_transcode":       result.Decision.NeedsTranscode,
 			"needs_audio_transcode": result.Decision.NeedsAudioTranscode,
@@ -160,7 +163,57 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 			"audio_codec":           result.Decision.AudioCodec,
 			"container":             result.Decision.Container,
 		},
-	})
+	}
+
+	base := "/api/play/" + streamID
+	switch result.Delivery {
+	case "hls":
+		resp["endpoints"] = map[string]string{
+			"playlist": base + "/hls/playlist.m3u8",
+		}
+	case "mse":
+		resp["endpoints"] = map[string]string{
+			"video_init":    base + "/mse/video/init",
+			"audio_init":    base + "/mse/audio/init",
+			"video_segment": base + "/mse/video/segment",
+			"audio_segment": base + "/mse/audio/segment",
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handlePlaybackServe(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	rest := r.PathValue("path")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	plugins := sess.FanOut.Plugins()
+	for _, p := range plugins {
+		sp, ok := p.(output.ServablePlugin)
+		if !ok {
+			continue
+		}
+		r.URL.Path = "/" + rest
+		sp.ServeHTTP(w, r)
+		return
+	}
+
+	http.NotFound(w, r)
 }
 
 func (s *Server) handleStopPlayback(w http.ResponseWriter, r *http.Request) {
@@ -267,11 +320,27 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		SourceType string `json:"source_type"`
+	var sourceType string
+	if s.deps.SourceConfigStore != nil {
+		cfg, err := s.deps.SourceConfigStore.Get(r.Context(), sourceID)
+		if err == nil && cfg != nil {
+			sourceType = cfg.Type
+		}
 	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+
+	if sourceType == "" {
+		var req struct {
+			SourceType string `json:"source_type"`
+		}
+		if err := httputil.DecodeJSON(r, &req); err != nil {
+			httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		sourceType = req.SourceType
+	}
+
+	if sourceType == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source type required")
 		return
 	}
 
@@ -279,10 +348,9 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		SourceReg: s.deps.SourceReg,
 	}
 
-	if err := orchestrator.RefreshSource(r.Context(), deps, source.SourceType(req.SourceType), sourceID); err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	go func() {
+		orchestrator.RefreshSource(context.Background(), deps, source.SourceType(sourceType), sourceID)
+	}()
 
 	w.WriteHeader(http.StatusAccepted)
 }

@@ -22,8 +22,15 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/play/{streamID}/seek", s.authenticated(s.handleSeek))
 	s.mux.Handle("POST /api/play/{streamID}/record", s.authenticated(s.handleStartRecording))
 	s.mux.Handle("DELETE /api/play/{streamID}/record", s.authenticated(s.handleStopRecording))
+	s.mux.Handle("GET /api/play/{streamID}/hls/{path...}", s.authenticated(s.handlePlaybackServe))
+	s.mux.Handle("GET /api/play/{streamID}/mse/{path...}", s.authenticated(s.handlePlaybackServe))
 
+	s.mux.Handle("GET /api/sources", s.authenticated(s.handleListSources))
+	s.mux.Handle("POST /api/sources/m3u", s.adminOnly(s.handleCreateM3USource))
+	s.mux.Handle("PUT /api/sources/m3u/{id}", s.adminOnly(s.handleUpdateM3USource))
+	s.mux.Handle("DELETE /api/sources/m3u/{id}", s.adminOnly(s.handleDeleteM3USource))
 	s.mux.Handle("POST /api/sources/{sourceID}/refresh", s.adminOnly(s.handleRefreshSource))
+	s.mux.Handle("GET /api/sources/{sourceID}/status", s.authenticated(s.handleSourceStatus))
 	s.mux.Handle("GET /api/users", s.adminOnly(s.handleListUsers))
 	s.mux.Handle("POST /api/users", s.adminOnly(s.handleCreateUser))
 

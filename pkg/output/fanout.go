@@ -141,6 +141,16 @@ func (f *FanOut) PluginCount() int {
 	return len(f.plugins)
 }
 
+// Plugins returns a snapshot of the current plugins.
+func (f *FanOut) Plugins() []OutputPlugin {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	out := make([]OutputPlugin, len(f.plugins))
+	copy(out, f.plugins)
+	return out
+}
+
 // Status returns the status of all active plugins.
 func (f *FanOut) Status() []PluginStatus {
 	f.mu.RLock()

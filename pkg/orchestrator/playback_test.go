@@ -13,6 +13,20 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
 
+func mockPipelineRunner(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+	return &media.ProbeResult{
+		Video: &media.VideoInfo{
+			Index: 0,
+			Codec: "h264",
+			Width: 1920, Height: 1080,
+			FramerateN: 25, FramerateD: 1,
+		},
+		AudioTracks: []media.AudioTrack{
+			{Index: 1, Codec: "aac", Channels: 2, SampleRate: 48000},
+		},
+	}, nil
+}
+
 type mockPlugin struct {
 	mode output.DeliveryMode
 }
@@ -39,6 +53,9 @@ func newTestPlaybackDeps(streams []media.Stream) PlaybackDeps {
 	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
 		return &mockPlugin{mode: output.DeliveryMSE}, nil
 	})
+	reg.Register(output.DeliveryHLS, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryHLS}, nil
+	})
 
 	detector := client.NewDetector([]client.Client{
 		{
@@ -51,11 +68,12 @@ func newTestPlaybackDeps(streams []media.Stream) PlaybackDeps {
 	})
 
 	return PlaybackDeps{
-		StreamStore: ss,
-		SessionMgr:  session.NewManager("/tmp/test-sessions"),
-		Detector:    detector,
-		OutputReg:   reg,
-		Strategy:    strategy.Resolve,
+		StreamStore:    ss,
+		SessionMgr:     session.NewManager("/tmp/test-sessions"),
+		Detector:       detector,
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: mockPipelineRunner,
 	}
 }
 

@@ -34,6 +34,8 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
+	"github.com/mcnairstudios/mediahub/pkg/store"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 	"github.com/mcnairstudios/mediahub/pkg/worker"
@@ -64,6 +66,7 @@ func main() {
 	programStore := db.ProgramStore()
 	recordingStore := db.RecordingStore()
 	userStore := db.UserStore()
+	sourceConfigStore := db.SourceConfigStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
@@ -81,9 +84,25 @@ func main() {
 		log.Println("seeded default admin user (admin/admin)")
 	}
 
+	seedDefaults(ctx, settingsStore)
+
 	sourceReg := source.NewRegistry()
-	sourceReg.Register("m3u", func(_ context.Context, _ string) (source.Source, error) {
-		return nil, errors.New("m3u sources are created via API with their config")
+	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := sourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		return m3usource.New(m3usource.Config{
+			ID:           sc.ID,
+			Name:         sc.Name,
+			URL:          sc.Config["url"],
+			IsEnabled:    sc.IsEnabled,
+			UseWireGuard: sc.Config["use_wireguard"] == "true",
+			StreamStore:  streamStore,
+		}), nil
 	})
 	sourceReg.Register("hdhr", func(_ context.Context, _ string) (source.Source, error) {
 		return nil, errors.New("hdhr sources are created via API with their config")
@@ -142,18 +161,19 @@ func main() {
 	staticFS, _ := fs.Sub(web.Assets, "dist")
 
 	apiServer := api.NewServer(api.OrchestratorDeps{
-		StreamStore:    streamStore,
-		ChannelStore:   channelStore,
-		SettingsStore:  settingsStore,
-		SessionMgr:     sessionMgr,
-		Detector:       detector,
-		OutputReg:      outputReg,
-		SourceReg:      sourceReg,
-		RecordingStore: recordingStore,
-		AuthService:    authService,
-		EPGSourceStore: epgSourceStore,
-		Strategy:       strategy.Resolve,
-		StaticFS:       staticFS,
+		StreamStore:       streamStore,
+		ChannelStore:      channelStore,
+		SettingsStore:     settingsStore,
+		SourceConfigStore: sourceConfigStore,
+		SessionMgr:        sessionMgr,
+		Detector:          detector,
+		OutputReg:         outputReg,
+		SourceReg:         sourceReg,
+		RecordingStore:    recordingStore,
+		AuthService:       authService,
+		EPGSourceStore:    epgSourceStore,
+		Strategy:          strategy.Resolve,
+		StaticFS:          staticFS,
 	})
 
 	mainMux := http.NewServeMux()
@@ -330,4 +350,27 @@ func (a *dlnaSettingsAdapter) IsEnabled(ctx context.Context) bool {
 		return true
 	}
 	return val != "false" && val != "0"
+}
+
+func seedDefaults(ctx context.Context, s store.SettingsStore) {
+	defaults := map[string]string{
+		"default_hwaccel":        "none",
+		"default_video_codec":    "copy",
+		"default_decode_hwaccel": "",
+		"default_max_bit_depth":  "",
+		"encoder_h264":           "",
+		"encoder_h265":           "",
+		"encoder_av1":            "",
+		"decoder_h264":           "",
+		"decoder_h265":           "",
+		"dlna_enabled":           "true",
+		"delivery":               "mse",
+		"container":              "mp4",
+	}
+	for k, v := range defaults {
+		existing, _ := s.Get(ctx, k)
+		if existing == "" {
+			s.Set(ctx, k, v)
+		}
+	}
 }

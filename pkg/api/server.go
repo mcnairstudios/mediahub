@@ -13,23 +13,25 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
 
 type OrchestratorDeps struct {
-	StreamStore    store.StreamStore
-	ChannelStore   channel.Store
-	SettingsStore  store.SettingsStore
-	SessionMgr     *session.Manager
-	Detector       *client.Detector
-	OutputReg      *output.Registry
-	SourceReg      *source.Registry
-	RecordingStore recording.Store
-	AuthService    auth.Service
-	EPGSourceStore epg.SourceStore
-	Strategy       func(strategy.Input, strategy.Output) strategy.Decision
-	StaticFS       fs.FS
+	StreamStore       store.StreamStore
+	ChannelStore      channel.Store
+	SettingsStore     store.SettingsStore
+	SourceConfigStore sourceconfig.Store
+	SessionMgr        *session.Manager
+	Detector          *client.Detector
+	OutputReg         *output.Registry
+	SourceReg         *source.Registry
+	RecordingStore    recording.Store
+	AuthService       auth.Service
+	EPGSourceStore    epg.SourceStore
+	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
+	StaticFS          fs.FS
 }
 
 type Server struct {

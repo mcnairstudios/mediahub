@@ -14,6 +14,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
@@ -63,17 +64,20 @@ func newTestEnv(t *testing.T) *testEnv {
 	recordingStore := store.NewMemoryRecordingStore()
 	epgSourceStore := store.NewMemoryEPGSourceStore()
 
+	sourceConfigStore := sourceconfig.NewMemoryStore()
+
 	deps := OrchestratorDeps{
-		StreamStore:    streamStore,
-		ChannelStore:   channelStore,
-		SettingsStore:  settingsStore,
-		SessionMgr:     session.NewManager(t.TempDir()),
-		Detector:       client.NewDetector(nil),
-		OutputReg:      output.NewRegistry(),
-		SourceReg:      source.NewRegistry(),
-		RecordingStore: recordingStore,
-		AuthService:    authService,
-		EPGSourceStore: epgSourceStore,
+		StreamStore:       streamStore,
+		ChannelStore:      channelStore,
+		SettingsStore:     settingsStore,
+		SourceConfigStore: sourceConfigStore,
+		SessionMgr:        session.NewManager(t.TempDir()),
+		Detector:          client.NewDetector(nil),
+		OutputReg:         output.NewRegistry(),
+		SourceReg:         source.NewRegistry(),
+		RecordingStore:    recordingStore,
+		AuthService:       authService,
+		EPGSourceStore:    epgSourceStore,
 		Strategy: func(in strategy.Input, out strategy.Output) strategy.Decision {
 			return strategy.Resolve(in, out)
 		},
@@ -374,5 +378,188 @@ func TestInvalidToken(t *testing.T) {
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestListSourcesEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 0 {
+		t.Fatalf("expected 0 sources, got %d", len(sources))
+	}
+}
+
+func TestCreateM3USource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "UK IPTV",
+		"url":  "http://example.com/playlist.m3u",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	if sc.ID == "" {
+		t.Fatal("expected non-empty ID")
+	}
+	if sc.Name != "UK IPTV" {
+		t.Errorf("Name = %q, want %q", sc.Name, "UK IPTV")
+	}
+	if sc.Type != "m3u" {
+		t.Errorf("Type = %q, want %q", sc.Type, "m3u")
+	}
+	if !sc.IsEnabled {
+		t.Error("IsEnabled should be true")
+	}
+	if sc.Config["url"] != "http://example.com/playlist.m3u" {
+		t.Errorf("Config[url] = %q, want %q", sc.Config["url"], "http://example.com/playlist.m3u")
+	}
+}
+
+func TestCreateM3USourceMissingFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "Missing URL",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateM3USourceRequiresAdmin(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "UK IPTV",
+		"url":  "http://example.com/playlist.m3u",
+	}, env.standardToken)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateAndListSources(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "Source One",
+		"url":  "http://example.com/one.m3u",
+	}, env.adminToken)
+
+	env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "Source Two",
+		"url":  "http://example.com/two.m3u",
+	}, env.adminToken)
+
+	resp := env.request("GET", "/api/sources", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 2 {
+		t.Fatalf("expected 2 sources, got %d", len(sources))
+	}
+}
+
+func TestDeleteM3USource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "To Delete",
+		"url":  "http://example.com/del.m3u",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("DELETE", "/api/sources/m3u/"+sc.ID, nil, env.adminToken)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	resp = env.request("GET", "/api/sources", nil, env.adminToken)
+	var sources []map[string]any
+	decodeBody(resp, &sources)
+	if len(sources) != 0 {
+		t.Fatalf("expected 0 sources after delete, got %d", len(sources))
+	}
+}
+
+func TestUpdateM3USource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("POST", "/api/sources/m3u", map[string]any{
+		"name": "Original",
+		"url":  "http://example.com/orig.m3u",
+	}, env.adminToken)
+
+	var sc sourceconfig.SourceConfig
+	decodeBody(resp, &sc)
+
+	resp = env.request("PUT", "/api/sources/m3u/"+sc.ID, map[string]any{
+		"name": "Updated Name",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var updated sourceconfig.SourceConfig
+	decodeBody(resp, &updated)
+	if updated.Name != "Updated Name" {
+		t.Errorf("Name = %q, want %q", updated.Name, "Updated Name")
+	}
+}
+
+func TestUpdateM3USourceNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("PUT", "/api/sources/m3u/nonexistent", map[string]any{
+		"name": "Whatever",
+	}, env.adminToken)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestSourceStatusEndpoint(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	resp := env.request("GET", "/api/sources/some-id/status", nil, env.adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var status map[string]any
+	decodeBody(resp, &status)
+	if status["state"] != "idle" {
+		t.Errorf("state = %q, want %q", status["state"], "idle")
 	}
 }

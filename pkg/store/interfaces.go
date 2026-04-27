@@ -21,3 +21,4 @@ type SettingsStore interface {
 	Set(ctx context.Context, key, value string) error
 	List(ctx context.Context) (map[string]string, error)
 }
+

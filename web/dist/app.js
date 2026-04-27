@@ -67,6 +67,10 @@
     pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
     stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
+    sources: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v2H4zM4 11h16v2H4zM4 18h16v2H4z"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="8" cy="12" r="1" fill="currentColor"/><circle cx="8" cy="19" r="1" fill="currentColor"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>'
   };
 
@@ -130,6 +134,7 @@
       { id: 'recordings', label: 'Recordings', icon: 'recordings' }
     ];
     if (isAdmin) {
+      items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
       items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
       items.push({ id: 'users', label: 'Users', icon: 'users' });
     }
@@ -189,6 +194,7 @@
     else if (page === 'streams') renderStreams(pageEl);
     else if (page === 'channels') renderChannels(pageEl);
     else if (page === 'recordings') renderRecordings(pageEl);
+    else if (page === 'sources') renderSources(pageEl);
     else if (page === 'settings') renderSettings(pageEl);
     else if (page === 'users') renderUsers(pageEl);
     else renderDashboard(pageEl);
@@ -469,20 +475,35 @@
     try {
       var resp = await api.post('/api/play/' + streamID);
       if (!resp.ok) {
-        toast('Failed to start playback', 'error');
+        var errData = await resp.json().catch(function() { return {}; });
+        toast('Failed to start playback: ' + (errData.error || resp.statusText), 'error');
         return;
       }
       var data = await resp.json();
       playerState.sessionID = data.session_id;
 
-      var hlsUrl = '/api/play/' + streamID + '/hls/master.m3u8';
-      if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-        startHLS(videoEl, hlsUrl);
-      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        videoEl.src = hlsUrl;
-        videoEl.play().catch(function() {});
+      var delivery = data.delivery || 'hls';
+      var endpoints = data.endpoints || {};
+
+      if (delivery === 'hls') {
+        var hlsUrl = endpoints.playlist || ('/api/play/' + streamID + '/hls/playlist.m3u8');
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+          startHLS(videoEl, hlsUrl);
+        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+          videoEl.src = hlsUrl;
+          videoEl.play().catch(function() {});
+        } else {
+          startMSE(videoEl, streamID, endpoints);
+        }
+      } else if (delivery === 'mse') {
+        if ('MediaSource' in window) {
+          startMSE(videoEl, streamID, endpoints);
+        } else {
+          toast('Browser does not support MSE playback', 'error');
+        }
       } else {
-        startMSE(videoEl, streamID);
+        toast('Unknown delivery mode: ' + delivery, 'error');
+        return;
       }
     } catch (e) {
       toast('Playback error: ' + e.message, 'error');
@@ -500,7 +521,10 @@
       liveMaxLatencyDurationCount: 6,
       maxBufferLength: 30,
       maxMaxBufferLength: 60,
-      startLevel: -1
+      startLevel: -1,
+      xhrSetup: function(xhr) {
+        if (api.token) xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
+      }
     });
     hls.loadSource(url);
     hls.attachMedia(videoEl);
@@ -519,50 +543,83 @@
     playerState.hlsInstance = hls;
   }
 
-  function startMSE(videoEl, streamID) {
+  function startMSE(videoEl, streamID, endpoints) {
     if (!('MediaSource' in window)) {
       toast('Browser does not support MSE playback', 'error');
       return;
     }
+
+    var videoInitUrl = (endpoints && endpoints.video_init) || ('/api/play/' + streamID + '/mse/video/init');
+    var audioInitUrl = (endpoints && endpoints.audio_init) || ('/api/play/' + streamID + '/mse/audio/init');
+    var videoSegUrl = (endpoints && endpoints.video_segment) || ('/api/play/' + streamID + '/mse/video/segment');
+    var audioSegUrl = (endpoints && endpoints.audio_segment) || ('/api/play/' + streamID + '/mse/audio/segment');
+
     var ms = new MediaSource();
     videoEl.src = URL.createObjectURL(ms);
     ms.addEventListener('sourceopen', function() {
-      var mimeType = 'video/mp4; codecs="avc1.640028,mp4a.40.2"';
-      if (!MediaSource.isTypeSupported(mimeType)) {
-        mimeType = 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"';
+      var videoMime = 'video/mp4; codecs="avc1.640028"';
+      if (!MediaSource.isTypeSupported(videoMime)) {
+        videoMime = 'video/mp4; codecs="avc1.42E01E"';
       }
-      var sb = ms.addSourceBuffer(mimeType);
-      var queue = [];
-      var feeding = false;
+      var audioMime = 'audio/mp4; codecs="mp4a.40.2"';
 
-      function feedNext() {
-        if (feeding || !queue.length || sb.updating) return;
-        feeding = true;
-        var chunk = queue.shift();
-        try { sb.appendBuffer(chunk); } catch (e) { feeding = false; }
+      var videoSB = ms.addSourceBuffer(videoMime);
+      var audioSB = null;
+      try { audioSB = ms.addSourceBuffer(audioMime); } catch (e) {}
+
+      function makeFeeder(sb) {
+        var queue = [];
+        var feeding = false;
+        function feedNext() {
+          if (feeding || !queue.length || sb.updating) return;
+          feeding = true;
+          var chunk = queue.shift();
+          try { sb.appendBuffer(chunk); } catch (e) { feeding = false; }
+        }
+        sb.addEventListener('updateend', function() {
+          feeding = false;
+          if (queue.length) feedNext();
+        });
+        return { push: function(data) { queue.push(data); feedNext(); } };
       }
 
-      sb.addEventListener('updateend', function() {
-        feeding = false;
-        if (queue.length) feedNext();
-        if (!videoEl.paused) return;
-        videoEl.play().catch(function() {});
-      });
+      var videoFeeder = makeFeeder(videoSB);
+      var audioFeeder = audioSB ? makeFeeder(audioSB) : null;
 
-      pollSegments(streamID, function(data) {
-        queue.push(data);
-        feedNext();
-      });
+      fetchInit(videoInitUrl, videoFeeder);
+      if (audioFeeder) fetchInit(audioInitUrl, audioFeeder);
+
+      pollSegments(videoSegUrl, videoFeeder, videoEl);
+      if (audioFeeder) pollSegments(audioSegUrl, audioFeeder, videoEl);
     });
   }
 
-  function pollSegments(streamID, onSegment) {
-    var segIdx = 0;
+  function fetchInit(url, feeder) {
+    var stopped = false;
+    function attempt() {
+      if (stopped || !playerState.currentStreamID) return;
+      fetch(url, { headers: { 'Authorization': 'Bearer ' + api.token } })
+        .then(function(resp) {
+          if (!resp.ok) { setTimeout(attempt, 500); return; }
+          return resp.arrayBuffer();
+        })
+        .then(function(buf) {
+          if (buf) feeder.push(new Uint8Array(buf));
+        })
+        .catch(function() { setTimeout(attempt, 1000); });
+    }
+    attempt();
+    var origCleanup = playerState.cleanup.bind(playerState);
+    playerState.cleanup = function() { stopped = true; origCleanup(); };
+  }
+
+  function pollSegments(baseUrl, feeder, videoEl) {
+    var segIdx = 1;
     var stopped = false;
 
     function poll() {
       if (stopped || !playerState.currentStreamID) return;
-      fetch('/api/play/' + streamID + '/mse/segment/' + segIdx, {
+      fetch(baseUrl + '?seq=' + segIdx, {
         headers: { 'Authorization': 'Bearer ' + api.token }
       }).then(function(resp) {
         if (!resp.ok) {
@@ -572,8 +629,10 @@
         return resp.arrayBuffer();
       }).then(function(buf) {
         if (!buf) return;
-        onSegment(new Uint8Array(buf));
+        feeder.push(new Uint8Array(buf));
         segIdx++;
+        if (!videoEl.paused) { /* keep going */ }
+        else videoEl.play().catch(function() {});
         setTimeout(poll, 50);
       }).catch(function() {
         setTimeout(poll, 1000);
@@ -782,6 +841,123 @@
     }
   }
 
+  async function renderSources(el) {
+    el.innerHTML = '<h1 class="page-title">Sources</h1>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-source-btn">' + icons.plus + ' Add M3U Source</button></div>' +
+      '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="add-source-form" style="display:none" class="card">' +
+      '<div class="card-title">New M3U Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="src-name" placeholder="My IPTV Provider"></div>' +
+      '<div class="form-group"><label class="form-label">URL</label><input class="form-input" id="src-url" placeholder="http://example.com/playlist.m3u"></div>' +
+      '<div class="form-group"><label class="form-label">Username (optional)</label><input class="form-input" id="src-username"></div>' +
+      '<div class="form-group"><label class="form-label">Password (optional)</label><input class="form-input" id="src-password" type="password"></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="src-wireguard"> Route through WireGuard</label></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-source-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-source-btn">Cancel</button></div></div>';
+
+    var addBtn = document.getElementById('add-source-btn');
+    var formEl = document.getElementById('add-source-form');
+    addBtn.addEventListener('click', function() { formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none'; });
+    document.getElementById('cancel-source-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+
+    document.getElementById('create-source-btn').addEventListener('click', async function() {
+      var name = document.getElementById('src-name').value.trim();
+      var url = document.getElementById('src-url').value.trim();
+      var username = document.getElementById('src-username').value.trim();
+      var password = document.getElementById('src-password').value;
+      var wg = document.getElementById('src-wireguard').checked;
+      if (!name || !url) { toast('Name and URL required', 'error'); return; }
+      try {
+        var r = await api.post('/api/sources/m3u', { name: name, url: url, username: username, password: password, use_wireguard: wg });
+        if (r.ok) {
+          toast('Source created, refreshing...');
+          formEl.style.display = 'none';
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to create source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to create source', 'error');
+      }
+    });
+
+    try {
+      var resp = await api.get('/api/sources');
+      var sources = await resp.json();
+      if (!Array.isArray(sources)) sources = [];
+      var container = document.getElementById('source-list');
+      if (!container) return;
+
+      if (sources.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No sources configured</p></div>';
+        return;
+      }
+
+      var html = '<table class="list-table"><thead><tr>' +
+        '<th>Name</th><th>Type</th><th>Streams</th><th>Last Refreshed</th><th>Status</th><th></th>' +
+        '</tr></thead><tbody>';
+      for (var i = 0; i < sources.length; i++) {
+        var s = sources[i];
+        var statusBadge = s.is_enabled ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
+        if (s.last_error) {
+          statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
+        }
+        var lastRefreshed = s.last_refreshed ? new Date(s.last_refreshed).toLocaleString() : 'Never';
+        html += '<tr>' +
+          '<td>' + esc(s.name) + '</td>' +
+          '<td><span class="badge badge-enabled">' + esc(s.type || 'unknown').toUpperCase() + '</span></td>' +
+          '<td>' + (s.stream_count || 0) + '</td>' +
+          '<td>' + esc(lastRefreshed) + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td style="display:flex;gap:4px">' +
+          '<button class="btn btn-sm btn-ghost refresh-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" title="Refresh">' + icons.refresh + '</button>' +
+          '<button class="btn btn-sm btn-danger delete-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" data-name="' + esc(s.name) + '" title="Delete">' + icons.trash + '</button>' +
+          '</td></tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+
+      container.querySelectorAll('.refresh-source-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          try {
+            var r = await api.post('/api/sources/' + id + '/refresh', {});
+            if (r.ok || r.status === 202) {
+              toast('Refresh started');
+            } else {
+              toast('Failed to refresh', 'error');
+            }
+          } catch (err) {
+            toast('Failed to refresh', 'error');
+          }
+        });
+      });
+
+      container.querySelectorAll('.delete-source-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var type = this.getAttribute('data-type');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete source "' + name + '"? All its streams will be removed.')) return;
+          try {
+            var r = await api.del('/api/sources/' + type + '/' + id);
+            if (r.ok || r.status === 204) {
+              toast('Source deleted');
+              renderSources(el);
+            } else {
+              toast('Failed to delete source', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete source', 'error');
+          }
+        });
+      });
+    } catch (e) {
+      document.getElementById('source-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load sources</p></div>';
+    }
+  }
+
   async function renderSettings(el) {
     el.innerHTML = '<h1 class="page-title">Settings</h1>' +
       '<div id="settings-list"><div class="skeleton" style="height:200px"></div></div>';
@@ -903,6 +1079,7 @@
     streams: renderStreams,
     channels: renderChannels,
     recordings: renderRecordings,
+    sources: renderSources,
     settings: renderSettings,
     users: renderUsers,
     player: renderPlayer
