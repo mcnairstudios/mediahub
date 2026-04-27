@@ -64,7 +64,13 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		VideoTimeBase: p.videoTB,
 	}
 
-	if cfg.Video != nil {
+	if cfg.VideoCodecParams != nil {
+		vcp := cfg.VideoCodecParams.(*astiav.CodecParameters)
+		muxOpts.VideoCodecID = vcp.CodecID()
+		muxOpts.VideoExtradata = vcp.ExtraData()
+		muxOpts.VideoWidth = vcp.Width()
+		muxOpts.VideoHeight = vcp.Height()
+	} else if cfg.Video != nil {
 		codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
 		if err != nil {
 			return nil, fmt.Errorf("mse: video codec: %w", err)
@@ -75,7 +81,14 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		muxOpts.VideoHeight = cfg.Video.Height
 	}
 
-	if cfg.Audio != nil {
+	if cfg.AudioCodecParams != nil {
+		acp := cfg.AudioCodecParams.(*astiav.CodecParameters)
+		muxOpts.AudioCodecID = acp.CodecID()
+		muxOpts.AudioExtradata = acp.ExtraData()
+		muxOpts.AudioChannels = acp.ChannelLayout().Channels()
+		muxOpts.AudioSampleRate = acp.SampleRate()
+		p.hasAudio = true
+	} else if cfg.Audio != nil {
 		audioCodecID, err := conv.CodecIDFromString(cfg.Audio.Codec)
 		if err != nil {
 			log.Warn().Err(err).Msg("unknown audio codec, video-only")
@@ -269,14 +282,29 @@ func (p *Plugin) serveSegment(w http.ResponseWriter, r *http.Request, getter fun
 
 	if genStr != "" {
 		gen, err := strconv.ParseInt(genStr, 10, 64)
-		if err == nil && gen < p.generation.Load() {
+		if err == nil && gen != p.generation.Load() {
+			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusGone)
 			return
 		}
 	}
 
-	data, ok := getter(seq)
+	deadline := time.Now().Add(5 * time.Second)
+	var data []byte
+	var ok bool
+	for time.Now().Before(deadline) {
+		data, ok = getter(seq)
+		if ok {
+			break
+		}
+		if p.stopped.Load() || p.eos.Load() {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	if !ok {
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}

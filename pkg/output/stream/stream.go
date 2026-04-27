@@ -62,48 +62,81 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	cw.written = &p.written
 
-	if cfg.Video != nil {
-		videoCP, err := conv.CodecParamsFromVideoProbe(cfg.Video)
-		if err != nil {
-			muxer.Close()
-			f.Close()
-			return nil, fmt.Errorf("stream: video codec params: %w", err)
+	var videoStream, audioStream *astiav.Stream
+
+	if cfg.Video != nil || cfg.VideoCodecParams != nil {
+		var videoCP *astiav.CodecParameters
+		var freeVideoCP bool
+		if cfg.VideoCodecParams != nil {
+			videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
+		} else {
+			var err error
+			videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
+			if err != nil {
+				muxer.Close()
+				f.Close()
+				return nil, fmt.Errorf("stream: video codec params: %w", err)
+			}
+			freeVideoCP = true
 		}
-		vs, err := muxer.AddStream(videoCP)
+		var err error
+		videoStream, err = muxer.AddStream(videoCP)
 		if err != nil {
-			videoCP.Free()
+			if freeVideoCP {
+				videoCP.Free()
+			}
 			muxer.Close()
 			f.Close()
 			return nil, fmt.Errorf("stream: add video stream: %w", err)
 		}
-		videoCP.Free()
-		p.videoIdx = vs.Index()
-		p.videoTB = vs.TimeBase()
+		if freeVideoCP {
+			videoCP.Free()
+		}
+		p.videoIdx = videoStream.Index()
 	}
 
-	if cfg.Audio != nil {
-		audioCP, err := conv.CodecParamsFromAudioProbe(cfg.Audio)
-		if err != nil {
-			muxer.Close()
-			f.Close()
-			return nil, fmt.Errorf("stream: audio codec params: %w", err)
+	if cfg.Audio != nil || cfg.AudioCodecParams != nil {
+		var audioCP *astiav.CodecParameters
+		var freeAudioCP bool
+		if cfg.AudioCodecParams != nil {
+			audioCP = cfg.AudioCodecParams.(*astiav.CodecParameters)
+		} else {
+			var err error
+			audioCP, err = conv.CodecParamsFromAudioProbe(cfg.Audio)
+			if err != nil {
+				muxer.Close()
+				f.Close()
+				return nil, fmt.Errorf("stream: audio codec params: %w", err)
+			}
+			freeAudioCP = true
 		}
-		as, err := muxer.AddStream(audioCP)
+		var err error
+		audioStream, err = muxer.AddStream(audioCP)
 		if err != nil {
-			audioCP.Free()
+			if freeAudioCP {
+				audioCP.Free()
+			}
 			muxer.Close()
 			f.Close()
 			return nil, fmt.Errorf("stream: add audio stream: %w", err)
 		}
-		audioCP.Free()
-		p.audioIdx = as.Index()
-		p.audioTB = as.TimeBase()
+		if freeAudioCP {
+			audioCP.Free()
+		}
+		p.audioIdx = audioStream.Index()
 	}
 
 	if err := muxer.WriteHeader(); err != nil {
 		muxer.Close()
 		f.Close()
 		return nil, fmt.Errorf("stream: write header: %w", err)
+	}
+
+	if videoStream != nil {
+		p.videoTB = videoStream.TimeBase()
+	}
+	if audioStream != nil {
+		p.audioTB = audioStream.TimeBase()
 	}
 
 	return p, nil

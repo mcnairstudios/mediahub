@@ -37,8 +37,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	if cfg.OutputDir == "" {
 		return nil, errors.New("hls: OutputDir is required")
 	}
-	if cfg.Video == nil {
-		return nil, errors.New("hls: Video info is required")
+	if cfg.Video == nil && cfg.VideoCodecParams == nil {
+		return nil, errors.New("hls: Video info or VideoCodecParams is required")
 	}
 
 	segDir := filepath.Join(cfg.OutputDir, "segments")
@@ -51,19 +51,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	segDir = resolvedSegDir
 
-	videoCodecID, err := conv.CodecIDFromString(cfg.Video.Codec)
-	if err != nil {
-		return nil, fmt.Errorf("hls: video codec: %w", err)
-	}
-
-	videoFPS := 25
-	if cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
-		videoFPS = cfg.Video.FramerateN / cfg.Video.FramerateD
-		if videoFPS <= 0 {
-			videoFPS = 25
-		}
-	}
-
 	segDur := cfg.SegmentDurationSec
 	if segDur <= 0 {
 		segDur = 6
@@ -72,15 +59,48 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	hlsOpts := mux.HLSMuxOpts{
 		OutputDir:          segDir,
 		SegmentDurationSec: segDur,
-		VideoCodecID:       videoCodecID,
-		VideoExtradata:     cfg.Video.Extradata,
-		VideoWidth:         cfg.Video.Width,
-		VideoHeight:        cfg.Video.Height,
 		VideoTimeBase:      astiav.NewRational(1, 90000),
-		VideoFrameRate:     videoFPS,
 	}
 
-	if cfg.Audio != nil {
+	if cfg.VideoCodecParams != nil {
+		vcp := cfg.VideoCodecParams.(*astiav.CodecParameters)
+		hlsOpts.VideoCodecID = vcp.CodecID()
+		hlsOpts.VideoExtradata = vcp.ExtraData()
+		hlsOpts.VideoWidth = vcp.Width()
+		hlsOpts.VideoHeight = vcp.Height()
+		hlsOpts.VideoFrameRate = 25
+	} else if cfg.Video != nil {
+		videoCodecID, err := conv.CodecIDFromString(cfg.Video.Codec)
+		if err != nil {
+			return nil, fmt.Errorf("hls: video codec: %w", err)
+		}
+		hlsOpts.VideoCodecID = videoCodecID
+		hlsOpts.VideoExtradata = cfg.Video.Extradata
+		hlsOpts.VideoWidth = cfg.Video.Width
+		hlsOpts.VideoHeight = cfg.Video.Height
+		hlsOpts.VideoFrameRate = 25
+	}
+
+	if cfg.Video != nil && cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
+		fps := cfg.Video.FramerateN / cfg.Video.FramerateD
+		if fps > 0 {
+			hlsOpts.VideoFrameRate = fps
+		}
+	}
+
+	if cfg.AudioCodecParams != nil {
+		acp := cfg.AudioCodecParams.(*astiav.CodecParameters)
+		hlsOpts.AudioCodecID = acp.CodecID()
+		hlsOpts.AudioExtradata = acp.ExtraData()
+		sampleRate := acp.SampleRate()
+		if sampleRate <= 0 {
+			sampleRate = 48000
+		}
+		hlsOpts.AudioChannels = acp.ChannelLayout().Channels()
+		hlsOpts.AudioSampleRate = sampleRate
+		hlsOpts.AudioTimeBase = astiav.NewRational(1, sampleRate)
+		hlsOpts.AudioFrameSize = 1024
+	} else if cfg.Audio != nil {
 		audioCodecID, err := conv.CodecIDFromString(cfg.Audio.Codec)
 		if err != nil {
 			return nil, fmt.Errorf("hls: audio codec: %w", err)

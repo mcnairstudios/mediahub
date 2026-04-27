@@ -35,8 +35,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	if cfg.OutputFilePath == "" {
 		return nil, errors.New("record: OutputFilePath is required")
 	}
-	if cfg.Video == nil {
-		return nil, errors.New("record: Video info is required")
+	if cfg.Video == nil && cfg.VideoCodecParams == nil {
+		return nil, errors.New("record: Video info or VideoCodecParams is required")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.OutputFilePath), 0755); err != nil {
@@ -60,27 +60,41 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	fc.SetPb(ioCtx)
 
-	videoCP, err := conv.CodecParamsFromVideoProbe(cfg.Video)
-	if err != nil {
-		ioCtx.Close()
-		fc.Free()
-		return nil, fmt.Errorf("record: video codec params: %w", err)
+	var videoCP *astiav.CodecParameters
+	var freeVideoCP bool
+	if cfg.VideoCodecParams != nil {
+		videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
+	} else {
+		var err error
+		videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
+		if err != nil {
+			ioCtx.Close()
+			fc.Free()
+			return nil, fmt.Errorf("record: video codec params: %w", err)
+		}
+		freeVideoCP = true
 	}
 
 	vs := fc.NewStream(nil)
 	if vs == nil {
-		videoCP.Free()
+		if freeVideoCP {
+			videoCP.Free()
+		}
 		ioCtx.Close()
 		fc.Free()
 		return nil, errors.New("record: failed to allocate video stream")
 	}
 	if err := videoCP.Copy(vs.CodecParameters()); err != nil {
-		videoCP.Free()
+		if freeVideoCP {
+			videoCP.Free()
+		}
 		ioCtx.Close()
 		fc.Free()
 		return nil, fmt.Errorf("record: copy video params: %w", err)
 	}
-	videoCP.Free()
+	if freeVideoCP {
+		videoCP.Free()
+	}
 	vs.SetTimeBase(astiav.NewRational(1, 90000))
 
 	p := &Plugin{
@@ -88,49 +102,71 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		fc:          fc,
 		ioCtx:       ioCtx,
 		videoStream: vs,
-		videoTB:     vs.TimeBase(),
 	}
 
-	if cfg.Audio != nil {
-		audioCP, err := conv.CodecParamsFromAudioProbe(cfg.Audio)
-		if err != nil {
-			ioCtx.Close()
-			fc.Free()
-			return nil, fmt.Errorf("record: audio codec params: %w", err)
+	if cfg.Audio != nil || cfg.AudioCodecParams != nil {
+		var audioCP *astiav.CodecParameters
+		var freeAudioCP bool
+		if cfg.AudioCodecParams != nil {
+			audioCP = cfg.AudioCodecParams.(*astiav.CodecParameters)
+		} else {
+			var err error
+			audioCP, err = conv.CodecParamsFromAudioProbe(cfg.Audio)
+			if err != nil {
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: audio codec params: %w", err)
+			}
+			freeAudioCP = true
 		}
 
 		as := fc.NewStream(nil)
 		if as == nil {
-			audioCP.Free()
+			if freeAudioCP {
+				audioCP.Free()
+			}
 			ioCtx.Close()
 			fc.Free()
 			return nil, errors.New("record: failed to allocate audio stream")
 		}
 		if err := audioCP.Copy(as.CodecParameters()); err != nil {
-			audioCP.Free()
+			if freeAudioCP {
+				audioCP.Free()
+			}
 			ioCtx.Close()
 			fc.Free()
 			return nil, fmt.Errorf("record: copy audio params: %w", err)
 		}
-		audioCP.Free()
+		if freeAudioCP {
+			audioCP.Free()
+		}
 		if as.CodecParameters().CodecID() == astiav.CodecIDAac {
 			as.CodecParameters().SetFrameSize(1024)
 		}
 
-		sampleRate := cfg.Audio.SampleRate
-		if sampleRate <= 0 {
-			sampleRate = 48000
+		sampleRate := 48000
+		if cfg.AudioCodecParams != nil {
+			sr := cfg.AudioCodecParams.(*astiav.CodecParameters).SampleRate()
+			if sr > 0 {
+				sampleRate = sr
+			}
+		} else if cfg.Audio != nil && cfg.Audio.SampleRate > 0 {
+			sampleRate = cfg.Audio.SampleRate
 		}
 		as.SetTimeBase(astiav.NewRational(1, sampleRate))
 
 		p.audioStream = as
-		p.audioTB = as.TimeBase()
 	}
 
 	if err := fc.WriteHeader(nil); err != nil {
 		ioCtx.Close()
 		fc.Free()
 		return nil, fmt.Errorf("record: write header: %w", err)
+	}
+
+	p.videoTB = vs.TimeBase()
+	if p.audioStream != nil {
+		p.audioTB = p.audioStream.TimeBase()
 	}
 
 	p.headerWritten = true
