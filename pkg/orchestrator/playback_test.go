@@ -324,3 +324,96 @@ func TestStartPlayback_TranscodeFieldsPassedToPipeline(t *testing.T) {
 		t.Error("expected Deinterlace=true")
 	}
 }
+
+func TestPlayRecording_NewSession(t *testing.T) {
+	deps := newTestPlaybackDeps(nil)
+	defer deps.SessionMgr.StopAll()
+
+	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsNew {
+		t.Error("expected new session")
+	}
+	if result.Session == nil {
+		t.Fatal("expected session")
+	}
+	if result.Session.StreamID != "rec:rec-1" {
+		t.Errorf("expected stream ID rec:rec-1, got %s", result.Session.StreamID)
+	}
+	if result.Session.StreamURL != "/tmp/test.mp4" {
+		t.Errorf("expected URL /tmp/test.mp4, got %s", result.Session.StreamURL)
+	}
+}
+
+func TestPlayRecording_JoinExisting(t *testing.T) {
+	deps := newTestPlaybackDeps(nil)
+	defer deps.SessionMgr.StopAll()
+
+	first, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !first.IsNew {
+		t.Error("expected first to be new")
+	}
+
+	second, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if second.IsNew {
+		t.Error("expected second to join existing")
+	}
+	if second.Session.ID != first.Session.ID {
+		t.Error("expected same session ID")
+	}
+}
+
+func TestStopRecordingPlayback_Works(t *testing.T) {
+	deps := newTestPlaybackDeps(nil)
+
+	_, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if deps.SessionMgr.ActiveCount() != 1 {
+		t.Fatalf("expected 1 active session, got %d", deps.SessionMgr.ActiveCount())
+	}
+
+	StopRecordingPlayback(deps, "rec-1")
+
+	if deps.SessionMgr.ActiveCount() != 0 {
+		t.Fatalf("expected 0 active sessions, got %d", deps.SessionMgr.ActiveCount())
+	}
+}
+
+func TestPlayRecording_IsNotLive(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDeps(nil)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "My Recording")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.StreamURL != "/tmp/test.mp4" {
+		t.Errorf("expected stream URL /tmp/test.mp4, got %s", capturedCfg.StreamURL)
+	}
+
+	plugins := result.Session.FanOut.Plugins()
+	for _, p := range plugins {
+		if p.Mode() == output.DeliveryRecord {
+			t.Error("recording playback should not have a recording plugin attached")
+		}
+	}
+}

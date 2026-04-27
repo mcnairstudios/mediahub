@@ -39,6 +39,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
+	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	recscheduler "github.com/mcnairstudios/mediahub/pkg/scheduler"
 	"github.com/mcnairstudios/mediahub/pkg/store"
@@ -156,6 +157,38 @@ func main() {
 			}
 		}
 		return tvpstreamssource.New(tvpCfg), nil
+	})
+	sourceReg.Register("xtream", func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := sourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		maxStreams := 0
+		if v := sc.Config["max_streams"]; v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				maxStreams = n
+			}
+		}
+		xtCfg := xstreamsource.Config{
+			ID:           sc.ID,
+			Name:         sc.Name,
+			Server:       sc.Config["server"],
+			Username:     sc.Config["username"],
+			Password:     sc.Config["password"],
+			IsEnabled:    sc.IsEnabled,
+			UseWireGuard: sc.Config["use_wireguard"] == "true",
+			MaxStreams:   maxStreams,
+			StreamStore:  streamStore,
+		}
+		if xtCfg.UseWireGuard && wgService != nil {
+			if p := wgService.ActivePlugin(); p != nil {
+				xtCfg.WGClient = p.HTTPClient()
+			}
+		}
+		return xstreamsource.New(xtCfg), nil
 	})
 	sourceReg.Register("hdhr", func(_ context.Context, _ string) (source.Source, error) {
 		return nil, errors.New("hdhr sources are created via API with their config")

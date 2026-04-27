@@ -118,14 +118,19 @@
     sessionID: null,
     isLive: false,
 
+    recordingID: null,
+
     cleanup: function() {
       if (this.bufferWatchInterval) { clearInterval(this.bufferWatchInterval); this.bufferWatchInterval = null; }
       if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
       if (this.hlsInstance) { this.hlsInstance.destroy(); this.hlsInstance = null; }
-      if (this.currentStreamID) {
+      if (this.recordingID) {
+        api.del('/api/recordings/completed/' + this.recordingID + '/play').catch(function() {});
+        this.recordingID = null;
+      } else if (this.currentStreamID) {
         api.del('/api/play/' + this.currentStreamID).catch(function() {});
-        this.currentStreamID = null;
       }
+      this.currentStreamID = null;
       this.videoEl = null;
       this.sessionID = null;
     }
@@ -858,8 +863,16 @@
     if (!videoEl) return;
     playerState.videoEl = videoEl;
 
+    var isRecording = streamID.indexOf('rec:') === 0;
+    var recID = isRecording ? streamID.substring(4) : null;
+
     try {
-      var resp = await api.post('/api/play/' + streamID);
+      var resp;
+      if (isRecording) {
+        resp = await api.post('/api/recordings/completed/' + recID + '/play');
+      } else {
+        resp = await api.post('/api/play/' + streamID);
+      }
       if (!resp.ok) {
         var errData = await resp.json().catch(function() { return {}; });
         toast('Failed to start playback: ' + (errData.error || resp.statusText), 'error');
@@ -872,7 +885,9 @@
       var endpoints = data.endpoints || {};
 
       if (delivery === 'hls') {
-        var hlsUrl = endpoints.playlist || ('/api/play/' + streamID + '/hls/playlist.m3u8');
+        var hlsUrl = endpoints.playlist || (isRecording
+          ? '/api/recordings/completed/' + recID + '/play/hls/playlist.m3u8'
+          : '/api/play/' + streamID + '/hls/playlist.m3u8');
         if (typeof Hls !== 'undefined' && Hls.isSupported()) {
           startHLS(videoEl, hlsUrl);
         } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
@@ -896,7 +911,9 @@
       return;
     }
 
-    bindPlayerControls(videoEl, streamID);
+    var seekID = isRecording ? recID : streamID;
+    var seekPath = isRecording ? '/api/recordings/completed/' + recID + '/seek' : '/api/play/' + streamID + '/seek';
+    bindPlayerControls(videoEl, streamID, seekPath);
     startBufferWatch(videoEl);
     startStatsWatch(videoEl);
   }
@@ -1104,7 +1121,8 @@
     overlay.innerHTML = lines.join('<br>');
   }
 
-  function bindPlayerControls(videoEl, streamID) {
+  function bindPlayerControls(videoEl, streamID, seekPath) {
+    if (!seekPath) seekPath = '/api/play/' + streamID + '/seek';
     var playPauseBtn = document.getElementById('play-pause-btn');
     var seekBar = document.getElementById('seek-bar');
     var timeCurrent = document.getElementById('time-current');
@@ -1140,7 +1158,7 @@
         if (isFinite(videoEl.duration) && videoEl.duration > 0) {
           var pos = (seekBar.value / 1000) * videoEl.duration;
           videoEl.currentTime = pos;
-          api.post('/api/play/' + streamID + '/seek', { position_ms: Math.round(pos * 1000) }).catch(function() {});
+          api.post(seekPath, { position_ms: Math.round(pos * 1000) }).catch(function() {});
         }
       });
     }
@@ -1154,8 +1172,9 @@
 
     if (stopBtn) {
       stopBtn.addEventListener('click', function() {
+        var wasRecording = !!playerState.recordingID;
         playerState.cleanup();
-        router.navigate('streams');
+        router.navigate(wasRecording ? 'recordings' : 'streams');
       });
     }
 
@@ -1192,6 +1211,25 @@
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
 
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '-';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    var val = bytes;
+    while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+    return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+  }
+
+  function formatDurationSec(sec) {
+    if (!sec || sec <= 0) return '-';
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = Math.floor(sec % 60);
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
   async function renderRecordings(el) {
     el.innerHTML = '<h1 class="page-title">Recordings</h1>' +
       '<div id="recording-list"><div class="skeleton" style="height:200px"></div></div>';
@@ -1206,25 +1244,93 @@
         container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No recordings yet</p></div>';
         return;
       }
+
+      recordings.sort(function(a, b) {
+        var ta = a.started_at || a.scheduled_start || '';
+        var tb = b.started_at || b.scheduled_start || '';
+        return tb.localeCompare(ta);
+      });
+
+      var isAdmin = api.user && api.user.role === 'admin';
       var html = '<table class="list-table"><thead><tr>' +
-        '<th>Title</th><th>Status</th><th>Started</th><th>Duration</th>' +
+        '<th>Title</th><th>Channel</th><th>Status</th><th>Date</th><th>Duration</th><th>Size</th><th>Actions</th>' +
         '</tr></thead><tbody>';
       for (var i = 0; i < recordings.length; i++) {
         var r = recordings[i];
-        var statusClass = r.status === 'recording' ? 'badge-live' : r.status === 'completed' ? 'badge-enabled' : 'badge-disabled';
-        var statusText = r.status === 'recording' ? '<span class="recording-status"><span class="recording-dot"></span>' + esc(r.status) + '</span>' : esc(r.status || 'unknown');
+        var statusClass = r.status === 'recording' ? 'badge-live' : r.status === 'completed' ? 'badge-enabled' : r.status === 'scheduled' ? 'badge-warning' : 'badge-disabled';
+        var statusText = r.status === 'recording' ? '<span class="recording-status"><span class="recording-dot"></span>Recording</span>' : esc(r.status || 'unknown');
+
+        var dateStr = '-';
+        if (r.started_at) dateStr = new Date(r.started_at).toLocaleString();
+        else if (r.scheduled_start) dateStr = new Date(r.scheduled_start).toLocaleString();
+
+        var durStr = '-';
+        if (r.started_at && r.stopped_at) {
+          var durSec = (new Date(r.stopped_at) - new Date(r.started_at)) / 1000;
+          durStr = formatDurationSec(durSec);
+        } else if (r.status === 'recording' && r.started_at) {
+          var elapsed = (Date.now() - new Date(r.started_at).getTime()) / 1000;
+          durStr = formatDurationSec(elapsed) + '...';
+        }
+
+        var sizeStr = formatBytes(r.file_size);
+
+        var actions = '';
+        if (r.status === 'completed') {
+          actions += '<button class="btn btn-sm btn-primary rec-play-btn" data-id="' + esc(r.id) + '" data-title="' + esc(r.title || r.stream_name || r.id) + '">Play</button> ';
+          actions += '<a class="btn btn-sm btn-ghost" href="/api/recordings/completed/' + esc(r.id) + '/stream" target="_blank" download>Download</a> ';
+        }
+        if (isAdmin) {
+          actions += '<button class="btn btn-sm btn-danger rec-del-btn" data-id="' + esc(r.id) + '">Delete</button>';
+        }
+
         html += '<tr>' +
-          '<td>' + esc(r.title || r.stream_id) + '</td>' +
+          '<td>' + esc(r.title || r.stream_name || r.stream_id) + '</td>' +
+          '<td>' + esc(r.channel_name || '-') + '</td>' +
           '<td><span class="badge ' + statusClass + '">' + statusText + '</span></td>' +
-          '<td>' + esc(r.started_at ? new Date(r.started_at).toLocaleString() : '-') + '</td>' +
-          '<td>' + esc(r.duration || '-') + '</td>' +
+          '<td>' + esc(dateStr) + '</td>' +
+          '<td>' + esc(durStr) + '</td>' +
+          '<td>' + esc(sizeStr) + '</td>' +
+          '<td>' + actions + '</td>' +
           '</tr>';
       }
       html += '</tbody></table>';
       container.innerHTML = html;
+
+      container.querySelectorAll('.rec-play-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var recID = this.getAttribute('data-id');
+          var title = this.getAttribute('data-title');
+          playRecording(recID, title);
+        });
+      });
+
+      container.querySelectorAll('.rec-del-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var recID = this.getAttribute('data-id');
+          if (!confirm('Delete this recording? The file will be removed from disk.')) return;
+          var delResp = await api.del('/api/recordings/completed/' + recID).catch(function() {});
+          if (delResp && (delResp.status === 204 || delResp.ok)) {
+            toast('Recording deleted');
+            renderRecordings(el);
+          } else {
+            toast('Failed to delete recording', 'error');
+          }
+        });
+      });
     } catch (e) {
       document.getElementById('recording-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load recordings</p></div>';
     }
+  }
+
+  async function playRecording(recID, title) {
+    playerState.cleanup();
+
+    var sessionKey = 'rec:' + recID;
+    playerState.currentStreamID = sessionKey;
+    playerState.isLive = false;
+    playerState.recordingID = recID;
+    router.navigate('player', { streamID: sessionKey, name: title || 'Recording', isLive: false, recordingID: recID });
   }
 
   async function renderFavorites(el) {
@@ -1314,6 +1420,7 @@
       '<div style="margin-bottom:16px;display:flex;gap:8px">' +
       '<button class="btn btn-primary" id="add-m3u-btn">' + icons.plus + ' Add M3U Source</button>' +
       '<button class="btn btn-primary" id="add-tvp-btn">' + icons.plus + ' Add TVP Streams Source</button>' +
+      '<button class="btn btn-primary" id="add-xtream-btn">' + icons.plus + ' Add Xtream Source</button>' +
       '</div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
       '<div id="add-m3u-form" style="display:none" class="card">' +
@@ -1332,11 +1439,22 @@
       '<div class="form-group"><label class="form-label">Enrollment Token</label><input class="form-input" id="tvp-token" placeholder="One-time enrollment token"></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="tvp-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-tvp-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-tvp-btn">Cancel</button></div></div>';
+      '<button class="btn btn-ghost" id="cancel-tvp-btn">Cancel</button></div></div>' +
+      '<div id="add-xtream-form" style="display:none" class="card">' +
+      '<div class="card-title">New Xtream Codes Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="xt-name" placeholder="My IPTV Provider"></div>' +
+      '<div class="form-group"><label class="form-label">Server URL</label><input class="form-input" id="xt-server" placeholder="http://provider.example.com:8080"></div>' +
+      '<div class="form-group"><label class="form-label">Username</label><input class="form-input" id="xt-username"></div>' +
+      '<div class="form-group"><label class="form-label">Password</label><input class="form-input" id="xt-password" type="password"></div>' +
+      '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="xt-maxstreams" type="number" value="0" min="0"></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="xt-wireguard"> Route through WireGuard</label></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-xtream-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-xtream-btn">Cancel</button></div></div>';
 
     document.getElementById('add-m3u-btn').addEventListener('click', function() {
       var f = document.getElementById('add-m3u-form');
       document.getElementById('add-tvp-form').style.display = 'none';
+      document.getElementById('add-xtream-form').style.display = 'none';
       f.style.display = f.style.display === 'none' ? 'block' : 'none';
     });
     document.getElementById('cancel-m3u-btn').addEventListener('click', function() {
@@ -1345,10 +1463,20 @@
     document.getElementById('add-tvp-btn').addEventListener('click', function() {
       var f = document.getElementById('add-tvp-form');
       document.getElementById('add-m3u-form').style.display = 'none';
+      document.getElementById('add-xtream-form').style.display = 'none';
       f.style.display = f.style.display === 'none' ? 'block' : 'none';
     });
     document.getElementById('cancel-tvp-btn').addEventListener('click', function() {
       document.getElementById('add-tvp-form').style.display = 'none';
+    });
+    document.getElementById('add-xtream-btn').addEventListener('click', function() {
+      var f = document.getElementById('add-xtream-form');
+      document.getElementById('add-m3u-form').style.display = 'none';
+      document.getElementById('add-tvp-form').style.display = 'none';
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('cancel-xtream-btn').addEventListener('click', function() {
+      document.getElementById('add-xtream-form').style.display = 'none';
     });
 
     document.getElementById('create-m3u-btn').addEventListener('click', async function() {
@@ -1384,6 +1512,29 @@
         if (r.ok) {
           toast('TVP Streams source created' + (token ? ', enrolling...' : ', refreshing...'));
           document.getElementById('add-tvp-form').style.display = 'none';
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to create source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to create source', 'error');
+      }
+    });
+
+    document.getElementById('create-xtream-btn').addEventListener('click', async function() {
+      var name = document.getElementById('xt-name').value.trim();
+      var server = document.getElementById('xt-server').value.trim();
+      var username = document.getElementById('xt-username').value.trim();
+      var password = document.getElementById('xt-password').value;
+      var maxStreams = parseInt(document.getElementById('xt-maxstreams').value) || 0;
+      var wg = document.getElementById('xt-wireguard').checked;
+      if (!name || !server || !username || !password) { toast('Name, server, username, and password required', 'error'); return; }
+      try {
+        var r = await api.post('/api/sources/xtream', { name: name, server: server, username: username, password: password, max_streams: maxStreams, use_wireguard: wg });
+        if (r.ok) {
+          toast('Xtream source created, refreshing...');
+          document.getElementById('add-xtream-form').style.display = 'none';
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });

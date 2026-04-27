@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -315,6 +316,136 @@ func (s *Server) handleTVPStreamsTLSStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, source.TLSStatus{})
+}
+
+func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		Server       string `json:"server"`
+		Username     string `json:"username"`
+		Password     string `json:"password"`
+		UseWireGuard bool   `json:"use_wireguard"`
+		MaxStreams   int    `json:"max_streams"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.Server == "" || req.Username == "" || req.Password == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "name, server, username, and password required")
+		return
+	}
+
+	sc := &sourceconfig.SourceConfig{
+		ID:        uuid.New().String(),
+		Type:      "xtream",
+		Name:      req.Name,
+		IsEnabled: true,
+		Config: map[string]string{
+			"server":        req.Server,
+			"username":      req.Username,
+			"password":      req.Password,
+			"use_wireguard": boolStr(req.UseWireGuard),
+			"max_streams":   fmt.Sprintf("%d", req.MaxStreams),
+		},
+	}
+
+	if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to create source")
+		return
+	}
+
+	go func() {
+		ctx := r.Context()
+		src, err := s.deps.SourceReg.Create(ctx, "xtream", sc.ID)
+		if err != nil {
+			return
+		}
+		src.Refresh(ctx)
+	}()
+
+	httputil.RespondJSON(w, http.StatusCreated, sc)
+}
+
+func (s *Server) handleUpdateXtreamSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
+		return
+	}
+	if existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	var req struct {
+		Name         *string `json:"name"`
+		Server       *string `json:"server"`
+		Username     *string `json:"username"`
+		Password     *string `json:"password"`
+		IsEnabled    *bool   `json:"is_enabled"`
+		UseWireGuard *bool   `json:"use_wireguard"`
+		MaxStreams   *int    `json:"max_streams"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.IsEnabled != nil {
+		existing.IsEnabled = *req.IsEnabled
+	}
+	if req.Server != nil {
+		existing.Config["server"] = *req.Server
+	}
+	if req.Username != nil {
+		existing.Config["username"] = *req.Username
+	}
+	if req.Password != nil {
+		existing.Config["password"] = *req.Password
+	}
+	if req.UseWireGuard != nil {
+		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.MaxStreams != nil {
+		existing.Config["max_streams"] = fmt.Sprintf("%d", *req.MaxStreams)
+	}
+
+	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update source")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleDeleteXtreamSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "xtream", id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
+		return
+	}
+
+	if err := s.deps.SourceConfigStore.Delete(r.Context(), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func boolStr(b bool) string {

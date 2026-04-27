@@ -172,6 +172,72 @@ func resolveDelivery(ctx context.Context, deps PlaybackDeps) output.DeliveryMode
 	return delivery
 }
 
+func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath, title string) (*PlaybackResult, error) {
+	sessionKey := "rec:" + recordingID
+
+	sess, isNew, err := deps.SessionMgr.GetOrCreate(ctx, sessionKey, filePath, title)
+	if err != nil {
+		return nil, fmt.Errorf("get or create session: %w", err)
+	}
+
+	result := &PlaybackResult{
+		Session: sess,
+		IsNew:   isNew,
+	}
+
+	if isNew {
+		runner := deps.PipelineRunner
+		if runner == nil {
+			runner = deps.SessionMgr.RunPipeline
+		}
+		info, err := runner(sess, session.PipelineConfig{
+			StreamURL: filePath,
+			StreamID:  sessionKey,
+		})
+		if err != nil {
+			deps.SessionMgr.Stop(sessionKey)
+			return nil, fmt.Errorf("run pipeline: %w", err)
+		}
+		result.ProbeInfo = info
+
+		delivery := resolveDelivery(ctx, deps)
+		sess.Delivery = string(delivery)
+
+		pluginCfg := output.PluginConfig{
+			OutputDir: sess.OutputDir,
+			IsLive:    false,
+		}
+		if info.Video != nil {
+			pluginCfg.Video = info.Video
+		}
+		if len(info.AudioTracks) > 0 {
+			pluginCfg.Audio = &info.AudioTracks[0]
+		}
+
+		plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
+		if err != nil {
+			deps.SessionMgr.Stop(sessionKey)
+			return nil, fmt.Errorf("create output plugin: %w", err)
+		}
+
+		sess.FanOut.Add(plugin)
+		result.Plugin = plugin
+		result.Delivery = string(delivery)
+
+		if sp, ok := plugin.(output.ServablePlugin); ok {
+			result.Servable = sp
+		}
+	} else {
+		result.Delivery = sess.Delivery
+	}
+
+	return result, nil
+}
+
+func StopRecordingPlayback(deps PlaybackDeps, recordingID string) {
+	deps.SessionMgr.Stop("rec:" + recordingID)
+}
+
 func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 	sess := deps.SessionMgr.Get(streamID)
 	if sess == nil {
