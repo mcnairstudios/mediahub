@@ -4,15 +4,30 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mcnairstudios/mediahub/pkg/av"
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
 	"github.com/mcnairstudios/mediahub/pkg/av/demuxloop"
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/output/bridge"
+	"github.com/rs/zerolog"
 )
 
 type PipelineConfig struct {
-	StreamURL string
-	StreamID  string
-	UserAgent string
+	StreamURL        string
+	StreamID         string
+	UserAgent        string
+	NeedsTranscode   bool
+	OutputCodec      string
+	OutputAudioCodec string
+	HWAccel          string
+	DecodeHWAccel    string
+	Bitrate          int
+	OutputHeight     int
+	MaxBitDepth      int
+	Deinterlace      bool
+	EncoderName      string
+	DecoderName      string
+	Framerate        int
 }
 
 type demuxCloser struct {
@@ -50,10 +65,38 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 		d.RequestSeek(posMs)
 	})
 
+	var sink av.PacketSink = sess.FanOut
+
+	if cfg.NeedsTranscode {
+		log := zerolog.New(os.Stderr).With().Str("session", sess.StreamID).Logger()
+		b, err := bridge.New(bridge.Config{
+			Downstream:       sess.FanOut,
+			Info:             info,
+			HWAccel:          cfg.HWAccel,
+			DecodeHWAccel:    cfg.DecodeHWAccel,
+			OutputCodec:      cfg.OutputCodec,
+			OutputAudioCodec: cfg.OutputAudioCodec,
+			Bitrate:          cfg.Bitrate,
+			OutputHeight:     cfg.OutputHeight,
+			MaxBitDepth:      cfg.MaxBitDepth,
+			Deinterlace:      cfg.Deinterlace,
+			EncoderName:      cfg.EncoderName,
+			DecoderName:      cfg.DecoderName,
+			Framerate:        cfg.Framerate,
+			Log:              log,
+		})
+		if err != nil {
+			d.Close()
+			return nil, fmt.Errorf("pipeline: create bridge: %w", err)
+		}
+		sess.AddCloser(bridgeCloser{b: b})
+		sink = b
+	}
+
 	go func() {
 		err := demuxloop.Run(sess.Context(), demuxloop.Config{
 			Reader: d,
-			Sink:   sess.FanOut,
+			Sink:   sink,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "pipeline %s: demuxloop error: %v\n", sess.StreamID, err)
@@ -61,4 +104,13 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 	}()
 
 	return info, nil
+}
+
+type bridgeCloser struct {
+	b *bridge.Bridge
+}
+
+func (bc bridgeCloser) Close() error {
+	bc.b.Stop()
+	return nil
 }

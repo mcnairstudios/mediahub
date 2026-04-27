@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
@@ -18,6 +19,7 @@ type PipelineRunner func(sess *session.Session, cfg session.PipelineConfig) (*me
 
 type PlaybackDeps struct {
 	StreamStore       store.StreamStore
+	SettingsStore     store.SettingsStore
 	SourceConfigStore sourceconfig.Store
 	ConnRegistry      *connectivity.Registry
 	SessionMgr        *session.Manager
@@ -100,9 +102,14 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 			runner = deps.SessionMgr.RunPipeline
 		}
 		info, err := runner(sess, session.PipelineConfig{
-			StreamURL: pipelineURL,
-			StreamID:  stream.ID,
-			UserAgent: deps.UserAgent,
+			StreamURL:        pipelineURL,
+			StreamID:         stream.ID,
+			UserAgent:        deps.UserAgent,
+			NeedsTranscode:   decision.NeedsTranscode,
+			OutputCodec:      string(decision.VideoCodec),
+			OutputAudioCodec: string(decision.AudioCodec),
+			HWAccel:          decision.HWAccel,
+			Deinterlace:      decision.Deinterlace,
 		})
 		if err != nil {
 			deps.SessionMgr.Stop(stream.ID)
@@ -110,7 +117,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 		result.ProbeInfo = info
 
-		delivery := output.DeliveryHLS
+		delivery := resolveDelivery(ctx, deps)
 		sess.Delivery = string(delivery)
 
 		pluginCfg := output.PluginConfig{
@@ -137,6 +144,13 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		if sp, ok := plugin.(output.ServablePlugin); ok {
 			result.Servable = sp
 		}
+
+		recCfg := pluginCfg
+		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.mp4")
+		recPlugin, recErr := deps.OutputReg.Create(output.DeliveryRecord, recCfg)
+		if recErr == nil && recPlugin != nil {
+			sess.FanOut.Add(recPlugin)
+		}
 	} else {
 		result.Delivery = sess.Delivery
 	}
@@ -146,6 +160,16 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 func StopPlayback(deps PlaybackDeps, streamID string) {
 	deps.SessionMgr.Stop(streamID)
+}
+
+func resolveDelivery(ctx context.Context, deps PlaybackDeps) output.DeliveryMode {
+	delivery := output.DeliveryMSE
+	if deps.SettingsStore != nil {
+		if d, err := deps.SettingsStore.Get(ctx, "delivery"); err == nil && d != "" {
+			delivery = output.DeliveryMode(d)
+		}
+	}
+	return delivery
 }
 
 func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {

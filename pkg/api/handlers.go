@@ -134,6 +134,7 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 
 	deps := orchestrator.PlaybackDeps{
 		StreamStore:       s.deps.StreamStore,
+		SettingsStore:     s.deps.SettingsStore,
 		SourceConfigStore: s.deps.SourceConfigStore,
 		ConnRegistry:      s.deps.ConnRegistry,
 		SessionMgr:        s.deps.SessionMgr,
