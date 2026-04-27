@@ -1584,8 +1584,8 @@
           '<td>' + statusBadge + '</td>' +
           '<td>' + tlsCell + '</td>' +
           '<td style="display:flex;gap:4px">' +
-          '<button class="btn btn-sm btn-ghost refresh-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" title="Refresh">' + icons.refresh + '</button>' +
-          '<button class="btn btn-sm btn-danger delete-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" data-name="' + esc(s.name) + '" title="Delete">' + icons.trash + '</button>' +
+          '<button class="btn-icon refresh-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" title="Refresh">' + icons.refresh + '</button>' +
+          '<button class="btn-icon delete-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" data-name="' + esc(s.name) + '" title="Delete" style="color:var(--danger)">' + icons.trash + '</button>' +
           '</td></tr>';
       }
       html += '</tbody></table>';

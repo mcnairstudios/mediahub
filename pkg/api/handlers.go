@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -377,7 +378,11 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		orchestrator.RefreshSource(context.Background(), deps, source.SourceType(sourceType), sourceID)
+		if err := orchestrator.RefreshSource(context.Background(), deps, source.SourceType(sourceType), sourceID); err != nil {
+			log.Printf("source refresh failed: %s (%s): %v", sourceID, sourceType, err)
+		} else {
+			log.Printf("source refresh completed: %s (%s)", sourceID, sourceType)
+		}
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
