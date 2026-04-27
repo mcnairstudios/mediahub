@@ -15,7 +15,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
 
-type PipelineRunner func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error)
+type PipelineRunner func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error)
 
 type PlaybackDeps struct {
 	StreamStore       store.StreamStore
@@ -105,7 +105,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	if runner == nil {
 		runner = deps.SessionMgr.RunPipeline
 	}
-	info, err := runner(sess, session.PipelineConfig{
+	pipelineResult, err := runner(sess, session.PipelineConfig{
 		StreamURL:        pipelineURL,
 		StreamID:         stream.ID,
 		UserAgent:        deps.UserAgent,
@@ -119,14 +119,17 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		deps.SessionMgr.Stop(stream.ID)
 		return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
 	}
+	info := pipelineResult.Info
 	result.ProbeInfo = info
 
 	delivery := resolveDelivery(ctx, deps)
 	sess.Delivery = string(delivery)
 
 	pluginCfg := output.PluginConfig{
-		OutputDir: sess.OutputDir,
-		IsLive:    true,
+		OutputDir:        sess.OutputDir,
+		IsLive:           true,
+		VideoCodecParams: pipelineResult.VideoCodecParams,
+		AudioCodecParams: pipelineResult.AudioCodecParams,
 	}
 	if info.Video != nil {
 		pluginCfg.Video = info.Video
@@ -204,7 +207,7 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 	if runner == nil {
 		runner = deps.SessionMgr.RunPipeline
 	}
-	info, err := runner(sess, session.PipelineConfig{
+	pipelineResult, err := runner(sess, session.PipelineConfig{
 		StreamURL: filePath,
 		StreamID:  sessionKey,
 	})
@@ -212,14 +215,17 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		deps.SessionMgr.Stop(sessionKey)
 		return nil, fmt.Errorf("pipeline failed for recording %q (%s): %w", title, filePath, err)
 	}
+	info := pipelineResult.Info
 	result.ProbeInfo = info
 
 	delivery := resolveDelivery(ctx, deps)
 	sess.Delivery = string(delivery)
 
 	pluginCfg := output.PluginConfig{
-		OutputDir: sess.OutputDir,
-		IsLive:    false,
+		OutputDir:        sess.OutputDir,
+		IsLive:           false,
+		VideoCodecParams: pipelineResult.VideoCodecParams,
+		AudioCodecParams: pipelineResult.AudioCodecParams,
 	}
 	if info.Video != nil {
 		pluginCfg.Video = info.Video

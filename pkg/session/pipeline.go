@@ -45,7 +45,13 @@ func (dc *demuxCloser) Close() error {
 	return nil
 }
 
-func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeResult, error) {
+type PipelineResult struct {
+	Info             *media.ProbeResult
+	VideoCodecParams any // *astiav.CodecParameters
+	AudioCodecParams any // *astiav.CodecParameters
+}
+
+func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResult, error) {
 	log := zerolog.New(os.Stderr).With().
 		Str("session", sess.StreamID).
 		Str("stream", sess.StreamName).
@@ -87,6 +93,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 	if info == nil {
 		d.Close()
 		return nil, fmt.Errorf("pipeline: probe returned no stream info for %q", cfg.StreamURL)
+	}
+
+	if info.Video != nil {
+		if vcp := d.VideoCodecParameters(); vcp != nil {
+			if ed := vcp.ExtraData(); len(ed) > 0 && len(info.Video.Extradata) == 0 {
+				info.Video.Extradata = make([]byte, len(ed))
+				copy(info.Video.Extradata, ed)
+			}
+		}
 	}
 
 	if info.Video != nil {
@@ -190,7 +205,11 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 		}
 	}()
 
-	return info, nil
+	return &PipelineResult{
+		Info:             info,
+		VideoCodecParams: d.VideoCodecParameters(),
+		AudioCodecParams: d.AudioCodecParameters(),
+	}, nil
 }
 
 type bridgeCloser struct {

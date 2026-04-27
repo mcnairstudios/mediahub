@@ -14,8 +14,8 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
 
-func mockPipelineRunner(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
-	return &media.ProbeResult{
+func mockPipelineRunner(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
+	return &session.PipelineResult{Info: &media.ProbeResult{
 		Video: &media.VideoInfo{
 			Index: 0,
 			Codec: "h264",
@@ -25,7 +25,7 @@ func mockPipelineRunner(_ *session.Session, _ session.PipelineConfig) (*media.Pr
 		AudioTracks: []media.AudioTrack{
 			{Index: 1, Codec: "aac", Channels: 2, SampleRate: 48000},
 		},
-	}, nil
+	}}, nil
 }
 
 type mockPlugin struct {
@@ -289,7 +289,7 @@ func TestStartPlayback_TranscodeFieldsPassedToPipeline(t *testing.T) {
 	}
 
 	var capturedCfg session.PipelineConfig
-	runner := func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error) {
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
 		capturedCfg = cfg
 		return mockPipelineRunner(sess, cfg)
 	}
@@ -471,7 +471,7 @@ func TestStartPlayback_RecordingPanicDoesNotPreventPlayback(t *testing.T) {
 
 func TestPlayRecording_IsNotLive(t *testing.T) {
 	var capturedCfg session.PipelineConfig
-	runner := func(sess *session.Session, cfg session.PipelineConfig) (*media.ProbeResult, error) {
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
 		capturedCfg = cfg
 		return mockPipelineRunner(sess, cfg)
 	}
@@ -501,7 +501,7 @@ func TestStartPlayback_PipelineFailureReturnsError(t *testing.T) {
 	deps := newTestPlaybackDeps([]media.Stream{
 		{ID: "stream-1", Name: "Broken Stream", URL: "http://broken.example.com/stream"},
 	})
-	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
 		return nil, fmt.Errorf("pipeline: open stream: connection refused")
 	}
 	defer deps.SessionMgr.StopAll()
@@ -520,7 +520,7 @@ func TestStartPlayback_PipelineFailureErrorIncludesStreamName(t *testing.T) {
 	deps := newTestPlaybackDeps([]media.Stream{
 		{ID: "stream-1", Name: "BBC One HD", URL: "http://iptv.example.com/bbc1"},
 	})
-	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
 		return nil, fmt.Errorf("demux: open input: timeout")
 	}
 	defer deps.SessionMgr.StopAll()
@@ -539,12 +539,12 @@ func TestStartPlayback_PipelineFailureErrorIncludesStreamName(t *testing.T) {
 }
 
 func TestStartPlayback_AudioOnlyStream(t *testing.T) {
-	runner := func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
-		return &media.ProbeResult{
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
+		return &session.PipelineResult{Info: &media.ProbeResult{
 			AudioTracks: []media.AudioTrack{
 				{Index: 0, Codec: "mp3", Channels: 2, SampleRate: 44100},
 			},
-		}, nil
+		}}, nil
 	}
 
 	deps := newTestPlaybackDeps([]media.Stream{
@@ -566,12 +566,12 @@ func TestStartPlayback_AudioOnlyStream(t *testing.T) {
 }
 
 func TestStartPlayback_VideoOnlyStream(t *testing.T) {
-	runner := func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
-		return &media.ProbeResult{
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
+		return &session.PipelineResult{Info: &media.ProbeResult{
 			Video: &media.VideoInfo{
 				Index: 0, Codec: "h264", Width: 1920, Height: 1080,
 			},
-		}, nil
+		}}, nil
 	}
 
 	deps := newTestPlaybackDeps([]media.Stream{
@@ -621,7 +621,7 @@ func TestStartPlayback_JoinExistingReturnsDelivery(t *testing.T) {
 
 func TestPlayRecording_PipelineFailure(t *testing.T) {
 	deps := newTestPlaybackDeps(nil)
-	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*media.ProbeResult, error) {
+	deps.PipelineRunner = func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
 		return nil, fmt.Errorf("file not found: /nonexistent.mp4")
 	}
 	defer deps.SessionMgr.StopAll()
