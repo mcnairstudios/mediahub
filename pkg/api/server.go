@@ -44,6 +44,8 @@ type OrchestratorDeps struct {
 	LogoCache         *logocache.Cache
 	Activity          *activity.Service
 	StaticFS          fs.FS
+	BypassHeader      string
+	BypassSecret      string
 }
 
 type Server struct {

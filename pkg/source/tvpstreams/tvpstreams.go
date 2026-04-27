@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,6 +31,8 @@ type Config struct {
 	DataDir         string
 	EnrollmentToken string
 	TLSEnrolled     bool
+	BypassHeader    string
+	BypassSecret    string
 	StreamStore     store.StreamStore
 	HTTPClient      *http.Client
 	WGClient        *http.Client
@@ -74,14 +77,17 @@ func (s *Source) Info(_ context.Context) source.SourceInfo {
 
 func (s *Source) Refresh(ctx context.Context) error {
 	if s.cfg.EnrollmentToken != "" && !s.cfg.TLSEnrolled && s.cfg.DataDir != "" {
+		log.Printf("tvpstreams: enrolling mTLS for %s", s.cfg.Name)
 		result, err := mtls.Enroll(s.cfg.URL, s.cfg.EnrollmentToken)
 		if err != nil {
+			log.Printf("tvpstreams: mTLS enrollment failed for %s: %v", s.cfg.Name, err)
 			s.mu.Lock()
 			s.lastError = fmt.Sprintf("mTLS enrollment failed: %v", err)
 			s.mu.Unlock()
 			return fmt.Errorf("mTLS enrollment: %w", err)
 		}
 		if err := mtls.SaveCerts(s.cfg.DataDir, s.cfg.ID, result); err != nil {
+			log.Printf("tvpstreams: saving mTLS certs failed for %s: %v", s.cfg.Name, err)
 			s.mu.Lock()
 			s.lastError = fmt.Sprintf("saving mTLS certs: %v", err)
 			s.mu.Unlock()
@@ -99,32 +105,46 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	client := s.cfg.HTTPClient
+	clientDesc := "default"
 	if s.cfg.TLSEnrolled && s.cfg.DataDir != "" && mtls.HasCerts(s.cfg.DataDir, s.cfg.ID) {
 		tlsClient, err := mtls.HTTPClient(s.cfg.DataDir, s.cfg.ID)
 		if err != nil {
+			log.Printf("tvpstreams: loading mTLS client failed for %s: %v", s.cfg.Name, err)
 			s.mu.Lock()
 			s.lastError = fmt.Sprintf("loading mTLS client: %v", err)
 			s.mu.Unlock()
 			return fmt.Errorf("loading mTLS client: %w", err)
 		}
 		client = tlsClient
+		clientDesc = "mtls"
 	} else if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
 		client = s.cfg.WGClient
+		clientDesc = "wireguard"
 	}
+
+	log.Printf("tvpstreams: refreshing source %s from %s (wg=%v)", s.cfg.Name, s.cfg.URL, s.cfg.UseWireGuard)
+	log.Printf("tvpstreams: using %s client", clientDesc)
 
 	s.mu.RLock()
 	etag := s.etag
 	s.mu.RUnlock()
 
-	result, err := httputil.FetchConditional(ctx, client, s.cfg.URL, etag, "")
+	var extraHeaders map[string]string
+	if s.cfg.BypassHeader != "" && s.cfg.BypassSecret != "" {
+		extraHeaders = map[string]string{s.cfg.BypassHeader: s.cfg.BypassSecret}
+	}
+
+	fetchResult, err := httputil.FetchConditional(ctx, client, s.cfg.URL, etag, "", extraHeaders)
 	if err != nil {
+		log.Printf("tvpstreams: fetch error for %s: %v", s.cfg.Name, err)
 		s.mu.Lock()
 		s.lastError = err.Error()
 		s.mu.Unlock()
 		return fmt.Errorf("fetching tvpstreams playlist: %w", err)
 	}
 
-	if !result.Changed {
+	if !fetchResult.Changed {
+		log.Printf("tvpstreams: 304 not modified for %s", s.cfg.Name)
 		s.mu.Lock()
 		now := time.Now()
 		s.lastRefreshed = &now
@@ -132,15 +152,17 @@ func (s *Source) Refresh(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	defer result.Body.Close()
+	defer fetchResult.Body.Close()
 
-	entries, err := m3u.Parse(result.Body)
+	entries, err := m3u.Parse(fetchResult.Body)
 	if err != nil {
+		log.Printf("tvpstreams: parse error for %s: %v", s.cfg.Name, err)
 		s.mu.Lock()
 		s.lastError = err.Error()
 		s.mu.Unlock()
 		return fmt.Errorf("parsing tvpstreams playlist: %w", err)
 	}
+	log.Printf("tvpstreams: parsed %d entries for %s", len(entries), s.cfg.Name)
 
 	seen := make(map[string]struct{}, len(entries))
 	streams := make([]media.Stream, 0, len(entries))
@@ -164,21 +186,25 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
+		log.Printf("tvpstreams: upsert error for %s: %v", s.cfg.Name, err)
 		s.mu.Lock()
 		s.lastError = err.Error()
 		s.mu.Unlock()
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "tvpstreams", s.cfg.ID, keepIDs); err != nil {
+	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "tvpstreams", s.cfg.ID, keepIDs)
+	if err != nil {
+		log.Printf("tvpstreams: delete stale error for %s: %v", s.cfg.Name, err)
 		s.mu.Lock()
 		s.lastError = err.Error()
 		s.mu.Unlock()
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
+	log.Printf("tvpstreams: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
 
 	s.mu.Lock()
-	s.etag = result.ETag
+	s.etag = fetchResult.ETag
 	s.streamCount = len(streams)
 	now := time.Now()
 	s.lastRefreshed = &now

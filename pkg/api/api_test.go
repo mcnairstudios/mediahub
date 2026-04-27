@@ -214,6 +214,51 @@ func TestListStreamsWithAuth(t *testing.T) {
 	}
 }
 
+func TestListStreamsFilterBySource(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.close()
+
+	ctx := context.Background()
+	env.server.deps.StreamStore.BulkUpsert(ctx, []media.Stream{
+		{ID: "stream-3", Name: "Channel X", URL: "http://example.com/x", SourceType: "xtream", SourceID: "src-2", IsActive: true},
+	})
+
+	resp := env.request("GET", "/api/streams?source_type=m3u&source_id=src-1", nil, env.standardToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var streams []media.Stream
+	decodeBody(resp, &streams)
+
+	if len(streams) != 2 {
+		t.Fatalf("expected 2 streams from m3u/src-1, got %d", len(streams))
+	}
+
+	resp = env.request("GET", "/api/streams?source_type=xtream&source_id=src-2", nil, env.standardToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	decodeBody(resp, &streams)
+	if len(streams) != 1 {
+		t.Fatalf("expected 1 stream from xtream/src-2, got %d", len(streams))
+	}
+	if streams[0].Name != "Channel X" {
+		t.Fatalf("expected 'Channel X', got %q", streams[0].Name)
+	}
+
+	resp = env.request("GET", "/api/streams", nil, env.standardToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	decodeBody(resp, &streams)
+	if len(streams) != 3 {
+		t.Fatalf("expected 3 total streams, got %d", len(streams))
+	}
+}
+
 func TestAdminEndpointWithStandardUser(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.close()

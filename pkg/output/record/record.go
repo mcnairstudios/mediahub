@@ -3,8 +3,10 @@ package record
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -139,7 +141,14 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryRecord
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: record PushVideo: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("record: PushVideo panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.stopped || p.fc == nil || p.videoStream == nil {
@@ -165,7 +174,14 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
+func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: record PushAudio: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("record: PushAudio panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.stopped || p.fc == nil || p.audioStream == nil {

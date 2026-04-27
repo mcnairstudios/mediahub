@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -102,11 +104,15 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryMSE
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
-	if p.stopped.Load() {
-		return nil
-	}
-	if p.muxer == nil {
+func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: mse PushVideo: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("mse: PushVideo panic: %v", r)
+		}
+	}()
+
+	if p.stopped.Load() || p.muxer == nil {
 		return nil
 	}
 
@@ -123,11 +129,15 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return p.muxer.WriteVideoPacket(avPkt)
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
-	if p.stopped.Load() || !p.hasAudio {
-		return nil
-	}
-	if p.muxer == nil {
+func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: mse PushAudio: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("mse: PushAudio panic: %v", r)
+		}
+	}()
+
+	if p.stopped.Load() || !p.hasAudio || p.muxer == nil {
 		return nil
 	}
 

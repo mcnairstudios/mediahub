@@ -3,7 +3,9 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -111,20 +113,34 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryStream
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: stream PushVideo: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("stream: PushVideo panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped || p.videoIdx < 0 {
+	if p.stopped || p.muxer == nil || p.videoIdx < 0 {
 		return nil
 	}
 	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
 	return p.writePacket(pkt, p.videoTB, p.videoIdx)
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
+func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: stream PushAudio: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("stream: PushAudio panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped || p.audioIdx < 0 {
+	if p.stopped || p.muxer == nil || p.audioIdx < 0 {
 		return nil
 	}
 	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}

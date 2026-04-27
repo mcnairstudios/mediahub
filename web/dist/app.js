@@ -317,19 +317,23 @@
 
     try {
       var fetches = [
-        api.get('/api/streams').then(function(r) { return r.json(); }),
+        api.get('/api/sources').then(function(r) { return r.json(); }),
         api.get('/api/channels').then(function(r) { return r.json(); }),
         api.get('/api/recordings').then(function(r) { return r.json(); })
       ];
       if (isAdmin) fetches.push(api.get('/api/activity').then(function(r) { return r.json(); }));
       var results = await Promise.allSettled(fetches);
-      var streams = results[0].status === 'fulfilled' ? results[0].value : [];
+      var sources = results[0].status === 'fulfilled' ? results[0].value : [];
       var channels = results[1].status === 'fulfilled' ? results[1].value : [];
       var recordings = results[2].status === 'fulfilled' ? results[2].value : [];
+      var totalStreams = 0;
+      if (Array.isArray(sources)) {
+        for (var si = 0; si < sources.length; si++) totalStreams += (sources[si].stream_count || 0);
+      }
       var s = document.getElementById('stat-streams');
       var c = document.getElementById('stat-channels');
       var rc = document.getElementById('stat-recordings');
-      if (s) s.textContent = Array.isArray(streams) ? streams.length : 0;
+      if (s) s.textContent = totalStreams;
       if (c) c.textContent = Array.isArray(channels) ? channels.length : 0;
       if (rc) rc.textContent = Array.isArray(recordings) ? recordings.length : 0;
       if (isAdmin && results.length > 3) {
@@ -342,16 +346,75 @@
 
   async function renderStreams(el) {
     el.innerHTML = '<h1 class="page-title">Streams</h1>' +
-      '<div id="stream-list"><div class="skeleton" style="height:200px"></div></div>';
+      '<div id="stream-source-picker" style="margin-bottom:16px"><div class="skeleton" style="height:40px"></div></div>' +
+      '<div id="stream-list"></div>';
 
     try {
       await loadFavorites();
-      var resp = await api.get('/api/streams');
-      var allStreams = await resp.json();
-      if (!Array.isArray(allStreams)) allStreams = [];
-      buildStreamGroups(el, allStreams);
+      var resp = await api.get('/api/sources');
+      var sources = await resp.json();
+      if (!Array.isArray(sources)) sources = [];
+      buildSourcePicker(el, sources);
     } catch (e) {
-      document.getElementById('stream-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load streams</p></div>';
+      document.getElementById('stream-source-picker').innerHTML =
+        '<div class="empty-state">' + icons.empty + '<p>Failed to load sources</p></div>';
+    }
+  }
+
+  function buildSourcePicker(el, sources) {
+    var picker = document.getElementById('stream-source-picker');
+    if (!picker) return;
+
+    if (sources.length === 0) {
+      picker.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">No sources configured. Add a source first.</div>';
+      return;
+    }
+
+    var html = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    for (var i = 0; i < sources.length; i++) {
+      var src = sources[i];
+      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : 'M3U';
+      html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
+        esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
+        '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
+    }
+    html += '</div>';
+    picker.innerHTML = html;
+
+    picker.addEventListener('click', function(e) {
+      var btn = e.target.closest('.stream-source-tab');
+      if (!btn) return;
+      var tabs = picker.querySelectorAll('.stream-source-tab');
+      for (var t = 0; t < tabs.length; t++) tabs[t].classList.remove('active');
+      btn.classList.add('active');
+      var sourceType = btn.dataset.sourceType;
+      var sourceId = btn.dataset.sourceId;
+      var isTvp = sourceType === 'tvpstreams';
+      loadSourceStreams(sourceType, sourceId, isTvp);
+    });
+
+    if (sources.length === 1) {
+      picker.querySelector('.stream-source-tab').click();
+    }
+  }
+
+  async function loadSourceStreams(sourceType, sourceId, isTvpStreams) {
+    var container = document.getElementById('stream-list');
+    if (!container) return;
+    container.innerHTML = '<div class="skeleton" style="height:200px"></div>';
+
+    try {
+      var resp = await api.get('/api/streams?source_type=' + encodeURIComponent(sourceType) + '&source_id=' + encodeURIComponent(sourceId));
+      var streams = await resp.json();
+      if (!Array.isArray(streams)) streams = [];
+
+      if (isTvpStreams) {
+        buildTvpStreamGroups(container, streams);
+      } else {
+        buildLiveStreamGroups(container, streams);
+      }
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load streams</p></div>';
     }
   }
 
@@ -450,146 +513,43 @@
     return rows;
   }
 
-  function buildStreamGroups(el, allStreams) {
-    var movies = [];
-    var seriesGroups = {};
-    var liveGroups = {};
-    var totalCount = allStreams.length;
-
-    for (var i = 0; i < allStreams.length; i++) {
-      var s = allStreams[i];
-      if (s.vod_type === 'movie') {
-        movies.push(s);
-      } else if (s.vod_type === 'series' || s.vod_type === 'episode') {
-        var sg = s.group || s.name || '(Unknown Series)';
-        if (!seriesGroups[sg]) seriesGroups[sg] = [];
-        seriesGroups[sg].push(s);
-      } else {
-        var lg = s.group || '(No Group)';
-        if (!liveGroups[lg]) liveGroups[lg] = [];
-        liveGroups[lg].push(s);
-      }
-    }
-
-    var searchTerm = '';
-    var searchTimer = null;
-
-    var container = document.getElementById('stream-list');
-    if (!container) return;
-
-    var summaryEl = document.createElement('h3');
-    var groupsContainer = document.createElement('div');
-
-    var searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.placeholder = 'Search streams...';
-    searchInput.className = 'form-input';
-    searchInput.style.cssText = 'min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;';
-
-    searchInput.addEventListener('input', function() {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(function() {
-        searchTerm = searchInput.value.toLowerCase();
-        if (searchTerm.length >= 2) {
-          renderSearchResults(allStreams, searchTerm, groupsContainer, summaryEl);
-        } else {
-          renderGroups();
-        }
-      }, 300);
-    });
-
-    function renderGroups() {
-      var html = [];
-      var visibleCount = 0;
-
-      if (movies.length > 0) {
-        var mFiltered = searchTerm ? movies.filter(function(m) { return matchStream(m, searchTerm); }) : movies;
-        if (mFiltered.length > 0) {
-          visibleCount += mFiltered.length;
-          html.push('<details class="stream-group" data-section="movies"><summary>Movies<span class="stream-group-count">' + mFiltered.length + '</span></summary></details>');
-        }
-      }
-
-      var seriesKeys = Object.keys(seriesGroups).sort();
-      for (var si = 0; si < seriesKeys.length; si++) {
-        var sk = seriesKeys[si];
-        var display = sk.replace(/^(TV|Movie)\|/, '');
-        if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
-        var count = seriesGroups[sk].length;
-        visibleCount += count;
-        html.push('<details class="stream-group" data-section="series" data-group="' + esc(sk) + '"><summary>' + esc(display) + ' <span class="stream-badge" style="background:rgba(52,211,153,.15);color:var(--success);font-size:10px;margin-left:4px">SERIES</span><span class="stream-group-count">' + count + '</span></summary></details>');
-      }
-
-      var liveKeys = Object.keys(liveGroups).sort(function(a, b) {
-        if (a === '(No Group)') return 1;
-        if (b === '(No Group)') return -1;
-        return a.localeCompare(b);
-      });
-      for (var li = 0; li < liveKeys.length; li++) {
-        var lk = liveKeys[li];
-        var lDisplay = lk.replace(/^(TV|Movie)\|/, '');
-        if (searchTerm && lDisplay.toLowerCase().indexOf(searchTerm) === -1) continue;
-        var lCount = liveGroups[lk].length;
-        visibleCount += lCount;
-        html.push('<details class="stream-group" data-group="' + esc(lk) + '"><summary>' + esc(lDisplay) + '<span class="stream-group-count">' + lCount + '</span></summary></details>');
-      }
-
-      summaryEl.textContent = visibleCount.toLocaleString() + ' streams in ' + html.length + ' group' + (html.length !== 1 ? 's' : '');
-      if (html.length === 0) {
-        groupsContainer.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
-          (searchTerm ? 'No groups match "' + esc(searchInput.value) + '"' : 'No streams found') + '</div>';
-        return;
-      }
-      groupsContainer.innerHTML = html.join('');
-    }
-
-    groupsContainer.addEventListener('toggle', function(e) {
+  function bindStreamGroupEvents(container) {
+    container.addEventListener('toggle', function(e) {
       var details = e.target;
       if (!details.open || details.tagName !== 'DETAILS') return;
       if (details.dataset.loaded) return;
       details.dataset.loaded = '1';
 
+      var streamData = JSON.parse(details.dataset.streams || '[]');
       var section = details.dataset.section;
-      var groupName = details.dataset.group;
-      var streams;
+      var tableEl = document.createElement('table');
+      tableEl.className = 'stream-group-table';
 
       if (section === 'movies') {
-        streams = movies.slice();
-        streams.sort(function(a, b) {
+        streamData.sort(function(a, b) {
           if ((a.year || '') !== (b.year || '')) return (a.year || '').localeCompare(b.year || '');
           return a.name.localeCompare(b.name);
         });
-        var tableEl = document.createElement('table');
-        tableEl.className = 'stream-group-table';
         var rows = [];
-        for (var mi = 0; mi < streams.length; mi++) rows.push(buildStreamRow(streams[mi]));
+        for (var mi = 0; mi < streamData.length; mi++) rows.push(buildStreamRow(streamData[mi]));
         tableEl.innerHTML = '<tbody>' + rows.join('') + '</tbody>';
-        details.appendChild(tableEl);
       } else if (section === 'series') {
-        streams = seriesGroups[groupName] || [];
-        var tableEl2 = document.createElement('table');
-        tableEl2.className = 'stream-group-table';
-        tableEl2.innerHTML = '<tbody>' + buildSeriesRows(streams).join('') + '</tbody>';
-        details.appendChild(tableEl2);
+        tableEl.innerHTML = '<tbody>' + buildSeriesRows(streamData).join('') + '</tbody>';
       } else {
-        streams = liveGroups[groupName] || [];
-        streams.sort(function(a, b) { return a.name.localeCompare(b.name); });
-        var tableEl3 = document.createElement('table');
-        tableEl3.className = 'stream-group-table';
+        streamData.sort(function(a, b) { return a.name.localeCompare(b.name); });
         var lRows = [];
-        for (var li = 0; li < streams.length; li++) lRows.push(buildStreamRow(streams[li]));
-        tableEl3.innerHTML = '<tbody>' + lRows.join('') + '</tbody>';
-        details.appendChild(tableEl3);
+        for (var li = 0; li < streamData.length; li++) lRows.push(buildStreamRow(streamData[li]));
+        tableEl.innerHTML = '<tbody>' + lRows.join('') + '</tbody>';
       }
+      details.appendChild(tableEl);
     }, true);
 
-    groupsContainer.addEventListener('click', function(e) {
+    container.addEventListener('click', function(e) {
       var btn = e.target.closest('button[data-sid]');
       if (!btn) return;
       e.stopPropagation();
       if (btn.dataset.fav) {
         var sid = btn.dataset.sid;
-        var isFav = streamFavorites[sid];
         toggleFavorite(sid).then(function() {
           var nowFav = streamFavorites[sid];
           btn.textContent = nowFav ? '\u2B50' : '\u2606';
@@ -606,6 +566,198 @@
       var isLive = btn.dataset.live !== '0';
       startPlay(btn.dataset.sid, btn.dataset.sname, isLive);
     });
+  }
+
+  function buildTvpStreamGroups(container, allStreams) {
+    var movies = [];
+    var movieGroups = {};
+    var seriesGroups = {};
+
+    for (var i = 0; i < allStreams.length; i++) {
+      var s = allStreams[i];
+      if (s.vod_type === 'movie') {
+        movies.push(s);
+        var mg = s.group || '(Ungrouped)';
+        if (!movieGroups[mg]) movieGroups[mg] = [];
+        movieGroups[mg].push(s);
+      } else if (s.vod_type === 'series' || s.vod_type === 'episode') {
+        var sg = s.group || s.name || '(Unknown Series)';
+        if (!seriesGroups[sg]) seriesGroups[sg] = [];
+        seriesGroups[sg].push(s);
+      } else {
+        var lg = s.group || '(Ungrouped)';
+        if (!movieGroups[lg]) movieGroups[lg] = [];
+        movieGroups[lg].push(s);
+      }
+    }
+
+    var searchTerm = '';
+    var searchTimer = null;
+    var activeTab = 'movies';
+
+    var summaryEl = document.createElement('h3');
+    var tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display:flex;gap:4px;margin-bottom:12px';
+    tabBar.innerHTML =
+      '<button class="btn btn-primary stream-tvp-tab" data-tab="movies">Movies (' + movies.length + ')</button>' +
+      '<button class="btn btn-ghost stream-tvp-tab" data-tab="series">TV Series (' + Object.keys(seriesGroups).length + ')</button>';
+
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search streams...';
+    searchInput.className = 'form-input';
+    searchInput.style.cssText = 'min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;';
+
+    var groupsContainer = document.createElement('div');
+
+    function escJson(arr) {
+      return esc(JSON.stringify(arr));
+    }
+
+    function renderMoviesTab() {
+      var html = [];
+      var visibleCount = 0;
+      var groupKeys = Object.keys(movieGroups).sort();
+      for (var gi = 0; gi < groupKeys.length; gi++) {
+        var gk = groupKeys[gi];
+        var display = gk.replace(/^(TV|Movie)\|/, '');
+        if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
+        var items = movieGroups[gk];
+        visibleCount += items.length;
+        html.push('<details class="stream-group" data-section="movies" data-streams="' + escJson(items) + '"><summary>' +
+          esc(display) + '<span class="stream-group-count">' + items.length + '</span></summary></details>');
+      }
+      summaryEl.textContent = visibleCount.toLocaleString() + ' movies in ' + html.length + ' group' + (html.length !== 1 ? 's' : '');
+      groupsContainer.innerHTML = html.length > 0 ? html.join('') :
+        '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
+        (searchTerm ? 'No groups match "' + esc(searchInput.value) + '"' : 'No movies found') + '</div>';
+    }
+
+    function renderSeriesTab() {
+      var html = [];
+      var visibleCount = 0;
+      var seriesKeys = Object.keys(seriesGroups).sort();
+      for (var si = 0; si < seriesKeys.length; si++) {
+        var sk = seriesKeys[si];
+        var display = sk.replace(/^(TV|Movie)\|/, '');
+        if (searchTerm && display.toLowerCase().indexOf(searchTerm) === -1) continue;
+        var items = seriesGroups[sk];
+        visibleCount += items.length;
+        html.push('<details class="stream-group" data-section="series" data-streams="' + escJson(items) + '"><summary>' +
+          esc(display) + ' <span class="stream-badge" style="background:rgba(52,211,153,.15);color:var(--success);font-size:10px;margin-left:4px">SERIES</span>' +
+          '<span class="stream-group-count">' + items.length + '</span></summary></details>');
+      }
+      summaryEl.textContent = visibleCount.toLocaleString() + ' episodes in ' + html.length + ' series';
+      groupsContainer.innerHTML = html.length > 0 ? html.join('') :
+        '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
+        (searchTerm ? 'No series match "' + esc(searchInput.value) + '"' : 'No TV series found') + '</div>';
+    }
+
+    function renderActiveTab() {
+      if (activeTab === 'movies') renderMoviesTab();
+      else renderSeriesTab();
+    }
+
+    tabBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('.stream-tvp-tab');
+      if (!btn) return;
+      activeTab = btn.dataset.tab;
+      var tabs = tabBar.querySelectorAll('.stream-tvp-tab');
+      for (var t = 0; t < tabs.length; t++) {
+        tabs[t].className = 'btn ' + (tabs[t].dataset.tab === activeTab ? 'btn-primary' : 'btn-ghost') + ' stream-tvp-tab';
+      }
+      searchTerm = '';
+      searchInput.value = '';
+      renderActiveTab();
+    });
+
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        searchTerm = searchInput.value.toLowerCase();
+        renderActiveTab();
+      }, 300);
+    });
+
+    bindStreamGroupEvents(groupsContainer);
+
+    container.innerHTML = '';
+    container.appendChild(tabBar);
+    var headerDiv = document.createElement('div');
+    headerDiv.className = 'stream-groups-header';
+    headerDiv.appendChild(summaryEl);
+    var searchWrap = document.createElement('div');
+    searchWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    searchWrap.appendChild(searchInput);
+    headerDiv.appendChild(searchWrap);
+    container.appendChild(headerDiv);
+    container.appendChild(groupsContainer);
+
+    renderActiveTab();
+  }
+
+  function buildLiveStreamGroups(container, allStreams) {
+    var liveGroups = {};
+
+    for (var i = 0; i < allStreams.length; i++) {
+      var s = allStreams[i];
+      var lg = s.group || '(No Group)';
+      if (!liveGroups[lg]) liveGroups[lg] = [];
+      liveGroups[lg].push(s);
+    }
+
+    var searchTerm = '';
+    var searchTimer = null;
+    var summaryEl = document.createElement('h3');
+    var groupsContainer = document.createElement('div');
+
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search streams...';
+    searchInput.className = 'form-input';
+    searchInput.style.cssText = 'min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;';
+
+    function escJson(arr) {
+      return esc(JSON.stringify(arr));
+    }
+
+    function renderGroups() {
+      var html = [];
+      var visibleCount = 0;
+
+      var liveKeys = Object.keys(liveGroups).sort(function(a, b) {
+        if (a === '(No Group)') return 1;
+        if (b === '(No Group)') return -1;
+        return a.localeCompare(b);
+      });
+      for (var li = 0; li < liveKeys.length; li++) {
+        var lk = liveKeys[li];
+        var lDisplay = lk.replace(/^(TV|Movie)\|/, '');
+        if (searchTerm && lDisplay.toLowerCase().indexOf(searchTerm) === -1) continue;
+        var items = liveGroups[lk];
+        visibleCount += items.length;
+        html.push('<details class="stream-group" data-section="live" data-streams="' + escJson(items) + '"><summary>' +
+          esc(lDisplay) + '<span class="stream-group-count">' + items.length + '</span></summary></details>');
+      }
+
+      summaryEl.textContent = visibleCount.toLocaleString() + ' streams in ' + html.length + ' group' + (html.length !== 1 ? 's' : '');
+      if (html.length === 0) {
+        groupsContainer.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
+          (searchTerm ? 'No groups match "' + esc(searchInput.value) + '"' : 'No streams found') + '</div>';
+        return;
+      }
+      groupsContainer.innerHTML = html.join('');
+    }
+
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        searchTerm = searchInput.value.toLowerCase();
+        renderGroups();
+      }, 300);
+    });
+
+    bindStreamGroupEvents(groupsContainer);
 
     container.innerHTML = '';
     var headerDiv = document.createElement('div');
@@ -625,26 +777,6 @@
     return (s.name || '').toLowerCase().indexOf(term) >= 0 ||
            (s.group || '').toLowerCase().indexOf(term) >= 0 ||
            (s.url || '').toLowerCase().indexOf(term) >= 0;
-  }
-
-  function renderSearchResults(allStreams, term, groupsContainer, summaryEl) {
-    var filtered = allStreams.filter(function(s) { return matchStream(s, term); });
-    summaryEl.textContent = filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + term + '"';
-    if (filtered.length === 0) {
-      groupsContainer.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--text-muted)">No streams match "' + term + '"</div>';
-      return;
-    }
-    var maxShow = 200;
-    var shown = filtered.slice(0, maxShow);
-    var html = '<table class="stream-group-table"><tbody>';
-    for (var i = 0; i < shown.length; i++) {
-      html += buildStreamRow(shown[i]);
-    }
-    html += '</tbody></table>';
-    if (filtered.length > maxShow) {
-      html += '<div style="padding:12px 16px;text-align:center;color:var(--text-muted);font-size:13px">Showing ' + maxShow + ' of ' + filtered.length + ' results. Narrow your search for more.</div>';
-    }
-    groupsContainer.innerHTML = html;
   }
 
   async function showAddToChannelModal(streamID, streamName) {
@@ -1034,21 +1166,36 @@
       return;
     }
 
-    pageEl.innerHTML = '<h1 class="page-title">' + esc(name) + '</h1>' +
+    pageEl.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-      '<div class="stats-overlay" id="stats-overlay"></div>' +
-      '<video id="video-el" autoplay playsinline></video>' +
-      '</div>' +
-      '<div class="player-controls" id="player-controls">' +
-      '<button class="btn btn-sm btn-ghost" id="play-pause-btn">' + icons.pause + '</button>' +
-      '<span class="time" id="time-current">0:00</span>' +
-      '<input type="range" class="seek-bar" id="seek-bar" min="0" max="1000" value="0">' +
-      '<span class="time" id="time-duration">0:00</span>' +
-      '<button class="btn btn-sm btn-ghost" id="stats-btn" title="Toggle Stats">' + icons.stats + '</button>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn btn-danger btn-sm" id="stop-btn">Stop</button>' +
-      '<button class="btn btn-ghost btn-sm" id="record-btn">Record</button>' +
+        '<video id="video-el" autoplay playsinline></video>' +
+        '<div class="player-spinner" id="player-spinner">' +
+          '<div class="spinner-ring"></div>' +
+        '</div>' +
+        '<div class="player-float-bar" id="player-float-bar">' +
+          '<span class="player-title" id="player-title">' + esc(name) + '</span>' +
+          '<span class="player-status" id="player-status">Idle</span>' +
+          '<button class="player-icon-btn" id="record-btn" title="Record">\u23FA</button>' +
+          '<button class="player-icon-btn" id="stats-btn" title="Stats (S)">\u2139</button>' +
+          '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
+        '</div>' +
+        '<div class="stats-overlay" id="stats-overlay"></div>' +
+        '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
+          '<div class="player-seek-row" id="player-seek-row">' +
+            '<div class="player-seek-track">' +
+              '<div class="player-seek-buffered" id="seek-buffered"></div>' +
+              '<div class="player-seek-played" id="seek-played"></div>' +
+            '</div>' +
+            '<div class="player-seek-thumb" id="seek-thumb"></div>' +
+          '</div>' +
+          '<div class="player-ctrl-btns">' +
+            '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
+            '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
+            '<div style="flex:1"></div>' +
+            '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
+            '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
 
     initPlayer(streamID);
@@ -1320,54 +1467,146 @@
   function bindPlayerControls(videoEl, streamID, seekPath) {
     if (!seekPath) seekPath = '/api/play/' + streamID + '/seek';
     var playPauseBtn = document.getElementById('play-pause-btn');
-    var seekBar = document.getElementById('seek-bar');
-    var timeCurrent = document.getElementById('time-current');
-    var timeDuration = document.getElementById('time-duration');
     var statsBtn = document.getElementById('stats-btn');
     var stopBtn = document.getElementById('stop-btn');
     var recordBtn = document.getElementById('record-btn');
+    var volBtn = document.getElementById('vol-btn');
+    var fsBtn = document.getElementById('fs-btn');
+    var playerTime = document.getElementById('player-time');
+    var seekRow = document.getElementById('player-seek-row');
+    var seekPlayed = document.getElementById('seek-played');
+    var seekBuffered = document.getElementById('seek-buffered');
+    var seekThumb = document.getElementById('seek-thumb');
+    var statusEl = document.getElementById('player-status');
+    var spinner = document.getElementById('player-spinner');
+    var wrapper = document.getElementById('player-wrapper');
+    var floatBar = document.getElementById('player-float-bar');
+    var ctrlBar = document.getElementById('player-ctrl-bar');
+
+    if (wrapper) {
+      wrapper.addEventListener('mouseenter', function() {
+        if (floatBar) floatBar.style.opacity = '1';
+        if (ctrlBar) ctrlBar.style.opacity = '1';
+      });
+      wrapper.addEventListener('mouseleave', function() {
+        if (floatBar) floatBar.style.opacity = '0';
+        if (ctrlBar) ctrlBar.style.opacity = '0';
+      });
+    }
+
+    videoEl.addEventListener('waiting', function() {
+      if (spinner) spinner.style.display = 'flex';
+      if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Buffering'; }
+    });
+    videoEl.addEventListener('playing', function() {
+      if (spinner) spinner.style.display = 'none';
+      if (statusEl) { statusEl.style.color = '#4caf50'; statusEl.textContent = 'Playing'; }
+      if (playPauseBtn) playPauseBtn.textContent = '\u23F8';
+    });
+    videoEl.addEventListener('seeked', function() {
+      if (spinner) spinner.style.display = 'none';
+    });
+    videoEl.addEventListener('pause', function() {
+      if (playPauseBtn) playPauseBtn.textContent = '\u25B6';
+      if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Paused'; }
+    });
+    videoEl.addEventListener('error', function() {
+      if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
+    });
+
+    videoEl.addEventListener('click', function() {
+      if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
+    });
 
     if (playPauseBtn) {
-      playPauseBtn.addEventListener('click', function() {
-        if (videoEl.paused) {
-          videoEl.play().catch(function() {});
-          playPauseBtn.innerHTML = icons.pause;
-        } else {
-          videoEl.pause();
-          playPauseBtn.innerHTML = icons.play;
+      playPauseBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (videoEl.paused) { videoEl.play().catch(function() {}); }
+        else { videoEl.pause(); }
+      });
+    }
+
+    if (volBtn) {
+      volBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        videoEl.muted = !videoEl.muted;
+        volBtn.textContent = videoEl.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+      });
+    }
+
+    if (fsBtn) {
+      fsBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (wrapper) wrapper.requestFullscreen().catch(function() {});
+      });
+    }
+
+    var savedVol = parseFloat(localStorage.getItem('mediahub_volume') || '0.5');
+    videoEl.volume = savedVol;
+    videoEl.addEventListener('volumechange', function() {
+      localStorage.setItem('mediahub_volume', String(videoEl.volume));
+    });
+
+    if (seekRow) {
+      seekRow.addEventListener('mouseenter', function() {
+        var track = seekRow.querySelector('.player-seek-track');
+        if (track) track.style.height = '6px';
+        if (seekThumb) seekThumb.style.opacity = '1';
+      });
+      seekRow.addEventListener('mouseleave', function() {
+        var track = seekRow.querySelector('.player-seek-track');
+        if (track) track.style.height = '4px';
+        if (seekThumb) seekThumb.style.opacity = '0';
+      });
+      seekRow.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var rect = seekRow.getBoundingClientRect();
+        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        if (seekPlayed) seekPlayed.style.width = (pct * 100) + '%';
+        if (seekThumb) { seekThumb.style.left = (pct * 100) + '%'; seekThumb.style.opacity = '1'; }
+        var dur = videoEl.duration;
+        if (dur && isFinite(dur) && dur > 0) {
+          videoEl.currentTime = pct * dur;
+          api.post(seekPath, { position_ms: Math.round(pct * dur * 1000) }).catch(function() {});
         }
       });
     }
 
-    videoEl.addEventListener('timeupdate', function() {
-      if (timeCurrent) timeCurrent.textContent = formatTime(videoEl.currentTime);
-      if (timeDuration) timeDuration.textContent = formatTime(videoEl.duration);
-      if (seekBar && !seekBar._dragging && isFinite(videoEl.duration) && videoEl.duration > 0) {
-        seekBar.value = (videoEl.currentTime / videoEl.duration * 1000).toFixed(0);
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 's' || e.key === 'S') {
+        var overlay = document.getElementById('stats-overlay');
+        if (overlay) overlay.classList.toggle('visible');
       }
     });
 
-    if (seekBar) {
-      seekBar.addEventListener('mousedown', function() { seekBar._dragging = true; });
-      seekBar.addEventListener('mouseup', function() { seekBar._dragging = false; });
-      seekBar.addEventListener('change', function() {
-        if (isFinite(videoEl.duration) && videoEl.duration > 0) {
-          var pos = (seekBar.value / 1000) * videoEl.duration;
-          videoEl.currentTime = pos;
-          api.post(seekPath, { position_ms: Math.round(pos * 1000) }).catch(function() {});
-        }
-      });
-    }
+    var ctrlTimer = setInterval(function() {
+      if (!document.getElementById('player-wrapper')) { clearInterval(ctrlTimer); return; }
+      var cur = videoEl.currentTime || 0;
+      var dur = videoEl.duration;
+      var effectiveDur = isFinite(dur) && dur > 0 ? dur : 0;
+      if (playerTime) playerTime.textContent = formatTime(cur) + ' / ' + formatTime(effectiveDur);
+      if (effectiveDur > 0) {
+        var pct = cur / effectiveDur;
+        if (seekPlayed) seekPlayed.style.width = (pct * 100) + '%';
+        if (seekThumb) seekThumb.style.left = (pct * 100) + '%';
+        var bufEnd = 0;
+        if (videoEl.buffered && videoEl.buffered.length > 0) bufEnd = videoEl.buffered.end(videoEl.buffered.length - 1);
+        if (seekBuffered) seekBuffered.style.width = ((bufEnd / effectiveDur) * 100) + '%';
+      }
+    }, 250);
 
     if (statsBtn) {
-      statsBtn.addEventListener('click', function() {
+      statsBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
         var overlay = document.getElementById('stats-overlay');
         if (overlay) overlay.classList.toggle('visible');
       });
     }
 
     if (stopBtn) {
-      stopBtn.addEventListener('click', function() {
+      stopBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
         var wasRecording = !!playerState.recordingID;
         playerState.cleanup();
         router.navigate(wasRecording ? 'recordings' : 'streams');
@@ -1376,20 +1615,18 @@
 
     if (recordBtn) {
       var recording = false;
-      recordBtn.addEventListener('click', async function() {
+      recordBtn.addEventListener('click', async function(e) {
+        e.stopPropagation();
         if (recording) {
           await api.del('/api/play/' + streamID + '/record').catch(function() {});
-          recordBtn.textContent = 'Record';
-          recordBtn.classList.remove('btn-danger');
-          recordBtn.classList.add('btn-ghost');
+          recordBtn.textContent = '\u23FA';
+          recordBtn.style.color = '';
           recording = false;
           toast('Recording stopped');
         } else {
           var resp = await api.post('/api/play/' + streamID + '/record', { title: 'Manual Recording' }).catch(function() {});
           if (resp && resp.ok) {
-            recordBtn.innerHTML = '<span class="recording-status"><span class="recording-dot"></span>Recording</span>';
-            recordBtn.classList.remove('btn-ghost');
-            recordBtn.classList.add('btn-danger');
+            recordBtn.style.color = '#e53935';
             recording = true;
             toast('Recording started');
           } else {

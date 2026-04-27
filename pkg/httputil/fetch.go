@@ -13,13 +13,19 @@ type FetchResult struct {
 	Changed bool
 }
 
-func FetchConditional(ctx context.Context, client *http.Client, url, etag, userAgent string) (*FetchResult, error) {
+func FetchConditional(ctx context.Context, client *http.Client, url, etag, userAgent string, extraHeaders ...map[string]string) (*FetchResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	SetBrowserHeaders(req, userAgent)
+
+	for _, headers := range extraHeaders {
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+	}
 
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,7 +125,14 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryHLS
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: hls PushVideo: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("hls: PushVideo panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.stopped || p.muxer == nil {
@@ -144,7 +153,14 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return err
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
+func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: hls PushAudio: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("hls: PushAudio panic: %v", r)
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.stopped || p.muxer == nil || !p.hasAudio {

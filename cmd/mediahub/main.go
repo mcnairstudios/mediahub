@@ -107,20 +107,24 @@ func main() {
 		if sc == nil {
 			return nil, errors.New("source config not found")
 		}
-		cfg := m3usource.Config{
+		m3uCfg := m3usource.Config{
 			ID:           sc.ID,
 			Name:         sc.Name,
 			URL:          sc.Config["url"],
 			IsEnabled:    sc.IsEnabled,
 			UseWireGuard: sc.Config["use_wireguard"] == "true",
+			UserAgent:    cfg.UserAgent,
+			BypassHeader: cfg.BypassHeader,
+			BypassSecret: cfg.BypassSecret,
 			StreamStore:  streamStore,
 		}
-		if cfg.UseWireGuard && wgService != nil {
+		if m3uCfg.UseWireGuard && wgService != nil {
 			if p := wgService.ActivePlugin(); p != nil {
-				cfg.WGClient = p.HTTPClient()
+				m3uCfg.WGClient = p.HTTPClient()
 			}
 		}
-		return m3usource.New(cfg), nil
+		log.Printf("m3u factory: source=%s wg=%v wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGClient != nil)
+		return m3usource.New(m3uCfg), nil
 	})
 	sourceReg.Register("tvpstreams", func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := sourceConfigStore.Get(ctx, sourceID)
@@ -139,6 +143,8 @@ func main() {
 			DataDir:         cfg.DataDir,
 			EnrollmentToken: sc.Config["enrollment_token"],
 			TLSEnrolled:     sc.Config["tls_enrolled"] == "true",
+			BypassHeader:    cfg.BypassHeader,
+			BypassSecret:    cfg.BypassSecret,
 			StreamStore:     streamStore,
 			TMDBCache:       tmdbCache,
 			OnEnrolled: func(sourceID string) error {
@@ -156,6 +162,7 @@ func main() {
 				tvpCfg.WGClient = p.HTTPClient()
 			}
 		}
+		log.Printf("tvpstreams factory: source=%s wg=%v wgClient=%v", sc.Name, tvpCfg.UseWireGuard, tvpCfg.WGClient != nil)
 		return tvpstreamssource.New(tvpCfg), nil
 	})
 	sourceReg.Register("xtream", func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -294,6 +301,8 @@ func main() {
 		LogoCache:         logoCache,
 		Activity:          activityService,
 		StaticFS:          staticFS,
+		BypassHeader:      cfg.BypassHeader,
+		BypassSecret:      cfg.BypassSecret,
 	})
 
 	epgRefreshFn = apiServer.RefreshAllEPGSources

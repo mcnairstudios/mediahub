@@ -10,6 +10,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	"github.com/mcnairstudios/mediahub/pkg/output"
@@ -85,7 +86,18 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
-	streams, err := s.deps.StreamStore.List(r.Context())
+	sourceType := r.URL.Query().Get("source_type")
+	sourceID := r.URL.Query().Get("source_id")
+
+	var streams []media.Stream
+	var err error
+
+	if sourceType != "" && sourceID != "" {
+		streams, err = s.deps.StreamStore.ListBySource(r.Context(), sourceType, sourceID)
+	} else {
+		streams, err = s.deps.StreamStore.List(r.Context())
+	}
+
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list streams")
 		return

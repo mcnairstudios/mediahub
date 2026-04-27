@@ -143,7 +143,12 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 		}
 	}
 
-	result, err := httputil.FetchConditional(ctx, client, src.URL, src.ETag, "MediaHub/1.0")
+	var extraHeaders map[string]string
+	if s.deps.BypassHeader != "" && s.deps.BypassSecret != "" {
+		extraHeaders = map[string]string{s.deps.BypassHeader: s.deps.BypassSecret}
+	}
+
+	result, err := httputil.FetchConditional(ctx, client, src.URL, src.ETag, "MediaHub/1.0", extraHeaders)
 	if err != nil {
 		now := time.Now()
 		src.LastRefreshed = &now

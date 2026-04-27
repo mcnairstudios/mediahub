@@ -15,6 +15,8 @@ type Config struct {
 	JellyfinPort int
 	DLNAEnabled  bool
 	DLNAPort     int
+	BypassHeader string
+	BypassSecret string
 }
 
 func Load() *Config {
@@ -60,6 +62,12 @@ func Load() *Config {
 		if port, err := strconv.Atoi(v); err == nil {
 			c.DLNAPort = port
 		}
+	}
+	if v := os.Getenv("MEDIAHUB_BYPASS_HEADER"); v != "" {
+		c.BypassHeader = v
+	}
+	if v := os.Getenv("MEDIAHUB_BYPASS_SECRET"); v != "" {
+		c.BypassSecret = v
 	}
 
 	return c

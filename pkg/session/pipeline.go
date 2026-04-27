@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/av"
@@ -53,6 +54,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 	if cfg.StreamURL == "" {
 		return nil, fmt.Errorf("pipeline: stream URL is empty")
 	}
+
+	log.Info().Str("url", cfg.StreamURL).Msg("pipeline: opening stream")
 
 	if err := os.MkdirAll(sess.OutputDir, 0755); err != nil {
 		return nil, fmt.Errorf("pipeline: create output dir: %w", err)
@@ -163,13 +166,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 		sink = b
 	}
 
+	log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop starting")
+
 	go func() {
 		defer sess.MarkDone()
 		defer func() {
 			if r := recover(); r != nil {
 				pErr := fmt.Errorf("pipeline panic: %v", r)
 				sess.SetError(pErr)
-				log.Error().Interface("panic", r).Msg("demuxloop panic recovered")
+				log.Error().Interface("panic", r).Str("stack", string(debug.Stack())).Msg("pipeline: PANIC in demuxloop")
 			}
 		}()
 
@@ -179,9 +184,9 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*media.ProbeRe
 		})
 		if err != nil {
 			sess.SetError(err)
-			log.Error().Err(err).Msg("pipeline demuxloop exited with error")
+			log.Error().Err(err).Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended with error")
 		} else {
-			log.Info().Msg("pipeline demuxloop finished")
+			log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended cleanly")
 		}
 	}()
 
