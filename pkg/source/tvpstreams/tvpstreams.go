@@ -14,6 +14,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/m3u"
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/mtls"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
@@ -21,15 +22,19 @@ import (
 const tmdbImageBase = "https://image.tmdb.org/t/p/w500"
 
 type Config struct {
-	ID           string
-	Name         string
-	URL          string
-	IsEnabled    bool
-	UseWireGuard bool
-	StreamStore  store.StreamStore
-	HTTPClient   *http.Client
-	WGClient     *http.Client
-	TMDBCache    *tmdb.Cache
+	ID              string
+	Name            string
+	URL             string
+	IsEnabled       bool
+	UseWireGuard    bool
+	DataDir         string
+	EnrollmentToken string
+	TLSEnrolled     bool
+	StreamStore     store.StreamStore
+	HTTPClient      *http.Client
+	WGClient        *http.Client
+	TMDBCache       *tmdb.Cache
+	OnEnrolled      func(sourceID string) error
 }
 
 type Source struct {
@@ -68,8 +73,42 @@ func (s *Source) Info(_ context.Context) source.SourceInfo {
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
+	if s.cfg.EnrollmentToken != "" && !s.cfg.TLSEnrolled && s.cfg.DataDir != "" {
+		result, err := mtls.Enroll(s.cfg.URL, s.cfg.EnrollmentToken)
+		if err != nil {
+			s.mu.Lock()
+			s.lastError = fmt.Sprintf("mTLS enrollment failed: %v", err)
+			s.mu.Unlock()
+			return fmt.Errorf("mTLS enrollment: %w", err)
+		}
+		if err := mtls.SaveCerts(s.cfg.DataDir, s.cfg.ID, result); err != nil {
+			s.mu.Lock()
+			s.lastError = fmt.Sprintf("saving mTLS certs: %v", err)
+			s.mu.Unlock()
+			return fmt.Errorf("saving mTLS certs: %w", err)
+		}
+		s.cfg.TLSEnrolled = true
+		s.cfg.EnrollmentToken = ""
+		if s.cfg.OnEnrolled != nil {
+			if err := s.cfg.OnEnrolled(s.cfg.ID); err != nil {
+				s.mu.Lock()
+				s.lastError = fmt.Sprintf("persisting enrollment state: %v", err)
+				s.mu.Unlock()
+			}
+		}
+	}
+
 	client := s.cfg.HTTPClient
-	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
+	if s.cfg.TLSEnrolled && s.cfg.DataDir != "" && mtls.HasCerts(s.cfg.DataDir, s.cfg.ID) {
+		tlsClient, err := mtls.HTTPClient(s.cfg.DataDir, s.cfg.ID)
+		if err != nil {
+			s.mu.Lock()
+			s.lastError = fmt.Sprintf("loading mTLS client: %v", err)
+			s.mu.Unlock()
+			return fmt.Errorf("loading mTLS client: %w", err)
+		}
+		client = tlsClient
+	} else if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
 		client = s.cfg.WGClient
 	}
 
@@ -180,6 +219,14 @@ func (s *Source) SupportsVOD() bool {
 
 func (s *Source) VODTypes() []string {
 	return []string{"movie", "series"}
+}
+
+func (s *Source) TLSInfo() source.TLSStatus {
+	status := source.TLSStatus{Enrolled: s.cfg.TLSEnrolled}
+	if s.cfg.TLSEnrolled && s.cfg.DataDir != "" {
+		status.Fingerprint = mtls.Fingerprint(s.cfg.DataDir, s.cfg.ID)
+	}
+	return status
 }
 
 func (s *Source) Clear(ctx context.Context) error {

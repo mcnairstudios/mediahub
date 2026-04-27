@@ -36,6 +36,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
+	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
@@ -89,6 +90,8 @@ func main() {
 
 	wgService := wg.NewService(settingsStore)
 
+	tmdbCache := tmdbcache.New()
+
 	sourceReg := source.NewRegistry()
 	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := sourceConfigStore.Get(ctx, sourceID)
@@ -112,6 +115,42 @@ func main() {
 			}
 		}
 		return m3usource.New(cfg), nil
+	})
+	sourceReg.Register("tvpstreams", func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := sourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		tvpCfg := tvpstreamssource.Config{
+			ID:              sc.ID,
+			Name:            sc.Name,
+			URL:             sc.Config["url"],
+			IsEnabled:       sc.IsEnabled,
+			UseWireGuard:    sc.Config["use_wireguard"] == "true",
+			DataDir:         cfg.DataDir,
+			EnrollmentToken: sc.Config["enrollment_token"],
+			TLSEnrolled:     sc.Config["tls_enrolled"] == "true",
+			StreamStore:     streamStore,
+			TMDBCache:       tmdbCache,
+			OnEnrolled: func(sourceID string) error {
+				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
+				if err != nil || scUpd == nil {
+					return err
+				}
+				scUpd.Config["tls_enrolled"] = "true"
+				scUpd.Config["enrollment_token"] = ""
+				return sourceConfigStore.Update(ctx, scUpd)
+			},
+		}
+		if tvpCfg.UseWireGuard && wgService != nil {
+			if p := wgService.ActivePlugin(); p != nil {
+				tvpCfg.WGClient = p.HTTPClient()
+			}
+		}
+		return tvpstreamssource.New(tvpCfg), nil
 	})
 	sourceReg.Register("hdhr", func(_ context.Context, _ string) (source.Source, error) {
 		return nil, errors.New("hdhr sources are created via API with their config")
@@ -144,7 +183,6 @@ func main() {
 		log.Printf("wireguard: restored active tunnel (proxy port %d)", plugin.Port())
 	}
 
-	tmdbCache := tmdbcache.New()
 	cacheReg := cache.NewRegistry()
 	cacheReg.Register(tmdbCache)
 

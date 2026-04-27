@@ -178,6 +178,145 @@ func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
 }
 
+func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name            string `json:"name"`
+		URL             string `json:"url"`
+		EnrollmentToken string `json:"enrollment_token"`
+		UseWireGuard    bool   `json:"use_wireguard"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.URL == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "name and url required")
+		return
+	}
+
+	sc := &sourceconfig.SourceConfig{
+		ID:        uuid.New().String(),
+		Type:      "tvpstreams",
+		Name:      req.Name,
+		IsEnabled: true,
+		Config: map[string]string{
+			"url":              req.URL,
+			"enrollment_token": req.EnrollmentToken,
+			"use_wireguard":    boolStr(req.UseWireGuard),
+		},
+	}
+
+	if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to create source")
+		return
+	}
+
+	go func() {
+		ctx := r.Context()
+		src, err := s.deps.SourceReg.Create(ctx, "tvpstreams", sc.ID)
+		if err != nil {
+			return
+		}
+		src.Refresh(ctx)
+	}()
+
+	httputil.RespondJSON(w, http.StatusCreated, sc)
+}
+
+func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
+		return
+	}
+	if existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	var req struct {
+		Name            *string `json:"name"`
+		URL             *string `json:"url"`
+		EnrollmentToken *string `json:"enrollment_token"`
+		IsEnabled       *bool   `json:"is_enabled"`
+		UseWireGuard    *bool   `json:"use_wireguard"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.IsEnabled != nil {
+		existing.IsEnabled = *req.IsEnabled
+	}
+	if req.URL != nil {
+		existing.Config["url"] = *req.URL
+	}
+	if req.EnrollmentToken != nil {
+		existing.Config["enrollment_token"] = *req.EnrollmentToken
+	}
+	if req.UseWireGuard != nil {
+		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+
+	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update source")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleDeleteTVPStreamsSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "tvpstreams", id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
+		return
+	}
+
+	if err := s.deps.SourceConfigStore.Delete(r.Context(), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleTVPStreamsTLSStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	src, err := s.deps.SourceReg.Create(r.Context(), "tvpstreams", id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	if tp, ok := src.(source.TLSProvider); ok {
+		httputil.RespondJSON(w, http.StatusOK, tp.TLSInfo())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, source.TLSStatus{})
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

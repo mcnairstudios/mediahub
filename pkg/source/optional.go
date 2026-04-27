@@ -55,3 +55,15 @@ type EPGProvider interface {
 type Clearable interface {
 	Clear(ctx context.Context) error
 }
+
+// TLSStatus holds the mTLS enrollment state for a source.
+type TLSStatus struct {
+	Enrolled    bool   `json:"enrolled"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// TLSProvider is implemented by sources that support mTLS client
+// certificate authentication (e.g. tvpstreams with enrollment tokens).
+type TLSProvider interface {
+	TLSInfo() TLSStatus
+}

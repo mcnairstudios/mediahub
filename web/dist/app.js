@@ -1098,24 +1098,47 @@
 
   async function renderSources(el) {
     el.innerHTML = '<h1 class="page-title">Sources</h1>' +
-      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-source-btn">' + icons.plus + ' Add M3U Source</button></div>' +
+      '<div style="margin-bottom:16px;display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="add-m3u-btn">' + icons.plus + ' Add M3U Source</button>' +
+      '<button class="btn btn-primary" id="add-tvp-btn">' + icons.plus + ' Add TVP Streams Source</button>' +
+      '</div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="add-source-form" style="display:none" class="card">' +
+      '<div id="add-m3u-form" style="display:none" class="card">' +
       '<div class="card-title">New M3U Source</div>' +
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="src-name" placeholder="My IPTV Provider"></div>' +
       '<div class="form-group"><label class="form-label">URL</label><input class="form-input" id="src-url" placeholder="http://example.com/playlist.m3u"></div>' +
       '<div class="form-group"><label class="form-label">Username (optional)</label><input class="form-input" id="src-username"></div>' +
       '<div class="form-group"><label class="form-label">Password (optional)</label><input class="form-input" id="src-password" type="password"></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="src-wireguard"> Route through WireGuard</label></div>' +
-      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-source-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-source-btn">Cancel</button></div></div>';
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-m3u-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-m3u-btn">Cancel</button></div></div>' +
+      '<div id="add-tvp-form" style="display:none" class="card">' +
+      '<div class="card-title">New TVP Streams Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="tvp-name" placeholder="My Media Library"></div>' +
+      '<div class="form-group"><label class="form-label">URL</label><input class="form-input" id="tvp-url" placeholder="https://streams.example.com/playlist.m3u"></div>' +
+      '<div class="form-group"><label class="form-label">Enrollment Token</label><input class="form-input" id="tvp-token" placeholder="One-time enrollment token"></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="tvp-wireguard"> Route through WireGuard</label></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-tvp-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-tvp-btn">Cancel</button></div></div>';
 
-    var addBtn = document.getElementById('add-source-btn');
-    var formEl = document.getElementById('add-source-form');
-    addBtn.addEventListener('click', function() { formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none'; });
-    document.getElementById('cancel-source-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
+    document.getElementById('add-m3u-btn').addEventListener('click', function() {
+      var f = document.getElementById('add-m3u-form');
+      document.getElementById('add-tvp-form').style.display = 'none';
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('cancel-m3u-btn').addEventListener('click', function() {
+      document.getElementById('add-m3u-form').style.display = 'none';
+    });
+    document.getElementById('add-tvp-btn').addEventListener('click', function() {
+      var f = document.getElementById('add-tvp-form');
+      document.getElementById('add-m3u-form').style.display = 'none';
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('cancel-tvp-btn').addEventListener('click', function() {
+      document.getElementById('add-tvp-form').style.display = 'none';
+    });
 
-    document.getElementById('create-source-btn').addEventListener('click', async function() {
+    document.getElementById('create-m3u-btn').addEventListener('click', async function() {
       var name = document.getElementById('src-name').value.trim();
       var url = document.getElementById('src-url').value.trim();
       var username = document.getElementById('src-username').value.trim();
@@ -1126,7 +1149,28 @@
         var r = await api.post('/api/sources/m3u', { name: name, url: url, username: username, password: password, use_wireguard: wg });
         if (r.ok) {
           toast('Source created, refreshing...');
-          formEl.style.display = 'none';
+          document.getElementById('add-m3u-form').style.display = 'none';
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to create source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to create source', 'error');
+      }
+    });
+
+    document.getElementById('create-tvp-btn').addEventListener('click', async function() {
+      var name = document.getElementById('tvp-name').value.trim();
+      var url = document.getElementById('tvp-url').value.trim();
+      var token = document.getElementById('tvp-token').value.trim();
+      var wg = document.getElementById('tvp-wireguard').checked;
+      if (!name || !url) { toast('Name and URL required', 'error'); return; }
+      try {
+        var r = await api.post('/api/sources/tvpstreams', { name: name, url: url, enrollment_token: token, use_wireguard: wg });
+        if (r.ok) {
+          toast('TVP Streams source created' + (token ? ', enrolling...' : ', refreshing...'));
+          document.getElementById('add-tvp-form').style.display = 'none';
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
@@ -1150,7 +1194,7 @@
       }
 
       var html = '<table class="list-table"><thead><tr>' +
-        '<th>Name</th><th>Type</th><th>Streams</th><th>Last Refreshed</th><th>Status</th><th></th>' +
+        '<th>Name</th><th>Type</th><th>Streams</th><th>Last Refreshed</th><th>Status</th><th>TLS</th><th></th>' +
         '</tr></thead><tbody>';
       for (var i = 0; i < sources.length; i++) {
         var s = sources[i];
@@ -1159,12 +1203,22 @@
           statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
         }
         var lastRefreshed = s.last_refreshed ? new Date(s.last_refreshed).toLocaleString() : 'Never';
+        var tlsCell = '';
+        if (s.type === 'tvpstreams') {
+          var enrolled = s.config && s.config.tls_enrolled === 'true';
+          tlsCell = enrolled
+            ? '<span class="badge badge-enabled" data-tls-id="' + esc(s.id) + '">Enrolled</span>'
+            : '<span class="badge badge-disabled">Not enrolled</span>';
+        } else {
+          tlsCell = '<span style="color:var(--text-secondary)">N/A</span>';
+        }
         html += '<tr>' +
           '<td>' + esc(s.name) + '</td>' +
           '<td><span class="badge badge-enabled">' + esc(s.type || 'unknown').toUpperCase() + '</span></td>' +
           '<td>' + (s.stream_count || 0) + '</td>' +
           '<td>' + esc(lastRefreshed) + '</td>' +
           '<td>' + statusBadge + '</td>' +
+          '<td>' + tlsCell + '</td>' +
           '<td style="display:flex;gap:4px">' +
           '<button class="btn btn-sm btn-ghost refresh-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" title="Refresh">' + icons.refresh + '</button>' +
           '<button class="btn btn-sm btn-danger delete-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" data-name="' + esc(s.name) + '" title="Delete">' + icons.trash + '</button>' +
@@ -1172,6 +1226,17 @@
       }
       html += '</tbody></table>';
       container.innerHTML = html;
+
+      container.querySelectorAll('[data-tls-id]').forEach(function(badge) {
+        var id = badge.getAttribute('data-tls-id');
+        api.get('/api/sources/tvpstreams/' + id + '/tls').then(function(r) {
+          return r.json();
+        }).then(function(tls) {
+          if (tls.fingerprint) {
+            badge.title = 'Fingerprint: ' + tls.fingerprint;
+          }
+        }).catch(function() {});
+      });
 
       container.querySelectorAll('.refresh-source-btn').forEach(function(btn) {
         btn.addEventListener('click', async function() {

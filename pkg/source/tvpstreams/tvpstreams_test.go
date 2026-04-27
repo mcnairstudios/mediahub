@@ -44,6 +44,10 @@ func TestImplementsClearable(t *testing.T) {
 	var _ source.Clearable = (*Source)(nil)
 }
 
+func TestImplementsTLSProvider(t *testing.T) {
+	var _ source.TLSProvider = (*Source)(nil)
+}
+
 func TestType(t *testing.T) {
 	s := New(Config{
 		ID:          "tvp-1",
@@ -743,6 +747,84 @@ func TestRefreshError(t *testing.T) {
 	info := s.Info(context.Background())
 	if info.LastError == "" {
 		t.Fatal("expected LastError to be set")
+	}
+}
+
+func TestTLSInfoNotEnrolled(t *testing.T) {
+	s := New(Config{
+		ID:          "tvp-1",
+		StreamStore: store.NewMemoryStreamStore(),
+	})
+
+	info := s.TLSInfo()
+	if info.Enrolled {
+		t.Fatal("expected not enrolled")
+	}
+	if info.Fingerprint != "" {
+		t.Fatalf("expected empty fingerprint, got %s", info.Fingerprint)
+	}
+}
+
+func TestTLSInfoEnrolled(t *testing.T) {
+	s := New(Config{
+		ID:          "tvp-1",
+		TLSEnrolled: true,
+		DataDir:     t.TempDir(),
+		StreamStore: store.NewMemoryStreamStore(),
+	})
+
+	info := s.TLSInfo()
+	if !info.Enrolled {
+		t.Fatal("expected enrolled")
+	}
+}
+
+func TestRefreshWithEnrollment(t *testing.T) {
+	enrollCalled := false
+	enrollServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/enroll" {
+			enrollCalled = true
+			fmt.Fprint(w, `{"cert":"-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n","key":"-----BEGIN EC PRIVATE KEY-----\ntest\n-----END EC PRIVATE KEY-----\n","ca":"-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n","fingerprint":"AB:CD"}`)
+			return
+		}
+		fmt.Fprint(w, testPlaylist)
+	}))
+	defer enrollServer.Close()
+
+	dataDir := t.TempDir()
+	var enrolledSourceID string
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:              "tvp-enroll",
+		Name:            "Test",
+		URL:             enrollServer.URL + "/playlist.m3u",
+		IsEnabled:       true,
+		DataDir:         dataDir,
+		EnrollmentToken: "test-token",
+		StreamStore:     ss,
+		HTTPClient:      enrollServer.Client(),
+		OnEnrolled: func(sourceID string) error {
+			enrolledSourceID = sourceID
+			return nil
+		},
+	})
+
+	err := s.Refresh(context.Background())
+	if err != nil {
+		t.Logf("refresh error (expected due to test certs): %v", err)
+	}
+
+	if !enrollCalled {
+		t.Fatal("expected enrollment to be called")
+	}
+	if enrolledSourceID != "tvp-enroll" {
+		t.Fatalf("expected OnEnrolled with tvp-enroll, got %s", enrolledSourceID)
+	}
+
+	info := s.TLSInfo()
+	if !info.Enrolled {
+		t.Fatal("expected enrolled after refresh")
 	}
 }
 
