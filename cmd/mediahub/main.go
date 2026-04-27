@@ -9,16 +9,23 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/mcnairstudios/mediahub/pkg/api"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/cache"
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
+	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/config"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
+	"github.com/mcnairstudios/mediahub/pkg/frontend/dlna"
+	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
+	"github.com/mcnairstudios/mediahub/pkg/frontend/jellyfin"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/output/hls"
 	"github.com/mcnairstudios/mediahub/pkg/output/mse"
@@ -34,6 +41,9 @@ import (
 func main() {
 	cfg := config.Load()
 
+	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
+		With().Timestamp().Logger()
+
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		log.Fatalf("creating data directory %s: %v", cfg.DataDir, err)
 	}
@@ -47,13 +57,17 @@ func main() {
 	streamStore := db.StreamStore()
 	settingsStore := db.SettingsStore()
 	channelStore := db.ChannelStore()
+	groupStore := db.GroupStore()
 	epgSourceStore := db.EPGSourceStore()
+	programStore := db.ProgramStore()
 	recordingStore := db.RecordingStore()
 	userStore := db.UserStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	users, err := authService.ListUsers(ctx)
 	if err != nil {
 		log.Fatalf("listing users: %v", err)
@@ -93,8 +107,9 @@ func main() {
 	connReg := connectivity.NewRegistry()
 	_ = connReg
 
+	tmdbCache := tmdbcache.New()
 	cacheReg := cache.NewRegistry()
-	cacheReg.Register(tmdbcache.New())
+	cacheReg.Register(tmdbCache)
 
 	detector := client.NewDetector(nil)
 
@@ -113,7 +128,16 @@ func main() {
 		},
 	})
 
-	server := api.NewServer(api.OrchestratorDeps{
+	scheduler.Add(worker.Job{
+		Name:     "epg-refresh",
+		Interval: 24 * time.Hour,
+		Fn: func(ctx context.Context) error {
+			log.Println("epg refresh: not yet wired to EPG source instances")
+			return nil
+		},
+	})
+
+	apiServer := api.NewServer(api.OrchestratorDeps{
 		StreamStore:    streamStore,
 		ChannelStore:   channelStore,
 		SettingsStore:  settingsStore,
@@ -127,17 +151,85 @@ func main() {
 		Strategy:       strategy.Resolve,
 	})
 
+	mainMux := http.NewServeMux()
+
+	apiHandler := apiServer.Handler()
+	mainMux.Handle("/", apiHandler)
+
+	hdhrServer := hdhr.NewServer(channelStore, cfg)
+	hdhrHandler := hdhrServer.Handler()
+	mainMux.HandleFunc("GET /discover.json", func(w http.ResponseWriter, r *http.Request) {
+		hdhrHandler.ServeHTTP(w, r)
+	})
+	mainMux.HandleFunc("GET /lineup_status.json", func(w http.ResponseWriter, r *http.Request) {
+		hdhrHandler.ServeHTTP(w, r)
+	})
+	mainMux.HandleFunc("GET /lineup.json", func(w http.ResponseWriter, r *http.Request) {
+		hdhrHandler.ServeHTTP(w, r)
+	})
+	mainMux.HandleFunc("GET /lineup.xml", func(w http.ResponseWriter, r *http.Request) {
+		hdhrHandler.ServeHTTP(w, r)
+	})
+	mainMux.HandleFunc("GET /device.xml", func(w http.ResponseWriter, r *http.Request) {
+		hdhrHandler.ServeHTTP(w, r)
+	})
+
+	dlnaChannels := &dlnaChannelAdapter{channels: channelStore, groups: groupStore}
+	dlnaSettings := &dlnaSettingsAdapter{settings: settingsStore, enabled: cfg.DLNAEnabled}
+	dlnaServer := dlna.NewServer(dlnaChannels, dlnaSettings, cfg.BaseURL, cfg.DLNAPort, zlog)
+	dlnaServer.RegisterRoutes(mainMux)
+
 	scheduler.Start(ctx)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Printf("mediahub starting on %s (data: %s)", cfg.ListenAddr, cfg.DataDir)
+	apiPort := extractPort(cfg.ListenAddr)
+	log.Printf("mediahub API on %s (data: %s)", cfg.ListenAddr, cfg.DataDir)
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 3)
+
 	go func() {
-		errCh <- http.ListenAndServe(cfg.ListenAddr, server.Handler())
+		if err := http.ListenAndServe(cfg.ListenAddr, mainMux); err != nil {
+			errCh <- fmt.Errorf("api server: %w", err)
+		}
 	}()
+
+	jellyfinServer := jellyfin.NewServer(jellyfin.ServerDeps{
+		ServerName: "MediaHub",
+		StateDir:   cfg.DataDir,
+		Auth:       authService,
+		Channels:   channelStore,
+		Groups:     groupStore,
+		Streams:    streamStore,
+		Programs:   programStore,
+		TMDBCache:  tmdbCache,
+		Log:        zlog,
+	})
+	go func() {
+		addr := fmt.Sprintf(":%d", cfg.JellyfinPort)
+		log.Printf("jellyfin emulation on %s", addr)
+		if err := jellyfinServer.ListenAndServe(addr); err != nil {
+			errCh <- fmt.Errorf("jellyfin server: %w", err)
+		}
+	}()
+
+	hdhrDiscovery := hdhr.NewDiscoveryResponder(cfg.BaseURL, zlog)
+	go func() {
+		log.Printf("hdhr discovery responder starting (UDP 65001)")
+		hdhrDiscovery.Run(ctx)
+	}()
+
+	if cfg.DLNAEnabled {
+		ssdp := dlna.NewSSDPAdvertiser(dlnaServer, cfg.BaseURL, cfg.DLNAPort, 30*time.Second, zlog)
+		go func() {
+			log.Printf("dlna SSDP advertiser starting (port %d)", apiPort)
+			ssdp.Run(ctx)
+		}()
+	}
+
+	log.Printf("hdhr endpoints on %s (/discover.json, /lineup.json, /device.xml)", cfg.ListenAddr)
+	log.Printf("dlna endpoints on %s (/dlna/*)", cfg.ListenAddr)
 
 	select {
 	case sig := <-sigCh:
@@ -146,8 +238,91 @@ func main() {
 		log.Printf("server error: %v", err)
 	}
 
+	cancel()
 	scheduler.Stop()
 	sessionMgr.StopAll()
 
 	fmt.Println("mediahub stopped")
+}
+
+func extractPort(listenAddr string) int {
+	for i := len(listenAddr) - 1; i >= 0; i-- {
+		if listenAddr[i] == ':' {
+			if port, err := strconv.Atoi(listenAddr[i+1:]); err == nil {
+				return port
+			}
+		}
+	}
+	return 8080
+}
+
+type dlnaChannelAdapter struct {
+	channels channel.Store
+	groups   channel.GroupStore
+}
+
+func (a *dlnaChannelAdapter) ListChannels(ctx context.Context) ([]dlna.ChannelItem, error) {
+	channels, err := a.channels.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dlna.ChannelItem, 0, len(channels))
+	for _, ch := range channels {
+		if !ch.IsEnabled {
+			continue
+		}
+		items = append(items, dlna.ChannelItem{
+			ID:      ch.ID,
+			Name:    ch.Name,
+			LogoURL: ch.LogoURL,
+			GroupID: ch.GroupID,
+		})
+	}
+	return items, nil
+}
+
+func (a *dlnaChannelAdapter) GetChannel(ctx context.Context, id string) (*dlna.ChannelItem, error) {
+	ch, err := a.channels.Get(ctx, id)
+	if err != nil || ch == nil {
+		return nil, err
+	}
+	return &dlna.ChannelItem{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		LogoURL: ch.LogoURL,
+		GroupID: ch.GroupID,
+	}, nil
+}
+
+func (a *dlnaChannelAdapter) ListGroups(ctx context.Context) ([]dlna.GroupItem, error) {
+	groups, err := a.groups.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dlna.GroupItem, 0, len(groups))
+	for _, g := range groups {
+		items = append(items, dlna.GroupItem{
+			ID:   g.ID,
+			Name: g.Name,
+		})
+	}
+	return items, nil
+}
+
+type dlnaSettingsAdapter struct {
+	settings interface {
+		Get(ctx context.Context, key string) (string, error)
+	}
+	enabled bool
+}
+
+func (a *dlnaSettingsAdapter) IsEnabled(ctx context.Context) bool {
+	if !a.enabled {
+		return false
+	}
+	val, err := a.settings.Get(ctx, "dlna_enabled")
+	if err != nil || val == "" {
+		return true
+	}
+	return val != "false" && val != "0"
 }

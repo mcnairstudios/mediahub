@@ -13,6 +13,8 @@ type Config struct {
 	VODOutputDir string
 	UserAgent    string
 	JellyfinPort int
+	DLNAEnabled  bool
+	DLNAPort     int
 }
 
 func Load() *Config {
@@ -22,6 +24,8 @@ func Load() *Config {
 		RecordDir:    "/record",
 		UserAgent:    "MediaHub",
 		JellyfinPort: 8096,
+		DLNAEnabled:  true,
+		DLNAPort:     8080,
 	}
 
 	if v := os.Getenv("MEDIAHUB_BASE_URL"); v != "" {
@@ -47,6 +51,14 @@ func Load() *Config {
 	if v := os.Getenv("MEDIAHUB_JELLYFIN_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil {
 			c.JellyfinPort = port
+		}
+	}
+	if v := os.Getenv("MEDIAHUB_DLNA_ENABLED"); v == "false" || v == "0" {
+		c.DLNAEnabled = false
+	}
+	if v := os.Getenv("MEDIAHUB_DLNA_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			c.DLNAPort = port
 		}
 	}
 
