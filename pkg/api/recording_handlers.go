@@ -103,6 +103,7 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 		Detector:      s.deps.Detector,
 		OutputReg:     s.deps.OutputReg,
 		Strategy:      s.deps.Strategy,
+		UserAgent:     s.deps.UserAgent,
 	}
 
 	title := rec.Title

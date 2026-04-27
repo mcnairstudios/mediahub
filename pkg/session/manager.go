@@ -23,7 +23,7 @@ func NewManager(outputDir string) *Manager {
 	}
 }
 
-func (m *Manager) GetOrCreate(ctx context.Context, streamID, streamURL, streamName string) (*Session, bool, error) {
+func (m *Manager) GetOrCreate(_ context.Context, streamID, streamURL, streamName string) (*Session, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -31,7 +31,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, streamID, streamURL, streamNa
 		return s, false, nil
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	s := newSession(ctx, cancel, streamID, streamURL, streamName, m.outputDir)
 	m.sessions[streamID] = s
 	return s, true, nil

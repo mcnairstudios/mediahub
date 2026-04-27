@@ -195,6 +195,7 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		Detector:          s.deps.Detector,
 		OutputReg:         s.deps.OutputReg,
 		Strategy:          s.deps.Strategy,
+		UserAgent:         s.deps.UserAgent,
 	}
 
 	headers := make(map[string]string)
@@ -418,7 +419,8 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deps := orchestrator.RefreshDeps{
-		SourceReg: s.deps.SourceReg,
+		SourceReg:         s.deps.SourceReg,
+		SourceConfigStore: s.deps.SourceConfigStore,
 	}
 
 	go func() {

@@ -108,6 +108,8 @@
     }
   };
 
+  var MAX_RETRIES = 5;
+
   var playerState = {
     hlsInstance: null,
     videoEl: null,
@@ -117,12 +119,17 @@
     currentStreamID: null,
     sessionID: null,
     isLive: false,
+    retryCount: 0,
+    retryTimeout: null,
+    hlsUrl: null,
+    delivery: null,
 
     recordingID: null,
 
     cleanup: function() {
       if (this.bufferWatchInterval) { clearInterval(this.bufferWatchInterval); this.bufferWatchInterval = null; }
       if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
+      if (this.retryTimeout) { clearTimeout(this.retryTimeout); this.retryTimeout = null; }
       if (this.hlsInstance) { this.hlsInstance.destroy(); this.hlsInstance = null; }
       if (this.recordingID) {
         api.del('/api/recordings/completed/' + this.recordingID + '/play').catch(function() {});
@@ -133,6 +140,9 @@
       this.currentStreamID = null;
       this.videoEl = null;
       this.sessionID = null;
+      this.retryCount = 0;
+      this.hlsUrl = null;
+      this.delivery = null;
     }
   };
 
@@ -1208,6 +1218,11 @@
     if (!videoEl) return;
     playerState.videoEl = videoEl;
 
+    var statusEl = document.getElementById('player-status');
+    var spinner = document.getElementById('player-spinner');
+    if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Buffering...'; }
+    if (spinner) spinner.style.display = 'flex';
+
     var isRecording = streamID.indexOf('rec:') === 0;
     var recID = isRecording ? streamID.substring(4) : null;
 
@@ -1220,6 +1235,8 @@
       }
       if (!resp.ok) {
         var errData = await resp.json().catch(function() { return {}; });
+        if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Failed'; }
+        if (spinner) spinner.style.display = 'none';
         toast('Failed to start playback: ' + (errData.error || resp.statusText), 'error');
         return;
       }
@@ -1228,11 +1245,13 @@
 
       var delivery = data.delivery || 'hls';
       var endpoints = data.endpoints || {};
+      playerState.delivery = delivery;
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
           ? '/api/recordings/completed/' + recID + '/play/hls/playlist.m3u8'
           : '/api/play/' + streamID + '/hls/playlist.m3u8');
+        playerState.hlsUrl = hlsUrl;
         if (typeof Hls !== 'undefined' && Hls.isSupported()) {
           startHLS(videoEl, hlsUrl);
         } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
@@ -1252,11 +1271,12 @@
         return;
       }
     } catch (e) {
+      if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
+      if (spinner) spinner.style.display = 'none';
       toast('Playback error: ' + e.message, 'error');
       return;
     }
 
-    var seekID = isRecording ? recID : streamID;
     var seekPath = isRecording ? '/api/recordings/completed/' + recID + '/seek' : '/api/play/' + streamID + '/seek';
     bindPlayerControls(videoEl, streamID, seekPath);
     startBufferWatch(videoEl);
@@ -1264,6 +1284,8 @@
   }
 
   function startHLS(videoEl, url) {
+    if (playerState.hlsInstance) { playerState.hlsInstance.destroy(); playerState.hlsInstance = null; }
+
     var hls = new Hls({
       liveSyncDurationCount: 3,
       liveMaxLatencyDurationCount: 6,
@@ -1285,10 +1307,52 @@
           hls.startLoad();
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           hls.recoverMediaError();
+        } else {
+          handleRetry();
         }
       }
     });
     playerState.hlsInstance = hls;
+  }
+
+  function handleRetry() {
+    if (!playerState.currentStreamID) return;
+    var statusEl = document.getElementById('player-status');
+
+    if (playerState.retryCount >= MAX_RETRIES) {
+      if (statusEl) {
+        statusEl.style.color = '#ff6b6b';
+        statusEl.innerHTML = '';
+        statusEl.textContent = 'Errored ';
+        var retryLink = document.createElement('a');
+        retryLink.textContent = 'Retry';
+        retryLink.href = '#';
+        retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
+        retryLink.onclick = function(e) {
+          e.preventDefault();
+          playerState.retryCount = 0;
+          handleRetry();
+        };
+        statusEl.appendChild(retryLink);
+      }
+      return;
+    }
+
+    playerState.retryCount++;
+    if (statusEl) {
+      statusEl.style.color = '#ffa726';
+      statusEl.textContent = 'Retrying... (' + playerState.retryCount + '/' + MAX_RETRIES + ')';
+    }
+
+    var delay = Math.min(2000 * playerState.retryCount, 6000);
+    if (playerState.retryTimeout) clearTimeout(playerState.retryTimeout);
+    playerState.retryTimeout = setTimeout(function() {
+      if (!playerState.currentStreamID || !playerState.videoEl) return;
+
+      if (playerState.delivery === 'hls' && playerState.hlsUrl) {
+        startHLS(playerState.videoEl, playerState.hlsUrl);
+      }
+    }, delay);
   }
 
   function startMSE(videoEl, streamID, endpoints) {
@@ -1504,6 +1568,7 @@
       if (spinner) spinner.style.display = 'none';
       if (statusEl) { statusEl.style.color = '#4caf50'; statusEl.textContent = 'Playing'; }
       if (playPauseBtn) playPauseBtn.textContent = '\u23F8';
+      playerState.retryCount = 0;
     });
     videoEl.addEventListener('seeked', function() {
       if (spinner) spinner.style.display = 'none';
@@ -1514,6 +1579,7 @@
     });
     videoEl.addEventListener('error', function() {
       if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
+      handleRetry();
     });
 
     videoEl.addEventListener('click', function() {

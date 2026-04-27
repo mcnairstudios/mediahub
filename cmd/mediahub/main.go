@@ -239,11 +239,18 @@ func main() {
 		log.Printf("worker %s error: %v", name, err)
 	})
 
+	refreshDeps := orchestrator.RefreshDeps{
+		SourceReg:         sourceReg,
+		SourceConfigStore: sourceConfigStore,
+	}
 	scheduler.Add(worker.Job{
 		Name:     "source-refresh",
 		Interval: 6 * time.Hour,
 		Fn: func(ctx context.Context) error {
-			log.Println("source refresh: not yet wired to source instances")
+			errs := orchestrator.RefreshAll(ctx, refreshDeps)
+			if len(errs) > 0 {
+				return fmt.Errorf("source refresh: %d errors, last: %w", len(errs), errs[len(errs)-1])
+			}
 			return nil
 		},
 	})
@@ -301,6 +308,7 @@ func main() {
 		LogoCache:         logoCache,
 		Activity:          activityService,
 		StaticFS:          staticFS,
+		UserAgent:         cfg.UserAgent,
 		BypassHeader:      cfg.BypassHeader,
 		BypassSecret:      cfg.BypassSecret,
 	})
@@ -497,7 +505,7 @@ func seedDefaults(ctx context.Context, s store.SettingsStore) {
 		"decoder_h264":           "",
 		"decoder_h265":           "",
 		"dlna_enabled":           "true",
-		"delivery":               "mse",
+		"delivery":               "hls",
 		"container":              "mp4",
 	}
 	for k, v := range defaults {
