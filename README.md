@@ -101,6 +101,38 @@ pkg/
   client/     Client detection + profile resolution
 ```
 
+## Package Dependencies
+
+```mermaid
+graph TD
+    config[pkg/config]
+    media[pkg/media]
+    store[pkg/store]
+    source[pkg/source]
+    output[pkg/output]
+    session[pkg/session]
+    strategy[pkg/strategy]
+    client[pkg/client]
+
+    store --> media
+    strategy --> media
+    session --> output
+    source -.-> store
+    
+    style config fill:#e8f5e9
+    style media fill:#e8f5e9
+    style client fill:#e8f5e9
+    style source fill:#fff3e0
+    style output fill:#e3f2fd
+    style session fill:#e3f2fd
+    style store fill:#fce4ec
+    style strategy fill:#f3e5f5
+```
+
+**Leaf packages (no mediahub deps):** config, media, client
+**Core packages:** store (→ media), strategy (→ media), output, source
+**Orchestration:** session (→ output)
+
 ## Data Flow
 
 ```mermaid
