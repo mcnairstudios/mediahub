@@ -5,8 +5,14 @@ import (
 )
 
 var (
-	bucketStreams  = []byte("streams")
-	bucketSettings = []byte("settings")
+	bucketStreams     = []byte("streams")
+	bucketSettings   = []byte("settings")
+	bucketChannels   = []byte("channels")
+	bucketGroups     = []byte("groups")
+	bucketEPGSources = []byte("epg_sources")
+	bucketEPGPrograms = []byte("epg_programs")
+	bucketRecordings = []byte("recordings")
+	bucketUsers      = []byte("users")
 )
 
 type DB struct {
@@ -19,12 +25,16 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 
+	buckets := [][]byte{
+		bucketStreams, bucketSettings, bucketChannels, bucketGroups,
+		bucketEPGSources, bucketEPGPrograms, bucketRecordings, bucketUsers,
+	}
+
 	err = db.Update(func(tx *bbolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(bucketStreams); err != nil {
-			return err
-		}
-		if _, err := tx.CreateBucketIfNotExists(bucketSettings); err != nil {
-			return err
+		for _, name := range buckets {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -46,4 +56,28 @@ func (d *DB) StreamStore() *StreamStore {
 
 func (d *DB) SettingsStore() *SettingsStore {
 	return &SettingsStore{db: d.db}
+}
+
+func (d *DB) ChannelStore() *ChannelStore {
+	return &ChannelStore{db: d.db}
+}
+
+func (d *DB) GroupStore() *GroupStore {
+	return &GroupStore{db: d.db}
+}
+
+func (d *DB) EPGSourceStore() *EPGSourceStore {
+	return &EPGSourceStore{db: d.db}
+}
+
+func (d *DB) ProgramStore() *ProgramStore {
+	return &ProgramStore{db: d.db}
+}
+
+func (d *DB) RecordingStore() *RecordingStore {
+	return &RecordingStore{db: d.db}
+}
+
+func (d *DB) UserStore() *UserStore {
+	return &UserStore{db: d.db}
 }
