@@ -197,6 +197,7 @@
     else if (page === 'channels') renderChannels(pageEl);
     else if (page === 'recordings') renderRecordings(pageEl);
     else if (page === 'sources') renderSources(pageEl);
+    else if (page === 'wireguard') renderWireGuard(pageEl);
     else if (page === 'settings') renderSettings(pageEl);
     else if (page === 'users') renderUsers(pageEl);
     else renderDashboard(pageEl);
