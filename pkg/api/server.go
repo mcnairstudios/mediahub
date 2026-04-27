@@ -4,12 +4,15 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
+	"github.com/mcnairstudios/mediahub/pkg/favorite"
+	"github.com/mcnairstudios/mediahub/pkg/logocache"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
@@ -37,6 +40,9 @@ type OrchestratorDeps struct {
 	GroupStore        channel.GroupStore
 	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
 	WGService         *wg.Service
+	FavoriteStore     favorite.Store
+	LogoCache         *logocache.Cache
+	Activity          *activity.Service
 	StaticFS          fs.FS
 }
 

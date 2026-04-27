@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	"github.com/mcnairstudios/mediahub/pkg/favorite"
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
@@ -83,6 +84,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		EPGSourceStore:    epgSourceStore,
 		ProgramStore:      programStore,
 		GroupStore:        groupStore,
+		FavoriteStore:     favorite.NewMemoryStore(),
 		Strategy: func(in strategy.Input, out strategy.Output) strategy.Decision {
 			return strategy.Resolve(in, out)
 		},

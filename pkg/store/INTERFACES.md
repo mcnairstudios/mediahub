@@ -36,6 +36,7 @@ type SettingsStore interface {
 | `epg.ProgramStore` | pkg/epg | NowPlaying, Range, BulkInsert, DeleteBySource |
 | `recording.Store` | pkg/recording | Get, List, Create, Update, Delete, ListByStatus, ListScheduled |
 | `auth.UserStore` | pkg/auth | Get, GetByUsername, List, Create, Delete, UpdatePassword |
+| `favorite.Store` | pkg/favorite | List, Add, Remove, IsFavorite |
 
 ## Backend Factory
 
@@ -58,6 +59,7 @@ type Factory interface {
     ProgramStore(backend BackendType) (epg.ProgramStore, error)
     RecordingStore(backend BackendType) (recording.Store, error)
     UserStore(backend BackendType) (auth.UserStore, error)
+    FavoriteStore(backend BackendType) (favorite.Store, error)
 }
 ```
 

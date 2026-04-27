@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
@@ -154,6 +156,23 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.deps.Activity != nil {
+		user := middleware.UserFromContext(r.Context())
+		v := &activity.Viewer{
+			SessionID:  result.Session.ID,
+			StreamID:   result.Session.StreamID,
+			StreamName: result.Session.StreamName,
+			Delivery:   result.Delivery,
+			StartedAt:  time.Now(),
+			RemoteAddr: r.RemoteAddr,
+		}
+		if user != nil {
+			v.UserID = user.ID
+			v.Username = user.Username
+		}
+		s.deps.Activity.Add(v)
+	}
+
 	resp := map[string]any{
 		"session_id": result.Session.ID,
 		"stream_id":  result.Session.StreamID,
@@ -224,6 +243,12 @@ func (s *Server) handleStopPlayback(w http.ResponseWriter, r *http.Request) {
 	if streamID == "" {
 		httputil.RespondError(w, http.StatusBadRequest, "stream ID required")
 		return
+	}
+
+	if s.deps.Activity != nil {
+		if sess := s.deps.SessionMgr.Get(streamID); sess != nil {
+			s.deps.Activity.Remove(sess.ID)
+		}
 	}
 
 	deps := orchestrator.PlaybackDeps{
@@ -392,4 +417,31 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusCreated, user)
+}
+
+func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Activity == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	viewers := s.deps.Activity.List()
+	now := time.Now()
+	result := make([]map[string]any, 0, len(viewers))
+	for _, v := range viewers {
+		result = append(result, map[string]any{
+			"session_id":  v.SessionID,
+			"stream_id":   v.StreamID,
+			"stream_name": v.StreamName,
+			"user_id":     v.UserID,
+			"username":    v.Username,
+			"client_name": v.ClientName,
+			"delivery":    v.Delivery,
+			"started_at":  v.StartedAt.Format(time.RFC3339),
+			"duration":    now.Sub(v.StartedAt).Truncate(time.Second).String(),
+			"remote_addr": v.RemoteAddr,
+		})
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, result)
 }

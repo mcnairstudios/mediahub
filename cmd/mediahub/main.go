@@ -16,8 +16,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/api"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	"github.com/mcnairstudios/mediahub/pkg/logocache"
 	"github.com/mcnairstudios/mediahub/pkg/cache"
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
@@ -37,6 +39,8 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
+	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
+	recscheduler "github.com/mcnairstudios/mediahub/pkg/scheduler"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
@@ -69,6 +73,7 @@ func main() {
 	recordingStore := db.RecordingStore()
 	userStore := db.UserStore()
 	sourceConfigStore := db.SourceConfigStore()
+	favoriteStore := db.FavoriteStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
@@ -215,7 +220,25 @@ func main() {
 		},
 	})
 
+	recScheduler := recscheduler.New(recordingStore)
+	recDeps := orchestrator.RecordingDeps{
+		SessionMgr:     sessionMgr,
+		RecordingStore: recordingStore,
+		OutputReg:      outputReg,
+	}
+	recScheduler.SetStartFunc(func(streamID, title string) error {
+		return orchestrator.StartRecording(ctx, recDeps, streamID, title, "system", false)
+	})
+	recScheduler.SetStopFunc(func(streamID string) error {
+		return orchestrator.StopRecording(ctx, recDeps, streamID)
+	})
+	recScheduler.Start(ctx)
+
+	logoCache := logocache.New(filepath.Join(cfg.DataDir, "logocache"))
+
 	staticFS, _ := fs.Sub(web.Assets, "dist")
+
+	activityService := activity.New()
 
 	apiServer := api.NewServer(api.OrchestratorDeps{
 		StreamStore:       streamStore,
@@ -233,7 +256,10 @@ func main() {
 		ProgramStore:      programStore,
 		GroupStore:        groupStore,
 		Strategy:          strategy.Resolve,
+		FavoriteStore:     favoriteStore,
 		WGService:         wgService,
+		LogoCache:         logoCache,
+		Activity:          activityService,
 		StaticFS:          staticFS,
 	})
 
@@ -327,6 +353,7 @@ func main() {
 	}
 
 	cancel()
+	recScheduler.Stop()
 	scheduler.Stop()
 	sessionMgr.StopAll()
 	wgService.Close()

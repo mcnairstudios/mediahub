@@ -74,7 +74,11 @@
     empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>',
     wireguard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M12 8v4M12 16h.01"/></svg>',
     epg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>',
-    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    starFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    favorites: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    addChannel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 10v0"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>'
   };
 
   var router = {
@@ -134,9 +138,11 @@
       { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
       { id: 'streams', label: 'Streams', icon: 'streams' },
       { id: 'channels', label: 'Channels', icon: 'channels' },
-      { id: 'recordings', label: 'Recordings', icon: 'recordings' }
+      { id: 'recordings', label: 'Recordings', icon: 'recordings' },
+      { id: 'favorites', label: 'Favorites', icon: 'favorites' }
     ];
     if (isAdmin) {
+      items.push({ id: 'activity', label: 'Activity', icon: 'stats' });
       items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
       items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
       items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
@@ -199,6 +205,8 @@
     else if (page === 'streams') renderStreams(pageEl);
     else if (page === 'channels') renderChannels(pageEl);
     else if (page === 'recordings') renderRecordings(pageEl);
+    else if (page === 'favorites') renderFavorites(pageEl);
+    else if (page === 'activity') renderActivity(pageEl);
     else if (page === 'sources') renderSources(pageEl);
     else if (page === 'epgsources') renderEPGSources(pageEl);
     else if (page === 'wireguard') renderWireGuard(pageEl);
@@ -283,11 +291,13 @@
   }
 
   async function renderDashboard(el) {
+    var isAdmin = api.user && api.user.is_admin;
     el.innerHTML = '<h1 class="page-title">Dashboard</h1>' +
       '<div class="stat-grid">' +
       '<div class="stat-card"><div class="stat-value" id="stat-streams">-</div><div class="stat-label">Streams</div></div>' +
       '<div class="stat-card"><div class="stat-value" id="stat-channels">-</div><div class="stat-label">Channels</div></div>' +
       '<div class="stat-card"><div class="stat-value" id="stat-recordings">-</div><div class="stat-label">Recordings</div></div>' +
+      (isAdmin ? '<div class="stat-card"><div class="stat-value" id="stat-active">-</div><div class="stat-label">Active Now</div></div>' : '') +
       '</div>' +
       '<div class="card"><div class="card-title">Quick Links</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
@@ -301,11 +311,13 @@
     });
 
     try {
-      var results = await Promise.allSettled([
+      var fetches = [
         api.get('/api/streams').then(function(r) { return r.json(); }),
         api.get('/api/channels').then(function(r) { return r.json(); }),
         api.get('/api/recordings').then(function(r) { return r.json(); })
-      ]);
+      ];
+      if (isAdmin) fetches.push(api.get('/api/activity').then(function(r) { return r.json(); }));
+      var results = await Promise.allSettled(fetches);
       var streams = results[0].status === 'fulfilled' ? results[0].value : [];
       var channels = results[1].status === 'fulfilled' ? results[1].value : [];
       var recordings = results[2].status === 'fulfilled' ? results[2].value : [];
@@ -315,6 +327,11 @@
       if (s) s.textContent = Array.isArray(streams) ? streams.length : 0;
       if (c) c.textContent = Array.isArray(channels) ? channels.length : 0;
       if (rc) rc.textContent = Array.isArray(recordings) ? recordings.length : 0;
+      if (isAdmin && results.length > 3) {
+        var activeViewers = results[3].status === 'fulfilled' ? results[3].value : [];
+        var ac = document.getElementById('stat-active');
+        if (ac) ac.textContent = Array.isArray(activeViewers) ? activeViewers.length : 0;
+      }
     } catch (e) {}
   }
 
@@ -324,6 +341,7 @@
       '<div id="stream-list"><div class="skeleton" style="height:200px"></div></div>';
 
     try {
+      await loadFavorites();
       var resp = await api.get('/api/streams');
       var streams = await resp.json();
       if (!Array.isArray(streams)) streams = [];
@@ -333,6 +351,33 @@
       });
     } catch (e) {
       document.getElementById('stream-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load streams</p></div>';
+    }
+  }
+
+  var streamFavorites = {};
+
+  async function loadFavorites() {
+    try {
+      var resp = await api.get('/api/favorites');
+      var favs = await resp.json();
+      streamFavorites = {};
+      if (Array.isArray(favs)) {
+        for (var i = 0; i < favs.length; i++) {
+          streamFavorites[favs[i].stream_id] = true;
+        }
+      }
+    } catch (e) {
+      streamFavorites = {};
+    }
+  }
+
+  async function toggleFavorite(streamID) {
+    if (streamFavorites[streamID]) {
+      await api.del('/api/favorites/' + streamID);
+      delete streamFavorites[streamID];
+    } else {
+      await api.post('/api/favorites', { stream_id: streamID });
+      streamFavorites[streamID] = true;
     }
   }
 
@@ -352,19 +397,25 @@
       return;
     }
     var html = '<table class="list-table"><thead><tr>' +
-      '<th></th><th>Name</th><th>Group</th><th>Type</th><th></th>' +
+      '<th></th><th>Name</th><th>Group</th><th>Type</th><th>Actions</th>' +
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var s = filtered[i];
       var logo = s.logo_url ? '<img class="logo" src="' + esc(s.logo_url) + '" alt="">' : '';
       var typeBadge = s.is_live ? '<span class="badge badge-live">LIVE</span>' : '<span class="badge badge-vod">VOD</span>';
+      var isFav = streamFavorites[s.id];
+      var starIcon = isFav ? icons.starFilled : icons.star;
+      var starClass = isFav ? ' favorited' : '';
       html += '<tr class="clickable" data-stream-id="' + esc(s.id) + '">' +
         '<td>' + logo + '</td>' +
         '<td>' + esc(s.name) + '</td>' +
         '<td>' + esc(s.group || '-') + '</td>' +
         '<td>' + typeBadge + '</td>' +
-        '<td><button class="btn btn-sm btn-primary play-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icons.play + '</button></td>' +
-        '</tr>';
+        '<td class="actions-cell">' +
+        '<button class="btn btn-sm btn-icon fav-btn' + starClass + '" data-id="' + esc(s.id) + '" title="Toggle favorite">' + starIcon + '</button>' +
+        '<button class="btn btn-sm btn-icon add-channel-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" title="Add to channel">' + icons.addChannel + '</button>' +
+        '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icons.play + '</button>' +
+        '</td></tr>';
     }
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -372,6 +423,86 @@
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
         startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
+      });
+    });
+    container.querySelectorAll('.fav-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var sid = this.getAttribute('data-id');
+        var self = this;
+        toggleFavorite(sid).then(function() {
+          var nowFav = streamFavorites[sid];
+          self.innerHTML = nowFav ? icons.starFilled : icons.star;
+          if (nowFav) self.classList.add('favorited');
+          else self.classList.remove('favorited');
+        });
+      });
+    });
+    container.querySelectorAll('.add-channel-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showAddToChannelModal(this.getAttribute('data-id'), this.getAttribute('data-name'));
+      });
+    });
+  }
+
+  async function showAddToChannelModal(streamID, streamName) {
+    var existing = document.getElementById('add-channel-modal');
+    if (existing) existing.remove();
+
+    var channels = [];
+    try {
+      var resp = await api.get('/api/channels');
+      channels = await resp.json();
+      if (!Array.isArray(channels)) channels = [];
+    } catch (e) { channels = []; }
+
+    var html = '<div class="modal-overlay" id="add-channel-modal">' +
+      '<div class="modal-content">' +
+      '<div class="modal-header">Add "' + esc(streamName) + '" to Channel</div>' +
+      '<div class="modal-body">';
+
+    if (channels.length === 0) {
+      html += '<p>No channels available. Create a channel first.</p>';
+    } else {
+      html += '<div class="channel-pick-list">';
+      for (var i = 0; i < channels.length; i++) {
+        var ch = channels[i];
+        var alreadyAssigned = (ch.stream_ids || []).indexOf(streamID) >= 0;
+        var badge = alreadyAssigned ? ' <span class="badge badge-live">assigned</span>' : '';
+        html += '<div class="channel-pick-item' + (alreadyAssigned ? ' disabled' : '') + '" data-channel-id="' + esc(ch.id) + '"' +
+          (alreadyAssigned ? '' : ' style="cursor:pointer"') + '>' +
+          esc(ch.name) + ' (#' + ch.number + ')' + badge + '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div><div class="modal-footer">' +
+      '<button class="btn btn-ghost" id="close-channel-modal">Cancel</button>' +
+      '</div></div></div>';
+
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    document.getElementById('close-channel-modal').addEventListener('click', function() {
+      document.getElementById('add-channel-modal').remove();
+    });
+    document.getElementById('add-channel-modal').addEventListener('click', function(e) {
+      if (e.target === this) this.remove();
+    });
+
+    document.querySelectorAll('.channel-pick-item:not(.disabled)').forEach(function(item) {
+      item.addEventListener('click', function() {
+        var channelID = this.getAttribute('data-channel-id');
+        var ch = channels.find(function(c) { return c.id === channelID; });
+        if (!ch) return;
+        var ids = (ch.stream_ids || []).slice();
+        ids.push(streamID);
+        api.post('/api/channels/' + channelID + '/streams', { stream_ids: ids }).then(function() {
+          toast('Stream added to channel');
+          document.getElementById('add-channel-modal').remove();
+        }).catch(function() {
+          toast('Failed to assign stream', 'error');
+        });
       });
     });
   }
@@ -1094,6 +1225,88 @@
     } catch (e) {
       document.getElementById('recording-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load recordings</p></div>';
     }
+  }
+
+  async function renderFavorites(el) {
+    el.innerHTML = '<h1 class="page-title">Favorites</h1>' +
+      '<div class="search-bar">' + icons.search + '<input id="fav-search" placeholder="Search favorites..."></div>' +
+      '<div id="fav-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    try {
+      await loadFavorites();
+      var favResp = await api.get('/api/favorites');
+      var favs = await favResp.json();
+      if (!Array.isArray(favs)) favs = [];
+
+      var streamIDs = favs.map(function(f) { return f.stream_id; });
+      var allStreams = [];
+      if (streamIDs.length > 0) {
+        var streamResp = await api.get('/api/streams');
+        var all = await streamResp.json();
+        if (Array.isArray(all)) {
+          allStreams = all.filter(function(s) { return streamIDs.indexOf(s.id) >= 0; });
+        }
+      }
+
+      renderFavoriteTable(allStreams, '');
+      document.getElementById('fav-search').addEventListener('input', function() {
+        renderFavoriteTable(allStreams, this.value.toLowerCase());
+      });
+    } catch (e) {
+      document.getElementById('fav-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load favorites</p></div>';
+    }
+  }
+
+  function renderFavoriteTable(streams, filter) {
+    var container = document.getElementById('fav-list');
+    if (!container) return;
+    var filtered = streams;
+    if (filter) {
+      filtered = streams.filter(function(s) {
+        return (s.name || '').toLowerCase().indexOf(filter) >= 0 ||
+               (s.group || '').toLowerCase().indexOf(filter) >= 0;
+      });
+    }
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="empty-state">' + icons.star + '<p>No favorites yet</p></div>';
+      return;
+    }
+    var html = '<table class="list-table"><thead><tr>' +
+      '<th></th><th>Name</th><th>Group</th><th>Source</th><th>Actions</th>' +
+      '</tr></thead><tbody>';
+    for (var i = 0; i < filtered.length; i++) {
+      var s = filtered[i];
+      var logo = s.logo_url ? '<img class="logo" src="' + esc(s.logo_url) + '" alt="">' : '';
+      html += '<tr>' +
+        '<td>' + logo + '</td>' +
+        '<td>' + esc(s.name) + '</td>' +
+        '<td>' + esc(s.group || '-') + '</td>' +
+        '<td>' + esc(s.source_type || '-') + '</td>' +
+        '<td class="actions-cell">' +
+        '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icons.play + '</button>' +
+        '<button class="btn btn-sm btn-icon btn-danger remove-fav-btn" data-id="' + esc(s.id) + '" title="Remove favorite">' + icons.trash + '</button>' +
+        '</td></tr>';
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+    container.querySelectorAll('.play-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
+      });
+    });
+    container.querySelectorAll('.remove-fav-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var sid = this.getAttribute('data-id');
+        api.del('/api/favorites/' + sid).then(function() {
+          delete streamFavorites[sid];
+          streams = streams.filter(function(s) { return s.id !== sid; });
+          renderFavoriteTable(streams, document.getElementById('fav-search') ? document.getElementById('fav-search').value.toLowerCase() : '');
+          toast('Removed from favorites');
+        });
+      });
+    });
   }
 
   async function renderSources(el) {
@@ -2064,11 +2277,69 @@
     }
   }
 
+  var activityRefreshTimer = null;
+
+  async function renderActivity(el) {
+    el.innerHTML = '<h1 class="page-title">Activity</h1>' +
+      '<div class="stat-grid">' +
+      '<div class="stat-card"><div class="stat-value" id="stat-active-count">-</div><div class="stat-label">Active Viewers</div></div>' +
+      '</div>' +
+      '<div id="activity-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    async function refresh() {
+      try {
+        var resp = await api.get('/api/activity');
+        var viewers = await resp.json();
+        if (!Array.isArray(viewers)) viewers = [];
+        var countEl = document.getElementById('stat-active-count');
+        if (countEl) countEl.textContent = viewers.length;
+        var container = document.getElementById('activity-list');
+        if (!container) return;
+        if (viewers.length === 0) {
+          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No active viewers</p></div>';
+          return;
+        }
+        var html = '<table class="list-table"><thead><tr>' +
+          '<th>Stream</th><th>User</th><th>Delivery</th><th>Client</th><th>Duration</th><th>Address</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < viewers.length; i++) {
+          var v = viewers[i];
+          html += '<tr>' +
+            '<td>' + esc(v.stream_name) + '</td>' +
+            '<td>' + esc(v.username || '-') + '</td>' +
+            '<td><span class="badge">' + esc(v.delivery || '-') + '</span></td>' +
+            '<td>' + esc(v.client_name || '-') + '</td>' +
+            '<td>' + esc(v.duration || '-') + '</td>' +
+            '<td>' + esc(v.remote_addr || '-') + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      } catch (e) {
+        var container = document.getElementById('activity-list');
+        if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load activity</p></div>';
+      }
+    }
+
+    await refresh();
+    if (activityRefreshTimer) clearInterval(activityRefreshTimer);
+    activityRefreshTimer = setInterval(function() {
+      if (router.current !== 'activity') {
+        clearInterval(activityRefreshTimer);
+        activityRefreshTimer = null;
+        return;
+      }
+      refresh();
+    }, 5000);
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
     channels: renderChannels,
     recordings: renderRecordings,
+    favorites: renderFavorites,
+    activity: renderActivity,
     sources: renderSources,
     epgsources: renderEPGSources,
     wireguard: renderWireGuard,

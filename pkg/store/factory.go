@@ -7,6 +7,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
+	"github.com/mcnairstudios/mediahub/pkg/favorite"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
@@ -157,6 +158,21 @@ func (f *Factory) UserStore(backend BackendType) (auth.UserStore, error) {
 			return nil, fmt.Errorf("open bolt db: %w", err)
 		}
 		return db.UserStore(), nil
+	default:
+		return nil, fmt.Errorf("unknown backend: %q", backend)
+	}
+}
+
+func (f *Factory) FavoriteStore(backend BackendType) (favorite.Store, error) {
+	switch backend {
+	case BackendMemory:
+		return favorite.NewMemoryStore(), nil
+	case BackendBolt:
+		db, err := boltstore.Open(filepath.Join(f.dataDir, "mediahub.db"))
+		if err != nil {
+			return nil, fmt.Errorf("open bolt db: %w", err)
+		}
+		return db.FavoriteStore(), nil
 	default:
 		return nil, fmt.Errorf("unknown backend: %q", backend)
 	}

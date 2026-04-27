@@ -58,7 +58,21 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/wireguard/profiles/{id}/test", s.adminOnly(s.handleTestWGProfile))
 	s.mux.Handle("GET /api/wireguard/status", s.adminOnly(s.handleWGStatus))
 
+	s.mux.Handle("POST /api/recordings/schedule", s.authenticated(s.handleScheduleRecording))
+	s.mux.Handle("GET /api/recordings/schedule", s.authenticated(s.handleListScheduledRecordings))
+	s.mux.Handle("DELETE /api/recordings/schedule/{id}", s.authenticated(s.handleCancelScheduledRecording))
+
+	s.mux.Handle("GET /api/favorites", s.authenticated(s.handleListFavorites))
+	s.mux.Handle("POST /api/favorites", s.authenticated(s.handleAddFavorite))
+	s.mux.Handle("DELETE /api/favorites/{streamID}", s.authenticated(s.handleRemoveFavorite))
+	s.mux.Handle("GET /api/favorites/check/{streamID}", s.authenticated(s.handleCheckFavorite))
+
 	s.mux.Handle("GET /api/capabilities", s.authenticated(s.handleCapabilities))
+	s.mux.Handle("GET /api/activity", s.adminOnly(s.handleListActivity))
+
+	if s.deps.LogoCache != nil {
+		s.mux.HandleFunc("GET /logo", s.deps.LogoCache.ServeHTTP)
+	}
 
 	if s.deps.StaticFS != nil {
 		staticHandler := http.FileServerFS(s.deps.StaticFS)
