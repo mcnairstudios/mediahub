@@ -3,10 +3,12 @@ package media
 type ProbeResult struct {
 	Video       *VideoInfo
 	AudioTracks []AudioTrack
+	SubTracks   []SubtitleTrack
 	DurationMs  int64
 }
 
 type VideoInfo struct {
+	Index      int
 	Codec      string
 	Width      int
 	Height     int
@@ -17,6 +19,12 @@ type VideoInfo struct {
 	Extradata  []byte
 	Profile    string
 	PixFmt     string
+}
+
+type SubtitleTrack struct {
+	Index    int
+	Codec    string
+	Language string
 }
 
 func (vi *VideoInfo) FPS() float64 {

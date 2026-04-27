@@ -4,6 +4,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 )
 
@@ -115,11 +116,16 @@ func TestEncoderConfigFields(t *testing.T) {
 
 type mockDemuxer struct{}
 
-func (m *mockDemuxer) StreamInfo() *media.ProbeResult { return &media.ProbeResult{} }
-func (m *mockDemuxer) ReadPacket() (*Packet, error)   { return nil, io.EOF }
-func (m *mockDemuxer) SeekTo(posMs int64) error         { return nil }
-func (m *mockDemuxer) SetAudioTrack(index int)         {}
-func (m *mockDemuxer) Close() error                    { return nil }
+func (m *mockDemuxer) StreamInfo() *media.ProbeResult                        { return &media.ProbeResult{} }
+func (m *mockDemuxer) ReadPacket() (*Packet, error)                          { return nil, io.EOF }
+func (m *mockDemuxer) SeekTo(posMs int64) error                              { return nil }
+func (m *mockDemuxer) RequestSeek(posMs int64) error                         { return nil }
+func (m *mockDemuxer) SetOnSeek(fn func())                                   {}
+func (m *mockDemuxer) SetAudioTrack(idx int) error                           { return nil }
+func (m *mockDemuxer) Reconnect() error                                      { return nil }
+func (m *mockDemuxer) VideoCodecParameters() *astiav.CodecParameters         { return nil }
+func (m *mockDemuxer) AudioCodecParameters() *astiav.CodecParameters         { return nil }
+func (m *mockDemuxer) Close()                                                {}
 
 type mockDecoder struct{}
 

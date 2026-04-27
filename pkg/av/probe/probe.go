@@ -54,6 +54,7 @@ func ExtractProbeResult(fc *astiav.FormatContext) *media.ProbeResult {
 			fr := s.RFrameRate()
 			ext := cp.ExtraData()
 			result.Video = &media.VideoInfo{
+				Index:      s.Index(),
 				Codec:      cp.CodecID().String(),
 				Width:      cp.Width(),
 				Height:     cp.Height(),
@@ -74,6 +75,12 @@ func ExtractProbeResult(fc *astiav.FormatContext) *media.ProbeResult {
 				Language:   metadataValue(s.Metadata(), "language"),
 				IsAD:       s.DispositionFlags().Has(astiav.DispositionFlagVisualImpaired),
 				BitRate:    int(cp.BitRate()),
+			})
+		case astiav.MediaTypeSubtitle:
+			result.SubTracks = append(result.SubTracks, media.SubtitleTrack{
+				Index:    s.Index(),
+				Codec:    cp.CodecID().String(),
+				Language: metadataValue(s.Metadata(), "language"),
 			})
 		}
 	}
