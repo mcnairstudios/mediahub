@@ -160,6 +160,20 @@ func (s *Server) handleTestWGProfile(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleReconnectWG(w http.ResponseWriter, r *http.Request) {
+	if s.deps.WGService == nil {
+		httputil.RespondError(w, http.StatusServiceUnavailable, "wireguard not configured")
+		return
+	}
+
+	if err := s.deps.WGService.Reconnect(r.Context()); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, s.deps.WGService.Status())
+}
+
 func (s *Server) handleWGStatus(w http.ResponseWriter, r *http.Request) {
 	if s.deps.WGService == nil {
 		httputil.RespondJSON(w, http.StatusOK, wg.StatusResponse{Connected: false})

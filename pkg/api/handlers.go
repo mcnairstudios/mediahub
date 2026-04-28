@@ -244,6 +244,28 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 			"container":             result.Decision.Container,
 		},
 	}
+	if result.ProbeInfo != nil {
+		probeMap := map[string]any{}
+		if result.ProbeInfo.Video != nil {
+			probeMap["video"] = map[string]any{
+				"codec":      result.ProbeInfo.Video.Codec,
+				"width":      result.ProbeInfo.Video.Width,
+				"height":     result.ProbeInfo.Video.Height,
+				"interlaced": result.ProbeInfo.Video.Interlaced,
+				"bit_depth":  result.ProbeInfo.Video.BitDepth,
+			}
+		}
+		if len(result.ProbeInfo.AudioTracks) > 0 {
+			a := result.ProbeInfo.AudioTracks[0]
+			probeMap["audio"] = map[string]any{
+				"codec":       a.Codec,
+				"channels":    a.Channels,
+				"sample_rate": a.SampleRate,
+				"language":    a.Language,
+			}
+		}
+		resp["probe_info"] = probeMap
+	}
 
 	base := "/api/play/" + streamID
 	switch result.Delivery {

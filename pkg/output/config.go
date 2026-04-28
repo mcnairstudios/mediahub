@@ -11,6 +11,8 @@ type PluginConfig struct {
 	SegmentDurationSec int
 	Video              *media.VideoInfo
 	Audio              *media.AudioTrack
-	VideoCodecParams   any // *astiav.CodecParameters from demuxer
-	AudioCodecParams   any // *astiav.CodecParameters from demuxer
+	VideoCodecParams   any    // *astiav.CodecParameters from demuxer
+	AudioCodecParams   any    // *astiav.CodecParameters from demuxer
+	VideoExtradata     []byte // from encoder when transcoding
+	AudioExtradata     []byte // from encoder when transcoding
 }

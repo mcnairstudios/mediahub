@@ -80,6 +80,7 @@ Handlers are methods on Server for access to deps. They contain ZERO business lo
 | PUT | /api/epg/sources/{id} | Admin | handleUpdateEPGSource |
 | DELETE | /api/epg/sources/{id} | Admin | handleDeleteEPGSource |
 | POST | /api/epg/sources/{id}/refresh | Admin | handleRefreshEPGSource |
+| GET | /api/epg/guide | Auth | handleEPGGuide |
 | GET | /api/epg/now | Auth | handleEPGNow |
 | GET | /api/epg/programs | Auth | handleEPGPrograms |
 | GET | /api/dashboard/stats | Auth | handleDashboardStats |
@@ -106,6 +107,7 @@ Handlers are methods on Server for access to deps. They contain ZERO business lo
 | POST | /api/sources/m3u | Admin | handleCreateM3USource |
 | PUT | /api/sources/m3u/{id} | Admin | handleUpdateM3USource |
 | DELETE | /api/sources/m3u/{id} | Admin | handleDeleteM3USource |
+| POST | /api/sources/m3u/{id}/upload | Admin | handleUploadM3U |
 | POST | /api/sources/tvpstreams | Admin | handleCreateTVPStreamsSource |
 | PUT | /api/sources/tvpstreams/{id} | Admin | handleUpdateTVPStreamsSource |
 | DELETE | /api/sources/tvpstreams/{id} | Admin | handleDeleteTVPStreamsSource |

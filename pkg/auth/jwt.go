@@ -138,7 +138,14 @@ func (s *JWTService) CreateUser(ctx context.Context, username, password string, 
 }
 
 func (s *JWTService) ListUsers(ctx context.Context) ([]*User, error) {
-	return s.store.List(ctx)
+	users, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range users {
+		u.IsAdmin = u.Role == RoleAdmin
+	}
+	return users, nil
 }
 
 func (s *JWTService) UpdateUser(ctx context.Context, id string, username string, role Role) (*User, error) {

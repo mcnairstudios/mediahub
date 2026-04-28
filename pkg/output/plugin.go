@@ -35,11 +35,11 @@ type OutputPlugin interface {
 
 // PluginStatus reports the current state of a plugin.
 type PluginStatus struct {
-	Mode         DeliveryMode
-	SegmentCount int
-	BytesWritten int64
-	Healthy      bool
-	Error        string
+	Mode         DeliveryMode `json:"mode"`
+	SegmentCount int          `json:"segment_count"`
+	BytesWritten int64        `json:"bytes_written"`
+	Healthy      bool         `json:"healthy"`
+	Error        string       `json:"error,omitempty"`
 }
 
 // ServablePlugin extends OutputPlugin with HTTP serving capabilities.

@@ -397,6 +397,13 @@ func (e *Encoder) Extradata() []byte {
 	return e.codecCtx.ExtraData()
 }
 
+func (e *Encoder) CodecID() astiav.CodecID {
+	if e.codecCtx == nil {
+		return astiav.CodecIDNone
+	}
+	return e.codecCtx.CodecID()
+}
+
 func (e *Encoder) Flush() ([]*astiav.Packet, error) {
 	if e.codecCtx == nil {
 		return nil, nil

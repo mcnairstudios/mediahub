@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -63,8 +64,15 @@ func FetchConditional(ctx context.Context, client *http.Client, url, etag, userA
 		return nil, fmt.Errorf("decompressing response from %s: %w", url, err)
 	}
 
+	data, err := io.ReadAll(body)
+	body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("reading response body from %s: %w", url, err)
+	}
+	log.Printf("httputil: read %d bytes from %s", len(data), url)
+
 	return &FetchResult{
-		Body:    body,
+		Body:    io.NopCloser(bytes.NewReader(data)),
 		ETag:    resp.Header.Get("ETag"),
 		Changed: true,
 	}, nil

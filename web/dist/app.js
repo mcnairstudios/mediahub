@@ -75,6 +75,7 @@
     wireguard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M12 8v4M12 16h.01"/></svg>',
     epg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
     starFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
     favorites: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
@@ -268,7 +269,7 @@
     var navItems = document.querySelectorAll('.nav-item[data-page]');
     for (var i = 0; i < navItems.length; i++) {
       navItems[i].addEventListener('click', function() {
-        playerState.cleanup();
+        closePlayerOverlay();
         router.navigate(this.getAttribute('data-page'));
         var sidebar = document.getElementById('sidebar');
         if (sidebar) sidebar.classList.remove('open');
@@ -277,7 +278,7 @@
     var logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function() {
-        playerState.cleanup();
+        closePlayerOverlay();
         api.token = null;
         api.user = null;
         router.navigate('login');
@@ -343,11 +344,11 @@
     var isAdmin = api.user && api.user.is_admin;
     el.innerHTML = '<h1 class="page-title">Dashboard</h1>' +
       '<div class="stat-grid" id="dash-stats">' +
-      '<div class="stat-card"><div class="stat-value" id="stat-streams">-</div><div class="stat-label">Streams</div></div>' +
-      '<div class="stat-card"><div class="stat-value" id="stat-channels">-</div><div class="stat-label">Channels</div></div>' +
-      '<div class="stat-card"><div class="stat-value" id="stat-recordings">-</div><div class="stat-label">Recordings</div></div>' +
-      (isAdmin ? '<div class="stat-card"><div class="stat-value" id="stat-active">-</div><div class="stat-label">Active Now</div></div>' : '') +
-      '<div class="stat-card"><div class="stat-value" id="stat-epg-programs">-</div><div class="stat-label">EPG Programs</div></div>' +
+      '<div class="stat-card stat-link" data-page="streams"><div class="stat-value" id="stat-streams">-</div><div class="stat-label">Streams</div></div>' +
+      '<div class="stat-card stat-link" data-page="channels"><div class="stat-value" id="stat-channels">-</div><div class="stat-label">Channels</div></div>' +
+      '<div class="stat-card stat-link" data-page="recordings"><div class="stat-value" id="stat-recordings">-</div><div class="stat-label">Recordings</div></div>' +
+      (isAdmin ? '<div class="stat-card stat-link" data-page="activity"><div class="stat-value" id="stat-active">-</div><div class="stat-label">Active Now</div></div>' : '') +
+      '<div class="stat-card stat-link" data-page="guide"><div class="stat-value" id="stat-epg-programs">-</div><div class="stat-label">EPG Programs</div></div>' +
       '</div>' +
       '<div class="dash-section" id="dash-sources-section">' +
       '<div class="dash-section-title">' + icons.sources + ' Sources</div>' +
@@ -364,15 +365,7 @@
       (isAdmin ? '<div class="dash-section" id="dash-wg-section">' +
       '<div class="dash-section-title">' + icons.wireguard + ' Connectivity</div>' +
       '<div id="dash-wg"><div class="skeleton" style="height:60px"></div></div>' +
-      '</div>' : '') +
-      '<div class="card"><div class="card-title">Quick Links</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost" data-page="streams">Browse Streams</button>' +
-      '<button class="btn btn-ghost" data-page="channels">Browse Channels</button>' +
-      '<button class="btn btn-ghost" data-page="library">VOD Library</button>' +
-      '<button class="btn btn-ghost" data-page="guide">Program Guide</button>' +
-      '<button class="btn btn-ghost" data-page="recordings">View Recordings</button>' +
-      '</div></div>';
+      '</div>' : '');
 
     el.querySelectorAll('[data-page]').forEach(function(btn) {
       btn.addEventListener('click', function() { router.navigate(this.getAttribute('data-page')); });
@@ -1412,9 +1405,78 @@
 
   async function startPlay(streamID, name, isLive) {
     playerState.cleanup();
+    closePlayerOverlay();
     playerState.currentStreamID = streamID;
     playerState.isLive = isLive !== false;
-    router.navigate('player', { streamID: streamID, name: name || streamID, isLive: isLive });
+    openPlayerOverlay(streamID, name || streamID, isLive);
+  }
+
+  function closePlayerOverlay() {
+    var existing = document.getElementById('player-overlay');
+    if (existing) {
+      playerState.cleanup();
+      existing.parentNode.removeChild(existing);
+    }
+  }
+
+  function openPlayerOverlay(streamID, name, isLive) {
+    var isMobile = window.innerWidth <= 768;
+
+    var overlay = document.createElement('div');
+    overlay.id = 'player-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10000;display:flex;align-items:' + (isMobile ? 'flex-start' : 'center') + ';justify-content:center;' + (isMobile ? 'padding-top:env(safe-area-inset-top);' : '');
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'background:#000;border-radius:12px;max-width:900px;width:' + (isMobile ? '100%' : '90%') + ';position:relative;overflow:hidden;' + (isMobile ? 'border-radius:0;margin:0;' : '');
+
+    modal.innerHTML =
+      '<div class="player-wrapper" id="player-wrapper">' +
+        '<video id="video-el" autoplay playsinline></video>' +
+        '<div class="player-spinner" id="player-spinner">' +
+          '<div class="spinner-ring"></div>' +
+        '</div>' +
+        '<div class="player-float-bar" id="player-float-bar">' +
+          '<span class="player-title" id="player-title">' + esc(name) + '</span>' +
+          '<span class="player-status" id="player-status">Idle</span>' +
+          '<button class="player-icon-btn" id="record-btn" title="Record">\u23FA</button>' +
+          '<button class="player-icon-btn" id="stats-btn" title="Stats (S)">\u2139</button>' +
+          '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
+        '</div>' +
+        '<div class="stats-overlay" id="stats-overlay"></div>' +
+        '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
+          '<div class="player-seek-row" id="player-seek-row">' +
+            '<div class="player-seek-track">' +
+              '<div class="player-seek-buffered" id="seek-buffered"></div>' +
+              '<div class="player-seek-played" id="seek-played"></div>' +
+            '</div>' +
+            '<div class="player-seek-thumb" id="seek-thumb"></div>' +
+          '</div>' +
+          '<div class="player-ctrl-btns">' +
+            '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
+            '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
+            '<div style="flex:1"></div>' +
+            '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
+            '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closePlayerOverlay();
+    });
+
+    var escHandler = function(e) {
+      if (e.key === 'Escape') {
+        closePlayerOverlay();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    initPlayer(streamID);
   }
 
   function renderPlayer() {
@@ -1475,6 +1537,10 @@
     if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Buffering...'; }
     if (spinner) spinner.style.display = 'flex';
 
+    videoEl.addEventListener('playing', function() { if (spinner) spinner.style.display = 'none'; if (statusEl) { statusEl.textContent = 'Playing'; statusEl.style.color = '#34d399'; } });
+    videoEl.addEventListener('waiting', function() { if (spinner) spinner.style.display = 'flex'; if (statusEl) { statusEl.textContent = 'Buffering...'; statusEl.style.color = '#ffa726'; } });
+    videoEl.addEventListener('seeked', function() { if (spinner) spinner.style.display = 'none'; });
+
     var isRecording = streamID.indexOf('rec:') === 0;
     var recID = isRecording ? streamID.substring(4) : null;
 
@@ -1498,6 +1564,8 @@
       var delivery = data.delivery || 'hls';
       var endpoints = data.endpoints || {};
       playerState.delivery = delivery;
+      playerState.decision = data.decision || {};
+      playerState.probeInfo = data.probe_info || {};
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
@@ -1806,9 +1874,6 @@
         if (mseState.stopped) return;
         var videoCodec = detectVideoCodec(videoBuf);
         var videoMime = 'video/mp4; codecs="' + videoCodec + '"';
-        if (typeof MediaSource !== 'undefined' && !MediaSource.isTypeSupported(videoMime)) {
-          videoMime = 'video/mp4; codecs="avc1.42E01E"';
-        }
         var audioCodecStr = (mseState.debugInfo && mseState.debugInfo.audio_codec) || 'mp4a.40.2';
         var audioMime = 'audio/mp4; codecs="' + audioCodecStr + '"';
 
@@ -1913,12 +1978,19 @@
     var delivery = playerState.delivery || 'unknown';
     var mse = playerState.mseState;
     var debugInfo = mse && mse.debugInfo;
+    var decision = playerState.decision || {};
+    var probe = playerState.probeInfo || {};
 
-    if (debugInfo && debugInfo.codec_string) {
-      lines.push('In: ' + esc(debugInfo.codec_string));
+    var inVideo = (probe.video && probe.video.codec) || decision.video_codec || '';
+    var inAudio = (probe.audio && probe.audio.codec) || '';
+    var inRes = (probe.video && probe.video.width) ? probe.video.width + 'x' + probe.video.height : '';
+    if (inVideo) {
+      lines.push('In: ' + esc(inVideo) + (inRes ? ' ' + inRes : '') + (inAudio ? ' / ' + esc(inAudio) : ''));
     }
 
-    lines.push('Out: ' + esc(delivery.toUpperCase()) + (w > 0 ? ' ' + w + 'x' + h : ''));
+    var outVideo = decision.needs_transcode ? esc(String(decision.video_codec)) : 'copy';
+    var outAudio = decision.needs_audio_transcode ? esc(String(decision.audio_codec)) : 'copy';
+    lines.push('Out: ' + esc(delivery.toUpperCase()) + ' ' + outVideo + ' / ' + outAudio + (w > 0 ? ' ' + w + 'x' + h : ''));
 
     var bufColor = buf > 8 ? '#4caf50' : buf > 4 ? '#ffb300' : '#ff6b6b';
     var playbackParts = ['<span style="color:' + bufColor + '">buf ' + buf.toFixed(1) + 's</span>'];
@@ -2101,9 +2173,7 @@
     if (stopBtn) {
       stopBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        var wasRecording = !!playerState.recordingID;
-        playerState.cleanup();
-        router.navigate(wasRecording ? 'recordings' : 'streams');
+        closePlayerOverlay();
       });
     }
 
@@ -2543,14 +2613,45 @@
       '<div id="hdhr-discover-modal" style="display:none"></div>';
 
     var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form'];
+    var editingSourceId = null;
+    var editingSourceType = null;
+
     function hideAllForms() {
       allForms.forEach(function(id) { var f = document.getElementById(id); if (f) f.style.display = 'none'; });
+      editingSourceId = null;
+      editingSourceType = null;
+    }
+
+    function resetFormFields(formId) {
+      var f = document.getElementById(formId);
+      if (!f) return;
+      f.querySelectorAll('input[type="text"], input[type="password"], input[type="number"]').forEach(function(inp) {
+        inp.value = inp.defaultValue || '';
+      });
+      f.querySelectorAll('input[type="checkbox"]').forEach(function(inp) {
+        inp.checked = inp.defaultChecked;
+      });
+    }
+
+    function setFormTitle(formId, title) {
+      var f = document.getElementById(formId);
+      if (!f) return;
+      var t = f.querySelector('.card-title');
+      if (t) t.textContent = title;
+    }
+
+    function setSubmitBtnText(btnId, text) {
+      var b = document.getElementById(btnId);
+      if (b) b.textContent = text;
     }
 
     document.getElementById('add-m3u-btn').addEventListener('click', function() {
       var f = document.getElementById('add-m3u-form');
       var wasHidden = f.style.display === 'none';
       hideAllForms();
+      resetFormFields('add-m3u-form');
+      setFormTitle('add-m3u-form', 'New M3U Source');
+      setSubmitBtnText('create-m3u-btn', 'Create');
       if (wasHidden) f.style.display = 'block';
     });
     document.getElementById('cancel-m3u-btn').addEventListener('click', function() {
@@ -2560,6 +2661,9 @@
       var f = document.getElementById('add-tvp-form');
       var wasHidden = f.style.display === 'none';
       hideAllForms();
+      resetFormFields('add-tvp-form');
+      setFormTitle('add-tvp-form', 'New TVP Streams Source');
+      setSubmitBtnText('create-tvp-btn', 'Create');
       if (wasHidden) f.style.display = 'block';
     });
     document.getElementById('cancel-tvp-btn').addEventListener('click', function() {
@@ -2569,6 +2673,9 @@
       var f = document.getElementById('add-xtream-form');
       var wasHidden = f.style.display === 'none';
       hideAllForms();
+      resetFormFields('add-xtream-form');
+      setFormTitle('add-xtream-form', 'New Xtream Codes Source');
+      setSubmitBtnText('create-xtream-btn', 'Create');
       if (wasHidden) f.style.display = 'block';
     });
     document.getElementById('cancel-xtream-btn').addEventListener('click', function() {
@@ -2578,6 +2685,9 @@
       var f = document.getElementById('add-hdhr-form');
       var wasHidden = f.style.display === 'none';
       hideAllForms();
+      resetFormFields('add-hdhr-form');
+      setFormTitle('add-hdhr-form', 'New HDHomeRun Source');
+      setSubmitBtnText('create-hdhr-btn', 'Create');
       if (wasHidden) f.style.display = 'block';
     });
     document.getElementById('cancel-hdhr-btn').addEventListener('click', function() {
@@ -2587,6 +2697,9 @@
       var f = document.getElementById('add-satip-form');
       var wasHidden = f.style.display === 'none';
       hideAllForms();
+      resetFormFields('add-satip-form');
+      setFormTitle('add-satip-form', 'New SAT>IP Source');
+      setSubmitBtnText('create-satip-btn', 'Create');
       if (wasHidden) f.style.display = 'block';
     });
     document.getElementById('cancel-satip-btn').addEventListener('click', function() {
@@ -2598,17 +2711,25 @@
       var enabled = document.getElementById('hdhr-enabled').checked;
       if (!name) { toast('Name required', 'error'); return; }
       try {
-        var r = await api.post('/api/sources/hdhr', { name: name, is_enabled: enabled });
+        var payload = { name: name, is_enabled: enabled };
+        var r;
+        if (editingSourceId && editingSourceType === 'hdhr') {
+          r = await api.put('/api/sources/hdhr/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/hdhr', payload);
+        }
         if (r.ok) {
-          toast('HDHomeRun source created');
+          toast(editingSourceId ? 'Source updated' : 'HDHomeRun source created');
           document.getElementById('add-hdhr-form').style.display = 'none';
+          editingSourceId = null;
+          editingSourceType = null;
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create source', 'error');
+          toast(data.error || 'Failed to save source', 'error');
         }
       } catch (err) {
-        toast('Failed to create source', 'error');
+        toast('Failed to save source', 'error');
       }
     });
 
@@ -2621,20 +2742,28 @@
       var enabled = document.getElementById('satip-enabled').checked;
       if (!name || !host) { toast('Name and host required', 'error'); return; }
       try {
-        var r = await api.post('/api/sources/satip', {
+        var payload = {
           name: name, host: host, http_port: port,
           transmitter_file: transmitter, max_streams: maxStreams, is_enabled: enabled
-        });
+        };
+        var r;
+        if (editingSourceId && editingSourceType === 'satip') {
+          r = await api.put('/api/sources/satip/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/satip', payload);
+        }
         if (r.ok) {
-          toast('SAT>IP source created');
+          toast(editingSourceId ? 'Source updated' : 'SAT>IP source created');
           document.getElementById('add-satip-form').style.display = 'none';
+          editingSourceId = null;
+          editingSourceType = null;
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create source', 'error');
+          toast(data.error || 'Failed to save source', 'error');
         }
       } catch (err) {
-        toast('Failed to create source', 'error');
+        toast('Failed to save source', 'error');
       }
     });
 
@@ -2722,44 +2851,61 @@
 
     document.getElementById('create-m3u-btn').addEventListener('click', async function() {
       var name = document.getElementById('src-name').value.trim();
-      var url = document.getElementById('src-url').value.trim();
+      var srcUrl = document.getElementById('src-url').value.trim();
       var username = document.getElementById('src-username').value.trim();
       var password = document.getElementById('src-password').value;
       var wg = document.getElementById('src-wireguard').checked;
-      if (!name || !url) { toast('Name and URL required', 'error'); return; }
+      if (!name || !srcUrl) { toast('Name and URL required', 'error'); return; }
       try {
-        var r = await api.post('/api/sources/m3u', { name: name, url: url, username: username, password: password, use_wireguard: wg });
+        var payload = { name: name, url: srcUrl, username: username, use_wireguard: wg };
+        if (password) payload.password = password;
+        var r;
+        if (editingSourceId && editingSourceType === 'm3u') {
+          r = await api.put('/api/sources/m3u/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/m3u', payload);
+        }
         if (r.ok) {
-          toast('Source created, refreshing...');
+          toast(editingSourceId ? 'Source updated' : 'Source created, refreshing...');
           document.getElementById('add-m3u-form').style.display = 'none';
+          editingSourceId = null;
+          editingSourceType = null;
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create source', 'error');
+          toast(data.error || 'Failed to save source', 'error');
         }
       } catch (err) {
-        toast('Failed to create source', 'error');
+        toast('Failed to save source', 'error');
       }
     });
 
     document.getElementById('create-tvp-btn').addEventListener('click', async function() {
       var name = document.getElementById('tvp-name').value.trim();
-      var url = document.getElementById('tvp-url').value.trim();
+      var tvpUrl = document.getElementById('tvp-url').value.trim();
       var token = document.getElementById('tvp-token').value.trim();
       var wg = document.getElementById('tvp-wireguard').checked;
-      if (!name || !url) { toast('Name and URL required', 'error'); return; }
+      if (!name || !tvpUrl) { toast('Name and URL required', 'error'); return; }
       try {
-        var r = await api.post('/api/sources/tvpstreams', { name: name, url: url, enrollment_token: token, use_wireguard: wg });
+        var payload = { name: name, url: tvpUrl, enrollment_token: token, use_wireguard: wg };
+        var r;
+        if (editingSourceId && editingSourceType === 'tvpstreams') {
+          r = await api.put('/api/sources/tvpstreams/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/tvpstreams', payload);
+        }
         if (r.ok) {
-          toast('TVP Streams source created' + (token ? ', enrolling...' : ', refreshing...'));
+          toast(editingSourceId ? 'Source updated' : 'TVP Streams source created' + (token ? ', enrolling...' : ', refreshing...'));
           document.getElementById('add-tvp-form').style.display = 'none';
+          editingSourceId = null;
+          editingSourceType = null;
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create source', 'error');
+          toast(data.error || 'Failed to save source', 'error');
         }
       } catch (err) {
-        toast('Failed to create source', 'error');
+        toast('Failed to save source', 'error');
       }
     });
 
@@ -2770,19 +2916,29 @@
       var password = document.getElementById('xt-password').value;
       var maxStreams = parseInt(document.getElementById('xt-maxstreams').value) || 0;
       var wg = document.getElementById('xt-wireguard').checked;
-      if (!name || !server || !username || !password) { toast('Name, server, username, and password required', 'error'); return; }
+      if (!name || !server || !username) { toast('Name, server, and username required', 'error'); return; }
+      if (!editingSourceId && !password) { toast('Password required', 'error'); return; }
       try {
-        var r = await api.post('/api/sources/xtream', { name: name, server: server, username: username, password: password, max_streams: maxStreams, use_wireguard: wg });
+        var payload = { name: name, server: server, username: username, max_streams: maxStreams, use_wireguard: wg };
+        if (password) payload.password = password;
+        var r;
+        if (editingSourceId && editingSourceType === 'xtream') {
+          r = await api.put('/api/sources/xtream/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/xtream', payload);
+        }
         if (r.ok) {
-          toast('Xtream source created, refreshing...');
+          toast(editingSourceId ? 'Source updated' : 'Xtream source created, refreshing...');
           document.getElementById('add-xtream-form').style.display = 'none';
+          editingSourceId = null;
+          editingSourceType = null;
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create source', 'error');
+          toast(data.error || 'Failed to save source', 'error');
         }
       } catch (err) {
-        toast('Failed to create source', 'error');
+        toast('Failed to save source', 'error');
       }
     });
 
@@ -2798,9 +2954,11 @@
         return;
       }
 
+      var sourceConfigs = {};
       var html = '';
       for (var i = 0; i < sources.length; i++) {
         var s = sources[i];
+        sourceConfigs[s.id] = { config: s.config || {}, name: s.name, type: s.type, is_enabled: s.is_enabled };
         var statusBadge = s.is_enabled ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
         if (s.last_error) {
           statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
@@ -2843,6 +3001,8 @@
           '</div>' +
           '<div style="display:flex;gap:4px;align-items:center;flex-shrink:0">' +
           typeActions +
+          '<button class="btn-icon edit-source-btn" data-id="' + esc(s.id) + '" title="Edit">' + icons.edit + '</button>' +
+          (s.type === 'm3u' ? '<button class="btn-icon upload-m3u-btn" data-id="' + esc(s.id) + '" title="Upload M3U File">' + icons.upload + '</button>' : '') +
           '<button class="btn-icon refresh-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" title="Refresh">' + icons.refresh + '</button>' +
           '<button class="btn-icon delete-source-btn" data-id="' + esc(s.id) + '" data-type="' + esc(s.type) + '" data-name="' + esc(s.name) + '" title="Delete" style="color:var(--danger)">' + icons.trash + '</button>' +
           '</div></div>' +
@@ -3079,6 +3239,65 @@
         });
       });
 
+      container.querySelectorAll('.edit-source-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var id = btn.getAttribute('data-id');
+          var entry = sourceConfigs[id] || {};
+          var type = entry.type || '';
+          var name = entry.name || '';
+          var config = entry.config || {};
+
+          hideAllForms();
+          editingSourceId = id;
+          editingSourceType = type;
+
+          if (type === 'm3u') {
+            document.getElementById('src-name').value = name || '';
+            document.getElementById('src-url').value = config.url || '';
+            document.getElementById('src-username').value = config.username || '';
+            document.getElementById('src-password').value = '';
+            document.getElementById('src-wireguard').checked = config.use_wireguard === 'true';
+            setFormTitle('add-m3u-form', 'Edit M3U Source');
+            setSubmitBtnText('create-m3u-btn', 'Update');
+            document.getElementById('add-m3u-form').style.display = 'block';
+          } else if (type === 'tvpstreams') {
+            document.getElementById('tvp-name').value = name || '';
+            document.getElementById('tvp-url').value = config.url || '';
+            document.getElementById('tvp-token').value = '';
+            document.getElementById('tvp-wireguard').checked = config.use_wireguard === 'true';
+            setFormTitle('add-tvp-form', 'Edit TVP Streams Source');
+            setSubmitBtnText('create-tvp-btn', 'Update');
+            document.getElementById('add-tvp-form').style.display = 'block';
+          } else if (type === 'xtream') {
+            document.getElementById('xt-name').value = name || '';
+            document.getElementById('xt-server').value = config.server || '';
+            document.getElementById('xt-username').value = config.username || '';
+            document.getElementById('xt-password').value = '';
+            document.getElementById('xt-maxstreams').value = config.max_streams || '0';
+            document.getElementById('xt-wireguard').checked = config.use_wireguard === 'true';
+            setFormTitle('add-xtream-form', 'Edit Xtream Codes Source');
+            setSubmitBtnText('create-xtream-btn', 'Update');
+            document.getElementById('add-xtream-form').style.display = 'block';
+          } else if (type === 'hdhr') {
+            document.getElementById('hdhr-name').value = name || '';
+            document.getElementById('hdhr-enabled').checked = entry.is_enabled;
+            setFormTitle('add-hdhr-form', 'Edit HDHomeRun Source');
+            setSubmitBtnText('create-hdhr-btn', 'Update');
+            document.getElementById('add-hdhr-form').style.display = 'block';
+          } else if (type === 'satip') {
+            document.getElementById('satip-name').value = name || '';
+            document.getElementById('satip-host').value = config.host || '';
+            document.getElementById('satip-port').value = config.http_port || '8875';
+            document.getElementById('satip-transmitter').value = config.transmitter_file || '';
+            document.getElementById('satip-maxstreams').value = config.max_streams || '0';
+            document.getElementById('satip-enabled').checked = entry.is_enabled;
+            setFormTitle('add-satip-form', 'Edit SAT>IP Source');
+            setSubmitBtnText('create-satip-btn', 'Update');
+            document.getElementById('add-satip-form').style.display = 'block';
+          }
+        });
+      });
+
       container.querySelectorAll('.refresh-source-btn').forEach(function(btn) {
         btn.addEventListener('click', async function() {
           var id = this.getAttribute('data-id');
@@ -3100,6 +3319,37 @@
             self.style.opacity = '1';
             self.style.pointerEvents = '';
           }
+        });
+      });
+
+      container.querySelectorAll('.upload-m3u-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var id = this.getAttribute('data-id');
+          var input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.m3u,.m3u8,text/plain';
+          input.onchange = async function() {
+            if (!input.files || !input.files[0]) return;
+            var form = new FormData();
+            form.append('file', input.files[0]);
+            try {
+              var r = await fetch('/api/sources/m3u/' + id + '/upload', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + api.token },
+                body: form
+              });
+              var data = await r.json();
+              if (r.ok) {
+                toast('Uploaded: ' + data.parsed + ' streams parsed');
+                setTimeout(function() { renderSources(el); }, 1000);
+              } else {
+                toast(data.error || 'Upload failed', 'error');
+              }
+            } catch (err) {
+              toast('Upload failed', 'error');
+            }
+          };
+          input.click();
         });
       });
 
@@ -3798,21 +4048,60 @@
       var statusBar = document.getElementById('wg-status-bar');
       if (statusBar) {
         if (status.connected) {
-          statusBar.innerHTML = '<div class="card" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.3);padding:12px 16px;display:flex;align-items:center;gap:12px">' +
-            '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--success)"></span>' +
-            '<div style="flex:1;min-width:0">' +
-            '<div style="color:var(--success);font-weight:600;font-size:14px">Connected</div>' +
-            '<div style="color:var(--text);font-size:13px;margin-top:2px">' + esc(status.profile_name) + ' &mdash; ' + esc(status.endpoint) + '</div>' +
+          var hasHandshake = status.last_handshake_sec > 0;
+          var stateLabel = hasHandshake ? 'Connected' : 'Connecting...';
+          var stateColor = hasHandshake ? 'var(--success)' : 'var(--warning)';
+          var dotColor = hasHandshake ? 'var(--success)' : 'var(--warning)';
+          var handshakeText = '';
+          if (hasHandshake) {
+            var secAgo = Math.floor(Date.now() / 1000) - status.last_handshake_sec;
+            if (secAgo < 60) handshakeText = secAgo + 's ago';
+            else if (secAgo < 3600) handshakeText = Math.floor(secAgo / 60) + 'm ago';
+            else handshakeText = Math.floor(secAgo / 3600) + 'h ago';
+          } else {
+            handshakeText = 'No handshake';
+          }
+          var handshakeColor = hasHandshake ? '#94a3b8' : '#ef4444';
+          statusBar.innerHTML = '<div class="card" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.3);padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+            '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:' + dotColor + '"></span>' +
+            '<div style="flex:1;min-width:200px">' +
+            '<div style="color:' + stateColor + ';font-weight:600;font-size:14px">' + stateLabel + '</div>' +
+            '<div style="color:#cbd5e1;font-size:13px;margin-top:2px">' + esc(status.profile_name) + ' &mdash; ' + esc(status.endpoint) + '</div>' +
             '</div>' +
-            '<div style="text-align:right;flex-shrink:0">' +
-            '<div style="color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Proxy</div>' +
-            '<div style="color:var(--text);font-size:14px;font-weight:600;font-family:monospace">127.0.0.1:' + status.proxy_port + '</div>' +
+            '<div style="display:flex;gap:16px;align-items:center;flex-shrink:0">' +
+            '<div style="text-align:center">' +
+            '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Proxy</div>' +
+            '<div style="color:#e2e8f0;font-size:13px;font-weight:600;font-family:monospace">127.0.0.1:' + status.proxy_port + '</div>' +
+            '</div>' +
+            '<div style="text-align:center">' +
+            '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">TX / RX</div>' +
+            '<div style="color:#e2e8f0;font-size:13px;font-weight:600">' + formatBytes(status.tx_bytes || 0) + ' / ' + formatBytes(status.rx_bytes || 0) + '</div>' +
+            '</div>' +
+            '<div style="text-align:center">' +
+            '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Handshake</div>' +
+            '<div style="color:' + handshakeColor + ';font-size:13px;font-weight:600">' + handshakeText + '</div>' +
+            '</div>' +
+            '<button class="btn btn-sm btn-ghost" id="wg-reconnect-btn" title="Reconnect">' + icons.refresh + ' Reconnect</button>' +
             '</div>' +
             '</div>';
+          document.getElementById('wg-reconnect-btn').addEventListener('click', async function() {
+            try {
+              var r = await api.post('/api/wireguard/reconnect', {});
+              if (r.ok) {
+                toast('WireGuard reconnecting...');
+                setTimeout(function() { renderWireGuard(el); }, 2000);
+              } else {
+                var d = await r.json().catch(function() { return {}; });
+                toast(d.error || 'Reconnect failed', 'error');
+              }
+            } catch (err) {
+              toast('Reconnect failed', 'error');
+            }
+          });
         } else {
           statusBar.innerHTML = '<div class="card" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);padding:12px 16px;display:flex;align-items:center;gap:12px">' +
             '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--warning)"></span>' +
-            '<div style="color:var(--text)"><strong style="color:var(--warning)">Disconnected</strong> <span style="color:var(--text-dim)">&mdash; No active WireGuard tunnel</span></div>' +
+            '<div style="color:#cbd5e1"><strong style="color:var(--warning)">Disconnected</strong> <span style="color:#94a3b8">&mdash; No active WireGuard tunnel</span></div>' +
             '</div>';
         }
       }
@@ -4008,6 +4297,7 @@
         return;
       }
 
+      var epgSourceConfigs = {};
       var html = '<table class="list-table"><thead><tr>' +
         '<th>Name</th><th>Channels</th><th>Programs</th><th>Last Refreshed</th><th>Status</th><th></th>' +
         '</tr></thead><tbody>';
@@ -4018,20 +4308,126 @@
           statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
         }
         var lastRefreshed = s.last_refreshed ? new Date(s.last_refreshed).toLocaleString() : 'Never';
+        epgSourceConfigs[s.id] = { name: s.name, url: s.url, use_wireguard: s.use_wireguard };
         html += '<tr>' +
-          '<td>' + esc(s.name) + '</td>' +
+          '<td><a href="#" class="epg-source-name" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" style="color:var(--accent);cursor:pointer">' + esc(s.name) + '</a></td>' +
           '<td>' + (s.channel_count || 0) + '</td>' +
           '<td>' + (s.program_count || 0) + '</td>' +
           '<td>' + esc(lastRefreshed) + '</td>' +
           '<td>' + statusBadge + '</td>' +
           '<td style="display:flex;gap:4px">' +
-          '<button class="btn btn-sm btn-ghost epg-refresh-btn" data-id="' + esc(s.id) + '" title="Refresh">' + icons.refresh + '</button>' +
-          '<button class="btn btn-sm btn-ghost epg-edit-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" data-url="' + esc(s.url) + '" data-wg="' + (s.use_wireguard ? '1' : '0') + '" title="Edit">' + icons.edit + '</button>' +
-          '<button class="btn btn-sm btn-danger epg-delete-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" title="Delete">' + icons.trash + '</button>' +
+          '<button class="btn-icon epg-edit-btn" data-id="' + esc(s.id) + '" title="Edit">' + icons.edit + '</button>' +
+          '<button class="btn-icon epg-refresh-btn" data-id="' + esc(s.id) + '" title="Refresh">' + icons.refresh + '</button>' +
+          '<button class="btn-icon epg-delete-btn" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" title="Delete" style="color:var(--danger)">' + icons.trash + '</button>' +
           '</td></tr>';
       }
       html += '</tbody></table>';
       container.innerHTML = html;
+
+      container.querySelectorAll('.epg-source-name').forEach(function(link) {
+        link.addEventListener('click', async function(e) {
+          e.preventDefault();
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          var detailId = 'epg-detail-' + id;
+          var existing = document.getElementById(detailId);
+          if (existing) { existing.remove(); return; }
+          var row = this.closest('tr');
+          var detailRow = document.createElement('tr');
+          detailRow.id = detailId;
+          var td = document.createElement('td');
+          td.colSpan = 6;
+          td.innerHTML = '<div style="padding:12px"><div class="spinner-ring" style="margin:20px auto"></div></div>';
+          detailRow.appendChild(td);
+          row.after(detailRow);
+          try {
+            var gdResp = await api.get('/api/epg/guide?hours=6');
+            var guideData = await gdResp.json();
+            var programs = guideData.programs || {};
+            var HOUR_WIDTH = 240;
+            var PX_PER_MIN = HOUR_WIDTH / 60;
+            var CHANNEL_COL = 160;
+            var windowStart = new Date(guideData.start).getTime();
+            var windowStop = new Date(guideData.stop).getTime();
+            var windowMinutes = (windowStop - windowStart) / 60000;
+            var totalWidth = windowMinutes * PX_PER_MIN;
+            var nowTS = Date.now();
+
+            function fmtTime(d) {
+              var dt = new Date(d);
+              var hh = dt.getHours(); var mm = dt.getMinutes();
+              return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+            }
+
+            var hourMarksHtml = '';
+            for (var m = 0; m < windowMinutes; m += 60) {
+              hourMarksHtml += '<div class="epg-hour-mark" style="width:' + HOUR_WIDTH + 'px">' + fmtTime(windowStart + m * 60000) + '</div>';
+            }
+
+            var channelIcons = guideData.channel_icons || {};
+            var channelNames = guideData.channel_names || {};
+            var channelIDs = Object.keys(programs).sort(function(a, b) {
+              return (channelNames[a] || a).localeCompare(channelNames[b] || b);
+            });
+            var rowsHtml = '';
+            for (var k = 0; k < channelIDs.length; k++) {
+              var chId = channelIDs[k];
+              var chProgs = programs[chId] || [];
+              var progsHtml = '';
+              for (var pi = 0; pi < chProgs.length; pi++) {
+                var p = chProgs[pi];
+                var pStart = new Date(p.start).getTime();
+                var pStop = new Date(p.stop).getTime();
+                var startMin = Math.max(0, (pStart - windowStart) / 60000);
+                var endMin = Math.min(windowMinutes, (pStop - windowStart) / 60000);
+                var leftPx = startMin * PX_PER_MIN;
+                var widthPx = (endMin - startMin) * PX_PER_MIN - 2;
+                if (widthPx < 2) continue;
+                var isLive = nowTS >= pStart && nowTS < pStop;
+                var isPast = nowTS >= pStop;
+                var cls = 'epg-program' + (isLive ? ' live' : '') + (isPast ? ' past' : '');
+                var timeStr = fmtTime(pStart) + ' - ' + fmtTime(pStop);
+                var tooltip = esc(p.title) + ' (' + timeStr + ')';
+                progsHtml += '<div class="' + cls + '" style="left:' + leftPx + 'px;width:' + widthPx + 'px" title="' + tooltip + '">' +
+                  '<div class="epg-program-title">' + esc(p.title) + '</div>' +
+                  '<div class="epg-program-time">' + timeStr + '</div></div>';
+              }
+              var chIcon = channelIcons[chId];
+              var chName = channelNames[chId] || chId;
+              var logoHtml = chIcon
+                ? '<img class="epg-channel-logo" src="/logo?url=' + encodeURIComponent(chIcon) + '" loading="lazy" alt="">'
+                : '<div class="epg-channel-logo"></div>';
+              rowsHtml += '<div class="epg-row">' +
+                '<div class="epg-channel" style="cursor:default;width:160px;min-width:160px" title="' + esc(chName) + ' (' + esc(chId) + ')">' +
+                logoHtml +
+                '<span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + esc(chName) + '</span>' +
+                '</div>' +
+                '<div class="epg-programs" style="width:' + totalWidth + 'px">' + progsHtml + '</div></div>';
+            }
+
+            var nowMin = (nowTS - windowStart) / 60000;
+            var nowPx = nowMin * PX_PER_MIN;
+            var nowLineHtml = (nowMin >= 0 && nowMin <= windowMinutes)
+              ? '<div class="epg-now-line" style="left:' + (CHANNEL_COL + nowPx) + 'px"></div>' : '';
+
+            td.innerHTML = '<div style="margin:8px 0">' +
+              '<div style="font-weight:600;margin-bottom:8px;padding:0 8px">' + esc(name) + ' — ' + channelIDs.length + ' channels</div>' +
+              '<div class="epg-scroll" style="max-height:500px">' +
+              '<div class="epg-header-row">' +
+              '<div class="epg-corner" style="width:160px;min-width:160px">Channel</div>' +
+              '<div class="epg-timeline">' + hourMarksHtml + '</div></div>' +
+              '<div style="position:relative">' + nowLineHtml + rowsHtml + '</div></div></div>';
+
+            var scrollEl = td.querySelector('.epg-scroll');
+            if (scrollEl && nowMin >= 0 && nowMin <= windowMinutes) {
+              var scrollTarget = nowPx - scrollEl.clientWidth / 2 + CHANNEL_COL;
+              if (scrollTarget > 0) scrollEl.scrollLeft = scrollTarget;
+            }
+          } catch(err) {
+            td.innerHTML = '<div style="padding:12px;color:var(--danger)">Failed to load EPG data</div>';
+          }
+        });
+      });
 
       container.querySelectorAll('.epg-refresh-btn').forEach(function(btn) {
         btn.addEventListener('click', async function() {
@@ -4051,12 +4447,14 @@
 
       container.querySelectorAll('.epg-edit-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          epgEditId = this.getAttribute('data-id');
+          var id = this.getAttribute('data-id');
+          var cfg = epgSourceConfigs[id] || {};
+          epgEditId = id;
           document.getElementById('epg-form-title').textContent = 'Edit EPG Source';
           document.getElementById('save-epg-btn').textContent = 'Update';
-          document.getElementById('epg-name').value = this.getAttribute('data-name') || '';
-          document.getElementById('epg-url').value = this.getAttribute('data-url') || '';
-          document.getElementById('epg-wireguard').checked = this.getAttribute('data-wg') === '1';
+          document.getElementById('epg-name').value = cfg.name || '';
+          document.getElementById('epg-url').value = cfg.url || '';
+          document.getElementById('epg-wireguard').checked = !!cfg.use_wireguard;
           formEl.style.display = 'block';
         });
       });
@@ -4481,80 +4879,425 @@
   }
 
   async function renderGuide(el) {
-    el.innerHTML = '<h1 class="page-title">Program Guide</h1>' +
-      '<div class="search-bar">' + icons.search + '<input id="guide-search" placeholder="Search channels..."></div>' +
-      '<div id="guide-content"><div class="skeleton" style="height:400px"></div></div>';
+    var HOUR_WIDTH = 240;
+    var PX_PER_MIN = HOUR_WIDTH / 60;
+    var CHANNEL_COL = 80;
+    var currentHours = 6;
+    var windowOffset = 0;
+
+    var channels, groups, guideData, scheduledRecs;
+    var windowStart, windowStop, windowMinutes, totalWidth, programs, now;
+    var guideLoading = false;
+
+    el.innerHTML = '<div style="padding:40px;text-align:center"><div class="spinner-ring"></div> Loading guide...</div>';
 
     try {
-      var resp = await api.get('/api/epg/now');
-      var programs = await resp.json();
-      if (!Array.isArray(programs)) programs = [];
+      var chResp = await api.get('/api/channels');
+      channels = await chResp.json();
+      if (!Array.isArray(channels)) channels = [];
 
-      var allPrograms = programs;
+      var grResp = await api.get('/api/channel-groups');
+      groups = await grResp.json();
+      if (!Array.isArray(groups)) groups = [];
 
-      function renderGuideList(filter) {
-        var content = document.getElementById('guide-content');
-        if (!content) return;
+      var gdResp = await api.get('/api/epg/guide?hours=' + currentHours);
+      guideData = await gdResp.json();
 
-        var filtered = allPrograms;
-        if (filter) {
-          filtered = allPrograms.filter(function(p) {
-            return (p.channel_name || '').toLowerCase().indexOf(filter) >= 0 ||
-                   (p.title || '').toLowerCase().indexOf(filter) >= 0;
-          });
+      try {
+        var srResp = await api.get('/api/recordings/schedule');
+        scheduledRecs = await srResp.json();
+      } catch (e) { scheduledRecs = []; }
+      if (!Array.isArray(scheduledRecs)) scheduledRecs = [];
+    } catch (err) {
+      el.innerHTML = '<div class="empty-state">' + icons.epg + '<p style="color:var(--danger)">Failed to load: ' + esc(err.message) + '</p></div>';
+      return;
+    }
+
+    var scheduledSet = {};
+    scheduledRecs.forEach(function(sr) {
+      if (sr.status === 'scheduled' || sr.status === 'recording') {
+        scheduledSet[sr.channel_id + '|' + sr.start_at] = sr.id;
+      }
+    });
+
+    channels = channels.filter(function(c) { return c.is_enabled; });
+    channels.sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
+
+    if (channels.length === 0) {
+      var epgChannelIDs = Object.keys(guideData.programs || {}).sort();
+      for (var ei = 0; ei < epgChannelIDs.length; ei++) {
+        channels.push({ id: epgChannelIDs[ei], name: epgChannelIDs[ei], tvg_id: epgChannelIDs[ei], is_enabled: true });
+      }
+    }
+
+    var groupMap = {};
+    groups.forEach(function(g) { groupMap[g.id] = g; });
+
+    var grouped = {};
+    var ungrouped = [];
+    channels.forEach(function(c) {
+      if (c.group_id && groupMap[c.group_id]) {
+        if (!grouped[c.group_id]) grouped[c.group_id] = [];
+        grouped[c.group_id].push(c);
+      } else {
+        ungrouped.push(c);
+      }
+    });
+
+    var sortedGroupIds = Object.keys(grouped).sort(function(a, b) {
+      return (groupMap[a].name || '').localeCompare(groupMap[b].name || '');
+    });
+
+    function parseGuideData() {
+      windowStart = new Date(guideData.start).getTime();
+      windowStop = new Date(guideData.stop).getTime();
+      windowMinutes = (windowStop - windowStart) / 60000;
+      totalWidth = windowMinutes * PX_PER_MIN;
+      programs = guideData.programs || {};
+      now = Date.now();
+    }
+    parseGuideData();
+
+    function guideFormatTime(d) {
+      var dt = new Date(d);
+      var hh = dt.getHours();
+      var mm = dt.getMinutes();
+      return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    }
+
+    function guideFormatDate(ts) {
+      var d = new Date(ts);
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[d.getMonth()] + ' ' + d.getDate() + ', ' + guideFormatTime(ts);
+    }
+
+    var channelCounter = 0;
+    function buildChannelRow(ch) {
+      channelCounter++;
+      var tvgId = ch.tvg_id || ch.id;
+      var chPrograms = programs[tvgId] || [];
+      var programsHtml = '';
+
+      for (var i = 0; i < chPrograms.length; i++) {
+        var p = chPrograms[i];
+        var pStart = new Date(p.start).getTime();
+        var pStop = new Date(p.stop).getTime();
+        var startMin = Math.max(0, (pStart - windowStart) / 60000);
+        var endMin = Math.min(windowMinutes, (pStop - windowStart) / 60000);
+        var leftPx = startMin * PX_PER_MIN;
+        var widthPx = (endMin - startMin) * PX_PER_MIN - 2;
+        if (widthPx < 2) continue;
+
+        var isLive = now >= pStart && now < pStop;
+        var isPast = now >= pStop;
+        var cls = 'epg-program' + (isLive ? ' live' : '') + (isPast ? ' past' : '');
+        var timeStr = guideFormatTime(pStart) + ' - ' + guideFormatTime(pStop);
+        var tooltip = esc(p.title) + ' (' + timeStr + ')';
+        if (p.description) tooltip += '&#10;' + esc(p.description.substring(0, 200));
+
+        var schedKey = ch.id + '|' + p.start;
+        var isScheduled = !!scheduledSet[schedKey];
+        var recBtnCls = 'epg-record-btn' + (isScheduled ? ' scheduled' : '');
+        var recBtnHtml = isPast ? '' : '<button class="' + recBtnCls + '" data-ptitle="' + esc(p.title) + '" data-pstart="' + esc(p.start) + '" data-pstop="' + esc(p.stop) + '"' + (isScheduled ? ' data-scheduled="' + esc(scheduledSet[schedKey]) + '"' : '') + '>\u23FA</button>';
+        programsHtml += '<div class="' + cls + '" style="left:' + leftPx + 'px;width:' + widthPx + 'px" title="' + tooltip + '"' +
+          ' data-desc="' + esc(p.description || '') + '"' +
+          ' data-cats="' + esc((p.categories || []).join(', ')) + '"' +
+          ' data-pstart="' + esc(p.start || '') + '"' +
+          ' data-pstop="' + esc(p.stop || '') + '">' +
+          recBtnHtml +
+          '<div class="epg-program-title">' + esc(p.title) + '</div>' +
+          '<div class="epg-program-time">' + timeStr + '</div>' +
+          '</div>';
+      }
+
+      if (chPrograms.length === 0 && tvgId) {
+        programsHtml = '<div class="epg-program" style="left:0;width:' + (totalWidth - 2) + 'px;opacity:0.3"><div class="epg-program-title">No EPG data</div></div>';
+      }
+
+      var logoHtml = ch.logo_url
+        ? '<img class="epg-channel-logo" src="/logo?url=' + encodeURIComponent(ch.logo_url) + '" loading="lazy" alt="">'
+        : '<div class="epg-channel-logo"></div>';
+
+      return '<div class="epg-row">' +
+        '<div class="epg-channel" data-chid="' + esc(String(ch.id)) + '" data-tvgid="' + esc(tvgId) + '" data-chname="' + esc(ch.name) + '" title="' + esc(ch.name) + '">' +
+          '<span class="epg-channel-num">' + channelCounter + '</span>' +
+          logoHtml +
+        '</div>' +
+        '<div class="epg-programs" style="width:' + totalWidth + 'px">' + programsHtml + '</div>' +
+      '</div>';
+    }
+
+    function buildRows() {
+      channelCounter = 0;
+      var rowsHtml = '';
+      for (var gi = 0; gi < sortedGroupIds.length; gi++) {
+        var gid = sortedGroupIds[gi];
+        var grp = groupMap[gid];
+        rowsHtml += '<div class="epg-group-row">' + esc(grp.name) + '</div>';
+        var grpChannels = grouped[gid];
+        for (var ci = 0; ci < grpChannels.length; ci++) {
+          rowsHtml += buildChannelRow(grpChannels[ci]);
         }
+      }
+      if (ungrouped.length > 0) {
+        if (sortedGroupIds.length > 0) {
+          rowsHtml += '<div class="epg-group-row">Ungrouped</div>';
+        }
+        for (var ui = 0; ui < ungrouped.length; ui++) {
+          rowsHtml += buildChannelRow(ungrouped[ui]);
+        }
+      }
+      return rowsHtml;
+    }
 
-        if (filtered.length === 0) {
-          content.innerHTML = '<div class="empty-state">' + icons.epg + '<p>' +
-            (allPrograms.length === 0 ? 'No EPG data available. Add an EPG source and refresh it.' : 'No channels match your search') +
-            '</p></div>';
+    function formatOffset(hrs) {
+      if (hrs === 0) return 'Now';
+      var sign = hrs > 0 ? '+' : '-';
+      var abs = Math.abs(hrs);
+      if (abs >= 24 && abs % 24 === 0) return 'Now ' + sign + (abs / 24) + 'd';
+      return 'Now ' + sign + abs + 'h';
+    }
+
+    function renderFull() {
+      var hourMarksHtml = '';
+      for (var m = 0; m < windowMinutes; m += 60) {
+        hourMarksHtml += '<div class="epg-hour-mark" style="width:' + HOUR_WIDTH + 'px">' + guideFormatTime(windowStart + m * 60000) + '</div>';
+      }
+
+      var rowsHtml = buildRows();
+
+      var nowMin = (now - windowStart) / 60000;
+      var nowPx = nowMin * PX_PER_MIN;
+      var nowLineHtml = (nowMin >= 0 && nowMin <= windowMinutes)
+        ? '<div class="epg-now-line" style="left:' + (CHANNEL_COL + nowPx) + 'px"></div>'
+        : '';
+
+      var ws = new Date(windowStart);
+      var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      var dayStr = days[ws.getDay()] + ' ' + ws.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+      el.innerHTML = '';
+
+      var deltaPresets = [-24, -6, -3, -1, 1, 3, 6, 24];
+      var deltaLabels = { '-24': '-1d', '-6': '-6h', '-3': '-3h', '-1': '-1h', '1': '+1h', '3': '+3h', '6': '+6h', '24': '+1d' };
+
+      var navHtml = '';
+      for (var di = 0; di < deltaPresets.length; di++) {
+        var d = deltaPresets[di];
+        if (d > 0 && di === 4) {
+          navHtml += '<button class="btn btn-sm btn-primary epg-nav-btn" data-delta="0">' + esc(formatOffset(windowOffset)) + '</button>';
+        }
+        navHtml += '<button class="btn btn-sm btn-ghost epg-nav-btn" data-delta="' + d + '">' + esc(deltaLabels[String(d)]) + '</button>';
+      }
+      if (deltaPresets.length === 8 && deltaPresets[4] <= 0) {
+        navHtml += '<button class="btn btn-sm btn-primary epg-nav-btn" data-delta="0">' + esc(formatOffset(windowOffset)) + '</button>';
+      }
+
+      var toolbar = document.createElement('div');
+      toolbar.className = 'epg-toolbar';
+      toolbar.innerHTML =
+        '<div class="epg-nav">' + navHtml + '</div>' +
+        '<span class="epg-day-label">' + esc(dayStr) + '</span>' +
+        '<span class="epg-time-label">' + esc(guideFormatDate(windowStart) + ' \u2014 ' + guideFormatDate(windowStop)) + '</span>' +
+        '<span style="font-size:13px;color:var(--text-muted)">' + channels.length + ' channels</span>';
+      el.appendChild(toolbar);
+
+      var scrollEl = document.createElement('div');
+      scrollEl.className = 'epg-scroll';
+      scrollEl.innerHTML = '<div class="epg-header-row">' +
+        '<div class="epg-corner">Channel</div>' +
+        '<div class="epg-timeline">' + hourMarksHtml + '</div>' +
+        '</div>' +
+        '<div style="position:relative">' +
+        nowLineHtml +
+        rowsHtml +
+        '</div>';
+
+      scrollEl.addEventListener('click', function(e) {
+        var recBtn = e.target.closest('.epg-record-btn');
+        if (recBtn) {
+          e.stopPropagation();
+          if (recBtn.classList.contains('recording') || recBtn.classList.contains('scheduled')) return;
+          var row = recBtn.closest('.epg-row');
+          if (!row) return;
+          var ch = row.querySelector('.epg-channel');
+          if (!ch) return;
+          var pStart = recBtn.dataset.pstart || '';
+          var pStop = recBtn.dataset.pstop || '';
+          var pStartTime = pStart ? new Date(pStart).getTime() : 0;
+          var isFuture = pStartTime > Date.now();
+          if (isFuture) {
+            var body = { channel_id: ch.dataset.chid, channel_name: ch.dataset.chname || '', program_title: recBtn.dataset.ptitle || '', start_at: pStart, stop_at: pStop };
+            recBtn.classList.add('scheduled');
+            recBtn.disabled = true;
+            api.post('/api/recordings/schedule', body).then(function(resp) {
+              if (resp.ok) toast('Recording scheduled');
+              else { recBtn.classList.remove('scheduled'); recBtn.disabled = false; toast('Failed to schedule', 'error'); }
+            }).catch(function() {
+              recBtn.classList.remove('scheduled'); recBtn.disabled = false;
+            });
+          }
           return;
         }
 
-        var html = '<div class="epg-now-list">';
-        for (var i = 0; i < filtered.length; i++) {
-          var p = filtered[i];
-          var startTime = new Date(p.start_time);
-          var endTime = new Date(p.end_time);
-          var timeStr = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' - ' +
-            endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          var progressPct = Math.round((p.progress || 0) * 100);
-          var cats = (p.categories && p.categories.length > 0) ? p.categories.join(', ') : '';
-
-          html += '<div class="epg-now-item" data-channel-id="' + esc(p.channel_id) + '">' +
-            '<div class="epg-now-channel">' +
-            '<div class="epg-now-channel-name">' + esc(p.channel_name) + '</div>' +
-            '</div>' +
-            '<div class="epg-now-program">' +
-            '<div class="epg-now-title">' + esc(p.title) + (p.rating ? ' <span style="color:var(--text-muted);font-size:11px">' + esc(p.rating) + '</span>' : '') + '</div>' +
-            (p.subtitle ? '<div class="epg-now-subtitle">' + esc(p.subtitle) + '</div>' : '') +
-            (cats ? '<div class="epg-now-subtitle">' + esc(cats) + '</div>' : '') +
-            '<div class="epg-progress"><div class="epg-progress-bar" style="width:' + progressPct + '%"></div></div>' +
-            '</div>' +
-            '<div class="epg-now-time">' + esc(timeStr) + '</div>' +
-            '</div>';
+        var prog = e.target.closest('.epg-program');
+        if (prog) {
+          var row = prog.closest('.epg-row');
+          if (!row) return;
+          var ch = row.querySelector('.epg-channel');
+          if (!ch) return;
+          var titleEl = prog.querySelector('.epg-program-title');
+          var timeEl = prog.querySelector('.epg-program-time');
+          var progTitle = titleEl ? titleEl.textContent : '';
+          var progTime = timeEl ? timeEl.textContent : '';
+          var progDesc = prog.dataset.desc || '';
+          var progCats = prog.dataset.cats || '';
+          var pStart = prog.dataset.pstart || '';
+          var pStop = prog.dataset.pstop || '';
+          showGuideModal({
+            title: progTitle,
+            time: progTime,
+            description: progDesc,
+            categories: progCats,
+            channelName: ch.dataset.chname || '',
+            channelID: ch.dataset.chid,
+            isLive: prog.classList.contains('live'),
+            isFuture: pStart ? new Date(pStart).getTime() > Date.now() : false,
+            start: pStart,
+            stop: pStop,
+          });
+          return;
         }
-        html += '</div>';
-        content.innerHTML = html;
-      }
 
-      renderGuideList('');
+        var ch = e.target.closest('.epg-channel');
+        if (ch) {
+          showGuideModal({
+            title: ch.dataset.chname || 'Channel',
+            channelName: ch.dataset.chname || '',
+            channelID: ch.dataset.chid,
+            isLive: true,
+          });
+        }
+      });
 
-      var searchEl = document.getElementById('guide-search');
-      if (searchEl) {
-        var guideSearchTimer = null;
-        searchEl.addEventListener('input', function() {
-          clearTimeout(guideSearchTimer);
-          var val = this.value.toLowerCase();
-          guideSearchTimer = setTimeout(function() {
-            renderGuideList(val);
-          }, 300);
-        });
+      toolbar.addEventListener('click', function(e) {
+        var btn = e.target.closest('.epg-nav-btn');
+        if (!btn) return;
+        var delta = parseInt(btn.dataset.delta, 10);
+        if (isNaN(delta)) return;
+        navigate(delta);
+      });
+
+      el.appendChild(scrollEl);
+
+      if (nowMin >= 0 && nowMin <= windowMinutes) {
+        var scrollTarget = nowPx - scrollEl.clientWidth / 2 + CHANNEL_COL;
+        if (scrollTarget > 0) scrollEl.scrollLeft = scrollTarget;
       }
-    } catch (e) {
-      document.getElementById('guide-content').innerHTML =
-        '<div class="empty-state">' + icons.epg + '<p>Failed to load program guide</p></div>';
     }
+
+    async function navigate(delta) {
+      if (guideLoading) return;
+      if (delta === 0) {
+        windowOffset = 0;
+      } else {
+        windowOffset += delta;
+      }
+      guideLoading = true;
+      el.innerHTML = '<div style="padding:40px;text-align:center"><div class="spinner-ring"></div> Loading guide...</div>';
+      try {
+        var startParam = '';
+        if (windowOffset !== 0) {
+          var offsetMs = windowOffset * 3600000;
+          var baseStart = new Date(Date.now() + offsetMs);
+          baseStart = new Date(baseStart.getTime() - (baseStart.getTime() % (30 * 60000)));
+          startParam = '&start=' + baseStart.toISOString();
+        }
+        var gdResp = await api.get('/api/epg/guide?hours=' + currentHours + startParam);
+        guideData = await gdResp.json();
+        parseGuideData();
+        guideLoading = false;
+        renderFull();
+      } catch (err) {
+        guideLoading = false;
+        el.innerHTML = '<div class="empty-state">' + icons.epg + '<p style="color:var(--danger)">Failed to load: ' + esc(err.message) + '</p></div>';
+      }
+    }
+
+    function showGuideModal(opts) {
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+      overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } });
+
+      var modal = document.createElement('div');
+      modal.style.cssText = 'width:90%;max-width:560px;max-height:80vh;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;position:relative;display:flex;flex-direction:column;';
+
+      var header = document.createElement('div');
+      header.style.cssText = 'padding:20px 24px 12px;border-bottom:1px solid var(--border);';
+
+      var closeBtn = document.createElement('button');
+      closeBtn.textContent = '\u2715';
+      closeBtn.style.cssText = 'position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:4px;';
+      closeBtn.onclick = function() { overlay.remove(); };
+      header.appendChild(closeBtn);
+
+      var titleEl = document.createElement('div');
+      titleEl.style.cssText = 'font-size:18px;font-weight:700;color:#fff;padding-right:32px;';
+      titleEl.textContent = opts.title || '';
+      header.appendChild(titleEl);
+
+      if (opts.channelName) {
+        var chanEl = document.createElement('div');
+        chanEl.style.cssText = 'font-size:13px;color:var(--text-dim);margin-top:4px;';
+        chanEl.textContent = opts.channelName;
+        header.appendChild(chanEl);
+      }
+
+      if (opts.isLive) {
+        var liveBadge = document.createElement('span');
+        liveBadge.style.cssText = 'display:inline-block;background:var(--danger);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;margin-top:8px;letter-spacing:1px;';
+        liveBadge.textContent = 'LIVE';
+        header.appendChild(liveBadge);
+      }
+
+      modal.appendChild(header);
+
+      var body = document.createElement('div');
+      body.style.cssText = 'padding:16px 24px 20px;overflow-y:auto;flex:1;';
+
+      if (opts.time) {
+        var timeEl = document.createElement('div');
+        timeEl.style.cssText = 'font-size:13px;color:var(--text-dim);margin-bottom:12px;';
+        timeEl.textContent = opts.time;
+        body.appendChild(timeEl);
+      }
+
+      if (opts.categories) {
+        var catsEl = document.createElement('div');
+        catsEl.style.cssText = 'font-size:12px;color:var(--accent);margin-bottom:12px;';
+        catsEl.textContent = opts.categories;
+        body.appendChild(catsEl);
+      }
+
+      if (opts.description) {
+        var descEl = document.createElement('div');
+        descEl.style.cssText = 'font-size:14px;color:var(--text);line-height:1.6;';
+        descEl.textContent = opts.description;
+        body.appendChild(descEl);
+      }
+
+      modal.appendChild(body);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+    }
+
+    if (channels.length === 0) {
+      el.innerHTML = '<div class="epg-empty">No channels configured. Add channels first.</div>';
+      return;
+    }
+
+    renderFull();
   }
 
   async function renderClients(el) {

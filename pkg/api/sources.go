@@ -1,11 +1,16 @@
 package api
 
 import (
+	"context"
+	"crypto/sha256"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
+	"github.com/mcnairstudios/mediahub/pkg/m3u"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 )
@@ -171,6 +176,87 @@ func (s *Server) handleDeleteM3USource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleUploadM3U(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil || existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "missing file field")
+		return
+	}
+	defer file.Close()
+
+	entries, err := m3u.Parse(file)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, fmt.Sprintf("parsing m3u: %v", err))
+		return
+	}
+
+	go s.upsertM3UEntries(existing.ID, entries)
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"parsed": len(entries),
+	})
+}
+
+func (s *Server) upsertM3UEntries(sourceID string, entries []m3u.Entry) {
+	ctx := context.Background()
+
+	seen := make(map[string]struct{}, len(entries))
+	streams := make([]media.Stream, 0, len(entries))
+	keepIDs := make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		h := sha256.Sum256([]byte(sourceID + ":" + entry.URL))
+		id := fmt.Sprintf("%x", h[:16])
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		keepIDs = append(keepIDs, id)
+
+		streams = append(streams, media.Stream{
+			ID:         id,
+			SourceType: "m3u",
+			SourceID:   sourceID,
+			Name:       entry.Name,
+			URL:        entry.URL,
+			Group:      entry.Group,
+			TvgID:      entry.TvgID,
+			TvgName:    entry.TvgName,
+			TvgLogo:    entry.TvgLogo,
+			IsActive:   true,
+		})
+	}
+
+	if err := s.deps.StreamStore.BulkUpsert(ctx, streams); err != nil {
+		log.Printf("m3u upload: upsert error: %v", err)
+		return
+	}
+
+	deleted, err := s.deps.StreamStore.DeleteStaleBySource(ctx, "m3u", sourceID, keepIDs)
+	if err != nil {
+		log.Printf("m3u upload: delete stale error: %v", err)
+		return
+	}
+	log.Printf("m3u upload: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), sourceID)
 }
 
 func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {

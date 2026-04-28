@@ -10,8 +10,16 @@ Delivers media to browsers via Media Source Extensions. Produces fragmented MP4 
 - Track segment generation (bumps on seek for stale request detection)
 - Manage a Watcher that monitors segment files for the frontend poll loop
 
+## Audio Handling
+
+Two paths depending on whether the bridge provides AudioExtradata:
+
+- **Passthrough** (AudioExtradata provided): Raw audio packets go directly to the FragmentedMuxer. No decode/encode overhead.
+- **Internal decode chain** (no AudioExtradata, e.g. copy mode without bridge): MSE plugin creates its own audio decode -> resample -> AudioFIFO -> encode chain. This produces the AAC extradata needed for the fMP4 init segment and handles format conversion (channel downmix, sample rate) that browsers require.
+
+Video packets always pass through to the muxer unchanged.
+
 ## Does NOT
-- Decode or encode — receives already-encoded packets
 - Know about HLS, stream copy, or recording — it's one delivery plugin
 - Manage sessions — the session manager handles lifecycle
 
@@ -20,6 +28,4 @@ Delivers media to browsers via Media Source Extensions. Produces fragmented MP4 
 - **Output**: Serves segments via ServeHTTP (implements ServablePlugin)
 - **Muxer**: Uses pkg/av/mux FragmentedMuxer for fMP4 segment production
 - **Conversion**: Uses pkg/av/conv to convert av.Packet-style data to go-astiav packets
-
-## Reference Implementation
-Port from tvproxy's MSECopyPipeline (pkg/session/gopipeline.go ~line 1400-1560) — but only the muxing and serving parts. The decode/encode chain is handled by DecodeBridge, not by this plugin.
+- **Audio chain** (when active): Uses pkg/av/decode, pkg/av/resample, pkg/av/encode for internal audio processing

@@ -32,7 +32,6 @@ type Output struct {
 
 func Resolve(in Input, out Output) Decision {
 	srcVideo := media.NormalizeVideoCodec(in.VideoCodec)
-	srcAudio := media.NormalizeAudioCodec(in.AudioCodec)
 	outVideo := media.NormalizeVideoCodec(out.VideoCodec)
 	outAudio := media.NormalizeAudioCodec(out.AudioCodec)
 
@@ -76,15 +75,15 @@ func Resolve(in Input, out Output) Decision {
 		d.VideoCodec = media.VideoCopy
 	}
 
-	isAudioDefaultOrCopy := outAudio == media.AudioCopy || outAudio == "default"
-
-	if isAudioDefaultOrCopy {
-		d.AudioCodec = media.AudioCopy
-	} else if outAudio == srcAudio {
+	if outAudio == media.AudioCopy {
 		d.AudioCodec = media.AudioCopy
 	} else {
 		d.NeedsAudioTranscode = true
-		d.AudioCodec = outAudio
+		if outAudio == "" || outAudio == "default" {
+			d.AudioCodec = media.AudioAAC
+		} else {
+			d.AudioCodec = outAudio
+		}
 	}
 
 	return d

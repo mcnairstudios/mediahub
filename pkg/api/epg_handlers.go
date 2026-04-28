@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -208,6 +210,23 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 		}
 	}
 
+	iconMap := make(map[string]string, len(channels))
+	nameMap := make(map[string]string, len(channels))
+	for _, ch := range channels {
+		if ch.Icon != "" {
+			iconMap[ch.ID] = ch.Icon
+		}
+		if ch.DisplayName != "" {
+			nameMap[ch.ID] = ch.DisplayName
+		}
+	}
+	if len(iconMap) > 0 || len(nameMap) > 0 {
+		combined := map[string]map[string]string{"icons": iconMap, "names": nameMap}
+		if data, err := json.Marshal(combined); err == nil {
+			s.deps.SettingsStore.Set(ctx, "epg_channel_meta", string(data))
+		}
+	}
+
 	now := time.Now()
 	src.LastRefreshed = &now
 	src.ChannelCount = len(channels)
@@ -215,6 +234,84 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 	src.ETag = result.ETag
 	src.LastError = ""
 	s.deps.EPGSourceStore.Update(ctx, src)
+}
+
+func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{
+			"start":    time.Now().Truncate(30 * time.Minute),
+			"stop":     time.Now().Truncate(30 * time.Minute).Add(6 * time.Hour),
+			"programs": map[string]any{},
+		})
+		return
+	}
+
+	hours := 6
+	if hs := r.URL.Query().Get("hours"); hs != "" {
+		if parsed, err := strconv.Atoi(hs); err == nil && parsed > 0 && parsed <= 48 {
+			hours = parsed
+		}
+	}
+
+	var start time.Time
+	if startStr := r.URL.Query().Get("start"); startStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, startStr); err == nil {
+			start = parsed.Truncate(30 * time.Minute)
+		}
+	}
+	if start.IsZero() {
+		start = time.Now().Truncate(30 * time.Minute)
+	}
+	stop := start.Add(time.Duration(hours) * time.Hour)
+
+	allPrograms, err := s.deps.ProgramStore.ListAll(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list guide programs")
+		return
+	}
+
+	type guideProgram struct {
+		ChannelID   string    `json:"channel_id"`
+		Title       string    `json:"title"`
+		Description string    `json:"description,omitempty"`
+		Start       time.Time `json:"start"`
+		Stop        time.Time `json:"stop"`
+		Categories  []string  `json:"categories,omitempty"`
+	}
+
+	grouped := make(map[string][]guideProgram)
+	for _, p := range allPrograms {
+		if p.StartTime.Before(stop) && p.EndTime.After(start) {
+			grouped[p.ChannelID] = append(grouped[p.ChannelID], guideProgram{
+				ChannelID:   p.ChannelID,
+				Title:       p.Title,
+				Description: p.Description,
+				Start:       p.StartTime,
+				Stop:        p.EndTime,
+				Categories:  p.Categories,
+			})
+		}
+	}
+
+	result := map[string]any{
+		"start":    start,
+		"stop":     stop,
+		"programs": grouped,
+	}
+
+	if metaStr, err := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta"); err == nil && metaStr != "" {
+		var meta map[string]map[string]string
+		if json.Unmarshal([]byte(metaStr), &meta) == nil {
+			if icons, ok := meta["icons"]; ok {
+				result["channel_icons"] = icons
+			}
+			if names, ok := meta["names"]; ok {
+				result["channel_names"] = names
+			}
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
@@ -291,9 +388,33 @@ func (s *Server) handleEPGPrograms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.URL.Query().Get("source_id") != "" {
+		programs, err := s.deps.ProgramStore.ListAll(r.Context())
+		if err != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to list programs")
+			return
+		}
+		if programs == nil {
+			httputil.RespondJSON(w, http.StatusOK, []any{})
+			return
+		}
+		now := time.Now()
+		var current []epg.Program
+		for _, p := range programs {
+			if p.StartTime.Before(now) && p.EndTime.After(now) {
+				current = append(current, p)
+			}
+		}
+		if current == nil {
+			current = []epg.Program{}
+		}
+		httputil.RespondJSON(w, http.StatusOK, current)
+		return
+	}
+
 	channelID := r.URL.Query().Get("channel_id")
 	if channelID == "" {
-		httputil.RespondError(w, http.StatusBadRequest, "channel_id required")
+		httputil.RespondError(w, http.StatusBadRequest, "channel_id or source_id required")
 		return
 	}
 

@@ -18,11 +18,16 @@ Sits between the demuxer and the FanOut when transcoding is required. Decodes co
 
 ## Key Design
 ```
-Copy mode:     Demuxer → FanOut → [MSE, HLS, Recording, ...]
-Transcode:     Demuxer → DecodeBridge → FanOut → [MSE, HLS, Recording, ...]
+Copy mode:       Demuxer → FanOut → [MSE, HLS, Recording, ...]
+AudioOnly mode:  Demuxer → DecodeBridge (video passthrough, audio decode/resample/encode) → FanOut → [...]
+Full transcode:  Demuxer → DecodeBridge → FanOut → [MSE, HLS, Recording, ...]
 ```
 
 The DecodeBridge implements av.PacketSink so it slots into the same position as the FanOut in the demuxloop chain.
+
+**AudioOnly mode**: When `AudioOnly: true`, video packets pass through untouched while audio goes through the full decode -> resample -> AudioFIFO -> encode chain. Used when the video codec can be copied but audio needs transcoding.
+
+**Encoder extradata accessors**: `VideoEncoderExtradata()`, `VideoEncoderCodecID()`, `AudioEncoderExtradata()`, `AudioEncoderCodecID()` expose the encoder's extradata and codec IDs. Returns nil/0 when the respective encoder is not active (e.g. copy mode).
 
 ## Reference Implementation
 Extracted from the decode/encode chains duplicated across tvproxy's 6 pipeline types in gopipeline.go. One implementation replaces six.

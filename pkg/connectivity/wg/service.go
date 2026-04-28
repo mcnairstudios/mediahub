@@ -28,14 +28,15 @@ type ProfileResponse struct {
 }
 
 type StatusResponse struct {
-	Connected   bool    `json:"connected"`
-	ProfileID   string  `json:"profile_id,omitempty"`
-	ProfileName string  `json:"profile_name,omitempty"`
-	Endpoint    string  `json:"endpoint,omitempty"`
-	ProxyPort   int     `json:"proxy_port,omitempty"`
-	TxBytes     int64   `json:"tx_bytes,omitempty"`
-	RxBytes     int64   `json:"rx_bytes,omitempty"`
-	LatencyMs   float64 `json:"latency_ms,omitempty"`
+	Connected        bool    `json:"connected"`
+	ProfileID        string  `json:"profile_id,omitempty"`
+	ProfileName      string  `json:"profile_name,omitempty"`
+	Endpoint         string  `json:"endpoint,omitempty"`
+	ProxyPort        int     `json:"proxy_port,omitempty"`
+	TxBytes          int64   `json:"tx_bytes,omitempty"`
+	RxBytes          int64   `json:"rx_bytes,omitempty"`
+	LastHandshakeSec int64   `json:"last_handshake_sec,omitempty"`
+	LatencyMs        float64 `json:"latency_ms,omitempty"`
 }
 
 type TestResult struct {
@@ -45,15 +46,17 @@ type TestResult struct {
 }
 
 type Service struct {
-	settings store.SettingsStore
-	tunnel   *Tunnel
-	plugin   *Plugin
-	mu       sync.RWMutex
+	settings  store.SettingsStore
+	pluginCfg PluginConfig
+	tunnel    *Tunnel
+	plugin    *Plugin
+	mu        sync.RWMutex
 }
 
-func NewService(settings store.SettingsStore) *Service {
+func NewService(settings store.SettingsStore, pluginCfg PluginConfig) *Service {
 	return &Service{
-		settings: settings,
+		settings:  settings,
+		pluginCfg: pluginCfg,
 	}
 }
 
@@ -232,7 +235,7 @@ func (s *Service) Activate(ctx context.Context, id string) error {
 		return fmt.Errorf("creating tunnel: %w", err)
 	}
 
-	plugin, err := New(tunnel.Transport())
+	plugin, err := New(tunnel.Transport(), tunnel, s.pluginCfg)
 	if err != nil {
 		tunnel.Close()
 		return fmt.Errorf("creating proxy: %w", err)
@@ -260,6 +263,19 @@ func (s *Service) Deactivate() {
 		s.tunnel.Close()
 		s.tunnel = nil
 	}
+}
+
+func (s *Service) Reconnect(ctx context.Context) error {
+	s.mu.RLock()
+	if s.tunnel == nil {
+		s.mu.RUnlock()
+		return fmt.Errorf("no active profile")
+	}
+	activeID := s.tunnel.config.ID
+	s.mu.RUnlock()
+
+	s.Deactivate()
+	return s.Activate(ctx, activeID)
 }
 
 func (s *Service) TestProfile(ctx context.Context, id string) TestResult {
@@ -317,6 +333,7 @@ func (s *Service) Status() StatusResponse {
 	if err == nil && stats != nil {
 		resp.TxBytes = stats.TxBytes
 		resp.RxBytes = stats.RxBytes
+		resp.LastHandshakeSec = stats.LastHandshakeSec
 	}
 
 	return resp

@@ -331,6 +331,7 @@ func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(data) //nolint:errcheck
 }
 
@@ -367,5 +368,7 @@ func (p *Plugin) serveSegment(w http.ResponseWriter, _ *http.Request, path strin
 	}
 
 	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(data) //nolint:errcheck
 }

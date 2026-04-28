@@ -22,28 +22,28 @@ func TestBase64ToHexInvalid(t *testing.T) {
 	}
 }
 
-func TestResolveEndpointIP(t *testing.T) {
-	resolved, err := resolveEndpoint("1.2.3.4:51820")
+func TestResolveAllEndpointsIP(t *testing.T) {
+	resolved, err := resolveAllEndpoints("1.2.3.4:51820")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resolved != "1.2.3.4:51820" {
-		t.Fatalf("expected 1.2.3.4:51820, got %s", resolved)
+	if len(resolved) != 1 || resolved[0] != "1.2.3.4:51820" {
+		t.Fatalf("expected [1.2.3.4:51820], got %v", resolved)
 	}
 }
 
-func TestResolveEndpointIPv6(t *testing.T) {
-	resolved, err := resolveEndpoint("[::1]:51820")
+func TestResolveAllEndpointsIPv6(t *testing.T) {
+	resolved, err := resolveAllEndpoints("[::1]:51820")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resolved != "[::1]:51820" {
-		t.Fatalf("expected [::1]:51820, got %s", resolved)
+	if len(resolved) != 1 || resolved[0] != "[::1]:51820" {
+		t.Fatalf("expected [[::1]:51820], got %v", resolved)
 	}
 }
 
-func TestResolveEndpointBadFormat(t *testing.T) {
-	_, err := resolveEndpoint("no-port")
+func TestResolveAllEndpointsBadFormat(t *testing.T) {
+	_, err := resolveAllEndpoints("no-port")
 	if err == nil {
 		t.Fatal("expected error for bad endpoint format")
 	}

@@ -40,6 +40,7 @@ type Config struct {
 	Framerate        int
 	VideoCodecParams any
 	AudioCodecParams any
+	AudioOnly        bool
 	Log              zerolog.Logger
 }
 
@@ -68,7 +69,7 @@ func New(cfg Config) (*Bridge, error) {
 	if cfg.Info == nil {
 		return nil, ErrNoProbeResult
 	}
-	if cfg.Info.Video == nil {
+	if cfg.Info.Video == nil && !cfg.AudioOnly {
 		return nil, ErrNoVideoInfo
 	}
 
@@ -80,83 +81,86 @@ func New(cfg Config) (*Bridge, error) {
 		log:        cfg.Log,
 	}
 
-	decHW := cfg.DecodeHWAccel
-	if decHW == "" {
-		decHW = cfg.HWAccel
-	}
-
 	var err error
-	if cp, ok := cfg.VideoCodecParams.(*astiav.CodecParameters); ok && cp != nil {
-		b.videoDec, err = decode.NewVideoDecoderFromParams(cp, decode.DecodeOpts{
-			HWAccel:     decHW,
-			MaxBitDepth: cfg.MaxBitDepth,
-			DecoderName: cfg.DecoderName,
-		})
-	} else {
-		videoCodecID, cerr := conv.CodecIDFromString(info.Video.Codec)
-		if cerr != nil {
-			return nil, fmt.Errorf("bridge: video codec ID: %w", cerr)
+
+	if !cfg.AudioOnly && info.Video != nil {
+		decHW := cfg.DecodeHWAccel
+		if decHW == "" {
+			decHW = cfg.HWAccel
 		}
-		b.videoDec, err = decode.NewVideoDecoder(videoCodecID, info.Video.Extradata, decode.DecodeOpts{
-			HWAccel:     decHW,
-			MaxBitDepth: cfg.MaxBitDepth,
-			DecoderName: cfg.DecoderName,
+
+		if cp, ok := cfg.VideoCodecParams.(*astiav.CodecParameters); ok && cp != nil {
+			b.videoDec, err = decode.NewVideoDecoderFromParams(cp, decode.DecodeOpts{
+				HWAccel:     decHW,
+				MaxBitDepth: cfg.MaxBitDepth,
+				DecoderName: cfg.DecoderName,
+			})
+		} else {
+			videoCodecID, cerr := conv.CodecIDFromString(info.Video.Codec)
+			if cerr != nil {
+				return nil, fmt.Errorf("bridge: video codec ID: %w", cerr)
+			}
+			b.videoDec, err = decode.NewVideoDecoder(videoCodecID, info.Video.Extradata, decode.DecodeOpts{
+				HWAccel:     decHW,
+				MaxBitDepth: cfg.MaxBitDepth,
+				DecoderName: cfg.DecoderName,
+			})
+		}
+		if err != nil {
+			return nil, fmt.Errorf("bridge: video decoder: %w", err)
+		}
+
+		srcPixFmt := astiav.PixelFormatYuv420P
+		needsBitDepthConversion := cfg.MaxBitDepth > 0 && info.Video.BitDepth > cfg.MaxBitDepth
+		if needsBitDepthConversion {
+			srcPixFmt = astiav.PixelFormatYuv420P10Le
+		}
+
+		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
+		if needsDeinterlace {
+			b.deint, err = filter.NewDeinterlacer(
+				info.Video.Width, info.Video.Height,
+				srcPixFmt,
+				astiav.NewRational(1, 90000),
+			)
+			if err != nil {
+				b.closeAll()
+				return nil, fmt.Errorf("bridge: deinterlacer: %w", err)
+			}
+		}
+
+		outW, outH, needsResolutionScale := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
+		if needsResolutionScale || needsBitDepthConversion {
+			b.scaler, err = scale.NewScaler(
+				info.Video.Width, info.Video.Height, srcPixFmt,
+				outW, outH, astiav.PixelFormatYuv420P,
+			)
+			if err != nil {
+				b.closeAll()
+				return nil, fmt.Errorf("bridge: scaler: %w", err)
+			}
+		}
+
+		outCodec := cfg.OutputCodec
+		if outCodec == "" {
+			outCodec = "h264"
+		}
+
+		videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, b.deint != nil, cfg.Framerate)
+
+		b.videoEnc, err = encode.NewVideoEncoder(encode.EncodeOpts{
+			Codec:       outCodec,
+			HWAccel:     cfg.HWAccel,
+			Bitrate:     cfg.Bitrate,
+			Width:       outW,
+			Height:      outH,
+			EncoderName: cfg.EncoderName,
+			Framerate:   videoFPS,
 		})
-	}
-	if err != nil {
-		return nil, fmt.Errorf("bridge: video decoder: %w", err)
-	}
-
-	srcPixFmt := astiav.PixelFormatYuv420P
-	needsBitDepthConversion := cfg.MaxBitDepth > 0 && info.Video.BitDepth > cfg.MaxBitDepth
-	if needsBitDepthConversion {
-		srcPixFmt = astiav.PixelFormatYuv420P10Le
-	}
-
-	needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
-	if needsDeinterlace {
-		b.deint, err = filter.NewDeinterlacer(
-			info.Video.Width, info.Video.Height,
-			srcPixFmt,
-			astiav.NewRational(1, 90000),
-		)
 		if err != nil {
 			b.closeAll()
-			return nil, fmt.Errorf("bridge: deinterlacer: %w", err)
+			return nil, fmt.Errorf("bridge: video encoder: %w", err)
 		}
-	}
-
-	outW, outH, needsResolutionScale := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
-	if needsResolutionScale || needsBitDepthConversion {
-		b.scaler, err = scale.NewScaler(
-			info.Video.Width, info.Video.Height, srcPixFmt,
-			outW, outH, astiav.PixelFormatYuv420P,
-		)
-		if err != nil {
-			b.closeAll()
-			return nil, fmt.Errorf("bridge: scaler: %w", err)
-		}
-	}
-
-	outCodec := cfg.OutputCodec
-	if outCodec == "" {
-		outCodec = "h264"
-	}
-
-	videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, b.deint != nil, cfg.Framerate)
-
-	b.videoEnc, err = encode.NewVideoEncoder(encode.EncodeOpts{
-		Codec:       outCodec,
-		HWAccel:     cfg.HWAccel,
-		Bitrate:     cfg.Bitrate,
-		Width:       outW,
-		Height:      outH,
-		EncoderName: cfg.EncoderName,
-		Framerate:   videoFPS,
-	})
-	if err != nil {
-		b.closeAll()
-		return nil, fmt.Errorf("bridge: video encoder: %w", err)
 	}
 
 	var audioTrack *media.AudioTrack
@@ -211,11 +215,42 @@ func New(cfg Config) (*Bridge, error) {
 	return b, nil
 }
 
+func (b *Bridge) VideoEncoderExtradata() []byte {
+	if b.videoEnc == nil {
+		return nil
+	}
+	return b.videoEnc.Extradata()
+}
+
+func (b *Bridge) VideoEncoderCodecID() astiav.CodecID {
+	if b.videoEnc == nil {
+		return astiav.CodecIDNone
+	}
+	return b.videoEnc.CodecID()
+}
+
+func (b *Bridge) AudioEncoderExtradata() []byte {
+	if b.audioEnc == nil {
+		return nil
+	}
+	return b.audioEnc.Extradata()
+}
+
+func (b *Bridge) AudioEncoderCodecID() astiav.CodecID {
+	if b.audioEnc == nil {
+		return astiav.CodecIDNone
+	}
+	return b.audioEnc.CodecID()
+}
+
 func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {
 		return nil
+	}
+	if b.videoDec == nil {
+		return b.downstream.PushVideo(data, pts, dts, keyframe)
 	}
 
 	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}

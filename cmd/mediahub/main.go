@@ -56,6 +56,10 @@ import (
 func main() {
 	cfg := config.Load()
 
+	if cfg.DLNAPort == 0 {
+		cfg.DLNAPort = extractPort(cfg.ListenAddr)
+	}
+
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
 		With().Timestamp().Logger()
 
@@ -103,7 +107,11 @@ func main() {
 		log.Printf("warning: failed to seed default clients: %v", err)
 	}
 
-	wgService := wg.NewService(settingsStore)
+	wgService := wg.NewService(settingsStore, wg.PluginConfig{
+		UserAgent:    cfg.UserAgent,
+		BypassHeader: cfg.BypassHeader,
+		BypassSecret: cfg.BypassSecret,
+	})
 
 	tmdbCache := tmdbcache.New()
 

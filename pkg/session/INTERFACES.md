@@ -9,7 +9,7 @@ Manages active sessions keyed by stream ID. One session per stream.
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `NewManager` | `(outputDir string) *Manager` | Create a manager with the given output directory |
-| `GetOrCreate` | `(ctx context.Context, streamID, streamURL, streamName string) (*Session, bool, error)` | Return existing session or create a new one; bool indicates created |
+| `GetOrCreate` | `(ctx context.Context, streamID, streamURL, streamName string) (*Session, bool, error)` | Return existing session or create a new one; detects and cleans up dead sessions (IsFinished check); bool indicates created |
 | `Get` | `(streamID string) *Session` | Look up a session by stream ID |
 | `Stop` | `(streamID string)` | Stop and remove a session |
 | `StopAll` | `()` | Stop all active sessions |
@@ -39,10 +39,10 @@ Represents a single active stream with fan-out delivery.
 | `AddCloser` | `(c io.Closer)` | Register a closer to be called on session stop |
 | `SetRecorded` | `(v bool)` | Mark session as being recorded |
 | `IsRecorded` | `() bool` | Check if session is being recorded |
-| `Stop` | `()` | Cancel context, stop fan-out, close done channel |
+| `Stop` | `()` | Cancel context, wait for pipeline to finish (waitFinished), stop fan-out, close done channel |
 | `Done` | `() <-chan struct{}` | Channel closed when session stops |
 | `SetSeekFunc` | `(fn func(posMs int64))` | Register the seek callback |
-| `Seek` | `(posMs int64)` | Invoke the registered seek callback |
+| `SeekTo` | `(posMs int64)` | Invoke the registered seek callback |
 | `SetError` | `(err error)` | Store pipeline error |
 | `Err` | `() error` | Retrieve pipeline error |
 | `MarkDone` | `()` | Mark session as finished (pipeline completed normally) |

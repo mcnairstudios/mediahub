@@ -1,6 +1,12 @@
 # Binary
-mediahub
 /mediahub
+
+# Data / runtime
+*.db
+*.bolt
+*.json.bak
+/config/
+/record/
 
 # IDE
 .idea/

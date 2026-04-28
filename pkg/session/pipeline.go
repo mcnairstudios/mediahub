@@ -16,13 +16,14 @@ import (
 )
 
 type PipelineConfig struct {
-	StreamURL        string
-	StreamID         string
-	UserAgent        string
-	AudioLanguage    string
-	NeedsTranscode   bool
-	OutputCodec      string
-	OutputAudioCodec string
+	StreamURL          string
+	StreamID           string
+	UserAgent          string
+	AudioLanguage      string
+	NeedsTranscode     bool
+	NeedsAudioTranscode bool
+	OutputCodec        string
+	OutputAudioCodec   string
 	HWAccel          string
 	DecodeHWAccel    string
 	Bitrate          int
@@ -49,6 +50,8 @@ type PipelineResult struct {
 	Info             *media.ProbeResult
 	VideoCodecParams any // *astiav.CodecParameters
 	AudioCodecParams any // *astiav.CodecParameters
+	VideoExtradata   []byte
+	AudioExtradata   []byte
 }
 
 func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResult, error) {
@@ -150,12 +153,14 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	})
 
 	var sink av.PacketSink = sess.FanOut
+	var videoExtradata, audioExtradata []byte
 
-	if cfg.NeedsTranscode {
-		if info.Video == nil {
+	if cfg.NeedsTranscode || cfg.NeedsAudioTranscode {
+		if info.Video == nil && cfg.NeedsTranscode {
 			d.Close()
 			return nil, fmt.Errorf("pipeline: transcode requested but no video stream in %q", cfg.StreamURL)
 		}
+		audioOnly := !cfg.NeedsTranscode && cfg.NeedsAudioTranscode
 		b, err := bridge.New(bridge.Config{
 			Downstream:       sess.FanOut,
 			Info:             info,
@@ -171,6 +176,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			EncoderName:      cfg.EncoderName,
 			DecoderName:      cfg.DecoderName,
 			Framerate:        cfg.Framerate,
+			AudioOnly:        audioOnly,
 			Log:              log,
 		})
 		if err != nil {
@@ -179,6 +185,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		}
 		sess.AddCloser(bridgeCloser{b: b})
 		sink = b
+		videoExtradata = b.VideoEncoderExtradata()
+		audioExtradata = b.AudioEncoderExtradata()
 	}
 
 	log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop starting")
@@ -209,6 +217,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		Info:             info,
 		VideoCodecParams: d.VideoCodecParameters(),
 		AudioCodecParams: d.AudioCodecParameters(),
+		VideoExtradata:   videoExtradata,
+		AudioExtradata:   audioExtradata,
 	}, nil
 }
 

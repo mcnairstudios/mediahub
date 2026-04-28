@@ -44,7 +44,7 @@ func (m *memSettings) List(_ context.Context) (map[string]string, error) {
 }
 
 func TestServiceCreateProfile(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	resp, err := svc.CreateProfile(ctx, TunnelConfig{
@@ -73,7 +73,7 @@ func TestServiceCreateProfile(t *testing.T) {
 }
 
 func TestServiceCreateProfileValidation(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	tests := []struct {
@@ -96,7 +96,7 @@ func TestServiceCreateProfileValidation(t *testing.T) {
 }
 
 func TestServiceListProfiles(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	profiles, err := svc.ListProfiles(ctx)
@@ -132,7 +132,7 @@ func TestServiceListProfiles(t *testing.T) {
 }
 
 func TestServiceGetProfile(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	created, _ := svc.CreateProfile(ctx, TunnelConfig{
@@ -156,7 +156,7 @@ func TestServiceGetProfile(t *testing.T) {
 }
 
 func TestServiceGetProfileNotFound(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	got, err := svc.GetProfile(ctx, "nonexistent")
@@ -169,7 +169,7 @@ func TestServiceGetProfileNotFound(t *testing.T) {
 }
 
 func TestServiceUpdateProfile(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	created, _ := svc.CreateProfile(ctx, TunnelConfig{
@@ -196,7 +196,7 @@ func TestServiceUpdateProfile(t *testing.T) {
 }
 
 func TestServiceUpdateProfileNotFound(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	_, err := svc.UpdateProfile(ctx, "nonexistent", TunnelConfig{Name: "x"})
@@ -206,7 +206,7 @@ func TestServiceUpdateProfileNotFound(t *testing.T) {
 }
 
 func TestServiceDeleteProfile(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	created, _ := svc.CreateProfile(ctx, TunnelConfig{
@@ -229,7 +229,7 @@ func TestServiceDeleteProfile(t *testing.T) {
 }
 
 func TestServiceStatusDisconnected(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 
 	status := svc.Status()
 	if status.Connected {
@@ -242,7 +242,7 @@ func TestServiceStatusDisconnected(t *testing.T) {
 
 func TestServiceMaskInListProfiles(t *testing.T) {
 	settings := newMemSettings()
-	svc := NewService(settings)
+	svc := NewService(settings, PluginConfig{})
 	ctx := context.Background()
 
 	svc.CreateProfile(ctx, TunnelConfig{
@@ -264,7 +264,7 @@ func TestServiceMaskInListProfiles(t *testing.T) {
 
 func TestServicePrivateKeyStoredUnmasked(t *testing.T) {
 	settings := newMemSettings()
-	svc := NewService(settings)
+	svc := NewService(settings, PluginConfig{})
 	ctx := context.Background()
 
 	originalKey := "cGFzc3dvcmRwYXNzd29yZHBhc3N3b3JkcGFzc3dvcmQ="
@@ -286,7 +286,7 @@ func TestServicePrivateKeyStoredUnmasked(t *testing.T) {
 }
 
 func TestServiceRestoreActiveNoActive(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	ctx := context.Background()
 
 	svc.CreateProfile(ctx, TunnelConfig{
@@ -307,7 +307,7 @@ func TestServiceRestoreActiveNoActive(t *testing.T) {
 }
 
 func TestServiceClose(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	svc.Close()
 
 	status := svc.Status()
@@ -317,7 +317,7 @@ func TestServiceClose(t *testing.T) {
 }
 
 func TestServiceActivePluginNil(t *testing.T) {
-	svc := NewService(newMemSettings())
+	svc := NewService(newMemSettings(), PluginConfig{})
 	if svc.ActivePlugin() != nil {
 		t.Fatal("expected nil plugin when no tunnel")
 	}

@@ -16,12 +16,52 @@ type Plugin struct {
 	server    *http.Server
 	port      int
 	transport http.RoundTripper
+	tunnel    *Tunnel
 	connected bool
 	closed    bool
 	mu        sync.RWMutex
 }
 
-func New(transport http.RoundTripper) (*Plugin, error) {
+func resolveURLLocally(targetURL string) (resolvedURL string, originalHost string, err error) {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return "", "", err
+	}
+
+	host := u.Hostname()
+	if net.ParseIP(host) != nil {
+		return targetURL, "", nil
+	}
+
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return "", "", fmt.Errorf("dns: %w", err)
+	}
+	if len(addrs) == 0 {
+		return "", "", fmt.Errorf("dns: no addresses for %q", host)
+	}
+
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+
+	originalHost = host
+	u.Host = net.JoinHostPort(addrs[0], port)
+	return u.String(), originalHost, nil
+}
+
+type PluginConfig struct {
+	UserAgent    string
+	BypassHeader string
+	BypassSecret string
+}
+
+func New(transport http.RoundTripper, tunnel *Tunnel, cfg PluginConfig) (*Plugin, error) {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
@@ -37,6 +77,7 @@ func New(transport http.RoundTripper) (*Plugin, error) {
 		listener:  listener,
 		port:      port,
 		transport: transport,
+		tunnel:    tunnel,
 		connected: true,
 	}
 
@@ -55,6 +96,12 @@ func New(transport http.RoundTripper) (*Plugin, error) {
 			return
 		}
 
+		if cfg.UserAgent != "" {
+			outReq.Header.Set("User-Agent", cfg.UserAgent)
+		}
+		if cfg.BypassHeader != "" && cfg.BypassSecret != "" {
+			outReq.Header.Set(cfg.BypassHeader, cfg.BypassSecret)
+		}
 		if rng := r.Header.Get("Range"); rng != "" {
 			outReq.Header.Set("Range", rng)
 		}
@@ -99,14 +146,28 @@ func (p *Plugin) ProxyURL(upstreamURL string) string {
 func (p *Plugin) HTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &proxyTransport{proxyBase: fmt.Sprintf("http://127.0.0.1:%d", p.port)},
-		Timeout:   5 * time.Minute,
+		Timeout:   30 * time.Minute,
 	}
 }
 
 func (p *Plugin) IsConnected() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.connected
+	if !p.connected || p.tunnel == nil {
+		return p.connected
+	}
+	stats, err := p.tunnel.Stats()
+	if err != nil {
+		return false
+	}
+	return stats.LastHandshakeSec > 0
+}
+
+func (p *Plugin) Stats() (*PeerStats, error) {
+	if p.tunnel == nil {
+		return nil, fmt.Errorf("no tunnel")
+	}
+	return p.tunnel.Stats()
 }
 
 func (p *Plugin) Close() error {

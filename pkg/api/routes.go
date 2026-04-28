@@ -19,6 +19,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("PUT /api/epg/sources/{id}", s.adminOnly(s.handleUpdateEPGSource))
 	s.mux.Handle("DELETE /api/epg/sources/{id}", s.adminOnly(s.handleDeleteEPGSource))
 	s.mux.Handle("POST /api/epg/sources/{id}/refresh", s.adminOnly(s.handleRefreshEPGSource))
+	s.mux.Handle("GET /api/epg/guide", s.authenticated(s.handleEPGGuide))
 	s.mux.Handle("GET /api/epg/now", s.authenticated(s.handleEPGNow))
 	s.mux.Handle("GET /api/epg/programs", s.authenticated(s.handleEPGPrograms))
 	s.mux.Handle("GET /api/dashboard/stats", s.authenticated(s.handleDashboardStats))
@@ -52,6 +53,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/sources/m3u", s.adminOnly(s.handleCreateM3USource))
 	s.mux.Handle("PUT /api/sources/m3u/{id}", s.adminOnly(s.handleUpdateM3USource))
 	s.mux.Handle("DELETE /api/sources/m3u/{id}", s.adminOnly(s.handleDeleteM3USource))
+	s.mux.Handle("POST /api/sources/m3u/{id}/upload", s.adminOnly(s.handleUploadM3U))
 	s.mux.Handle("POST /api/sources/tvpstreams", s.adminOnly(s.handleCreateTVPStreamsSource))
 	s.mux.Handle("PUT /api/sources/tvpstreams/{id}", s.adminOnly(s.handleUpdateTVPStreamsSource))
 	s.mux.Handle("DELETE /api/sources/tvpstreams/{id}", s.adminOnly(s.handleDeleteTVPStreamsSource))
@@ -91,6 +93,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/wireguard/profiles/{id}/activate", s.adminOnly(s.handleActivateWGProfile))
 	s.mux.Handle("POST /api/wireguard/profiles/{id}/test", s.adminOnly(s.handleTestWGProfile))
 	s.mux.Handle("GET /api/wireguard/status", s.adminOnly(s.handleWGStatus))
+	s.mux.Handle("POST /api/wireguard/reconnect", s.adminOnly(s.handleReconnectWG))
 
 	s.mux.Handle("POST /api/recordings/schedule", s.authenticated(s.handleScheduleRecording))
 	s.mux.Handle("GET /api/recordings/schedule", s.authenticated(s.handleListScheduledRecordings))

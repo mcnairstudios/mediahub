@@ -27,7 +27,7 @@ func Load() *Config {
 		UserAgent:    "MediaHub",
 		JellyfinPort: 8096,
 		DLNAEnabled:  true,
-		DLNAPort:     8080,
+		DLNAPort:     0,
 	}
 
 	if v := os.Getenv("MEDIAHUB_BASE_URL"); v != "" {

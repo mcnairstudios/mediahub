@@ -33,6 +33,7 @@ type FragmentedMuxer struct {
 	video         *trackMuxer
 	audio         *trackMuxer
 	videoCodecStr string
+	videoStarted  bool
 	closed        bool
 	mu            sync.Mutex
 }
@@ -52,6 +53,7 @@ type trackMuxer struct {
 	pktCount        int
 	lastDTS         int64
 	dtsInited       bool
+	headerWritten   bool
 
 	codecID    astiav.CodecID
 	extradata  []byte
@@ -95,11 +97,15 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 	}
 
 	if opts.AudioCodecID != astiav.CodecIDNone {
+		audioCodecID := opts.AudioCodecID
+		if audioCodecID == astiav.CodecIDAacLatm {
+			audioCodecID = astiav.CodecIDAac
+		}
 		tb := astiav.NewRational(1, opts.AudioSampleRate)
 		if opts.AudioSampleRate == 0 {
 			tb = astiav.NewRational(1, 48000)
 		}
-		tm, err := newTrackMuxer(opts.OutputDir, "audio", opts.AudioCodecID,
+		tm, err := newTrackMuxer(opts.OutputDir, "audio", audioCodecID,
 			opts.AudioExtradata, tb, 0, 0,
 			opts.AudioChannels, opts.AudioSampleRate, int64(audioFragMs)*1000)
 		if err != nil {
@@ -199,6 +205,7 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 		tm.close()
 		return nil, fmt.Errorf("write header: %w", err)
 	}
+	tm.headerWritten = true
 
 	ioCtx.Flush()
 
@@ -244,6 +251,7 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	}
 	m.video.pktCount++
 	m.video.accumDurationUs += dur
+	m.videoStarted = true
 	return nil
 }
 
@@ -255,6 +263,9 @@ func (m *FragmentedMuxer) WriteAudioPacket(pkt *astiav.Packet) error {
 	}
 	if m.audio == nil {
 		return errors.New("avmux: no audio track configured")
+	}
+	if m.video != nil && !m.videoStarted {
+		return nil
 	}
 
 	pkt.SetStreamIndex(m.audio.stream.Index())
@@ -377,7 +388,9 @@ func (t *trackMuxer) flushFragment() error {
 
 func (t *trackMuxer) close() {
 	if t.fc != nil {
-		t.fc.WriteTrailer() //nolint:errcheck
+		if t.headerWritten {
+			t.fc.WriteTrailer() //nolint:errcheck
+		}
 		t.fc.Free()
 		t.fc = nil
 	}

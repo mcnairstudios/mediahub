@@ -11,10 +11,10 @@ const (
 )
 
 type User struct {
-	ID       string
-	Username string
-	IsAdmin  bool
-	Role     Role
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	IsAdmin  bool   `json:"is_admin"`
+	Role     Role   `json:"role"`
 }
 
 type Service interface {

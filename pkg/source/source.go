@@ -17,15 +17,15 @@ type SourceType string
 
 // SourceInfo holds the metadata for a configured source.
 type SourceInfo struct {
-	ID                  string
-	Type                SourceType
-	Name                string
-	IsEnabled           bool
-	StreamCount         int
-	LastRefreshed       *time.Time
-	LastError           string
-	SourceProfileID     string
-	MaxConcurrentStreams int
+	ID                   string     `json:"id"`
+	Type                 SourceType `json:"type"`
+	Name                 string     `json:"name"`
+	IsEnabled            bool       `json:"is_enabled"`
+	StreamCount          int        `json:"stream_count"`
+	LastRefreshed        *time.Time `json:"last_refreshed,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
+	SourceProfileID      string     `json:"source_profile_id,omitempty"`
+	MaxConcurrentStreams int        `json:"max_concurrent_streams,omitempty"`
 }
 
 // Source is the core interface that every source type must implement.

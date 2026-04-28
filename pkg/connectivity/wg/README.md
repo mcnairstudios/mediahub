@@ -15,8 +15,12 @@ Three layers:
 ## Usage
 
 ```go
-// Create service with settings store
-svc := wg.NewService(settingsStore)
+// Create service with settings store and plugin config
+svc := wg.NewService(settingsStore, wg.PluginConfig{
+    UserAgent:    "mediahub/1.0",
+    BypassHeader: "X-Bypass",
+    BypassSecret: "secret",
+})
 
 // Restore previously active profile on startup
 svc.RestoreActive(ctx)
@@ -54,6 +58,10 @@ svc.Close()
 ## Transport Injection
 
 The Plugin layer accepts any `http.RoundTripper`. When created via the Service, it receives the Tunnel's transport. For testing without a real VPN, pass `nil` to `New()` for direct connectivity.
+
+## PluginConfig
+
+`PluginConfig` carries user-agent and bypass header settings to the proxy. The `UserAgent` is set on outbound requests. `BypassHeader` and `BypassSecret` allow trusted internal requests to skip authentication when routing through the proxy.
 
 ## Storage
 

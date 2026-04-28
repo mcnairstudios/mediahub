@@ -31,7 +31,7 @@ Decode the request body as JSON into v. Closes the body.
 ### FetchConditional
 
 ```go
-func FetchConditional(ctx context.Context, client *http.Client, url, etag, userAgent string) (*FetchResult, error)
+func FetchConditional(ctx context.Context, client *http.Client, url, etag, userAgent string, extraHeaders ...map[string]string) (*FetchResult, error)
 ```
 
 Fetch a URL with ETag-based conditional logic. Returns `Changed: false` on 304 Not Modified.

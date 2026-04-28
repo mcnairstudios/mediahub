@@ -27,6 +27,9 @@ Native libavformat HLS muxer producing MPEG-TS segments with an m3u8 playlist. U
 - **Seek Reset**: `Reset()` rebuilds track muxers to clear ffmpeg's internal cur_dts state. Segment numbering continues.
 - **Duration fixing**: HLSMuxer fixes zero-duration packets using VideoFrameRate and AudioFrameSize from opts.
 - **Codec string extraction**: `VideoCodecString()` parses the init segment for avc1/hev1/hvc1 codec strings.
+- **videoStarted guard**: FragmentedMuxer drops audio packets until the first video packet has been written. Prevents audio-only init segments that confuse MSE.
+- **headerWritten guard**: WriteTrailer is only called when the header was successfully written. Prevents crashes from calling WriteTrailer on an unopened muxer.
+- **aac_latm normalization**: FragmentedMuxer normalizes `aac_latm` codec ID to `aac` for mp4 container compatibility (mp4 doesn't support LATM framing).
 
 ## Testing
 

@@ -3,20 +3,27 @@
 ## Plugin (implements connectivity.Plugin)
 
 ```go
+type PluginConfig struct {
+    UserAgent    string
+    BypassHeader string
+    BypassSecret string
+}
+
 type Plugin struct { ... }
 
-func New(transport http.RoundTripper) (*Plugin, error)
+func New(transport http.RoundTripper, tunnel *Tunnel, cfg PluginConfig) (*Plugin, error)
 func (p *Plugin) Name() string
 func (p *Plugin) ProxyURL(upstreamURL string) string
 func (p *Plugin) HTTPClient() *http.Client
 func (p *Plugin) IsConnected() bool
 func (p *Plugin) Close() error
 func (p *Plugin) Port() int
+func (p *Plugin) Stats() (*PeerStats, error)
 ```
 
-### New(transport)
+### New(transport, tunnel, cfg)
 
-Creates and starts the localhost proxy server. The `transport` parameter is the `http.RoundTripper` used for outbound requests from the proxy to upstream servers. Pass `nil` to use `http.DefaultTransport` (direct connectivity without WireGuard).
+Creates and starts the localhost proxy server. The `transport` parameter is the `http.RoundTripper` used for outbound requests from the proxy to upstream servers. Pass `nil` to use `http.DefaultTransport` (direct connectivity without WireGuard). The `tunnel` is the WireGuard tunnel (nil for testing). The `cfg` provides user-agent and bypass header configuration for the proxy.
 
 Returns an error if the listener cannot bind to a random port on localhost.
 
@@ -43,6 +50,10 @@ Shuts down the proxy server. Idempotent: calling Close multiple times is safe an
 ### Port() int
 
 Returns the randomly-assigned port the proxy is listening on.
+
+### Stats() (*PeerStats, error)
+
+Returns peer statistics from the underlying tunnel. Returns nil if no tunnel is configured.
 
 ## Tunnel
 
@@ -107,7 +118,7 @@ Closes the WireGuard device.
 ```go
 type Service struct { ... }
 
-func NewService(settings store.SettingsStore) *Service
+func NewService(settings store.SettingsStore, pluginCfg PluginConfig) *Service
 func (s *Service) ListProfiles(ctx context.Context) ([]ProfileResponse, error)
 func (s *Service) GetProfile(ctx context.Context, id string) (*ProfileResponse, error)
 func (s *Service) CreateProfile(ctx context.Context, cfg TunnelConfig) (*ProfileResponse, error)
@@ -119,6 +130,7 @@ func (s *Service) TestProfile(ctx context.Context, id string) TestResult
 func (s *Service) Status() StatusResponse
 func (s *Service) ActivePlugin() *Plugin
 func (s *Service) Close()
+func (s *Service) Reconnect(ctx context.Context) error
 func (s *Service) RestoreActive(ctx context.Context) error
 ```
 

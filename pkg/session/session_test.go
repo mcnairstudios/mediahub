@@ -83,7 +83,7 @@ func TestSessionSeek(t *testing.T) {
 		seeked.Store(posMs)
 	})
 
-	s.Seek(5000)
+	s.SeekTo(5000)
 	if seeked.Load() != 5000 {
 		t.Fatalf("expected seek to 5000, got %d", seeked.Load())
 	}
@@ -95,7 +95,7 @@ func TestSessionSeekNoFunc(t *testing.T) {
 
 	s := newSession(ctx, cancel, "stream-1", "http://example.com/stream", "Test", "/tmp/out")
 
-	s.Seek(5000)
+	s.SeekTo(5000)
 }
 
 func TestSessionDoubleStopDoesNotPanic(t *testing.T) {

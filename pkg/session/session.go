@@ -74,6 +74,7 @@ func (s *Session) IsRecorded() bool {
 func (s *Session) Stop() {
 	s.stopOnce.Do(func() {
 		s.cancel()
+		s.waitFinished()
 		s.FanOut.Stop()
 		s.mu.Lock()
 		closers := s.closers
@@ -86,6 +87,23 @@ func (s *Session) Stop() {
 	})
 }
 
+func (s *Session) waitFinished() {
+	deadline := time.After(5 * time.Second)
+	for {
+		s.mu.Lock()
+		done := s.finished
+		s.mu.Unlock()
+		if done {
+			return
+		}
+		select {
+		case <-deadline:
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
@@ -96,7 +114,7 @@ func (s *Session) SetSeekFunc(fn func(posMs int64)) {
 	s.seekFunc = fn
 }
 
-func (s *Session) Seek(posMs int64) {
+func (s *Session) SeekTo(posMs int64) {
 	s.mu.Lock()
 	fn := s.seekFunc
 	s.mu.Unlock()

@@ -28,7 +28,12 @@ func (m *Manager) GetOrCreate(_ context.Context, streamID, streamURL, streamName
 	defer m.mu.Unlock()
 
 	if s, ok := m.sessions[streamID]; ok {
-		return s, false, nil
+		if s.IsFinished() {
+			delete(m.sessions, streamID)
+			s.Stop()
+		} else {
+			return s, false, nil
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

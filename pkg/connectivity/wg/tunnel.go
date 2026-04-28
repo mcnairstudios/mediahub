@@ -80,35 +80,50 @@ func NewTunnel(cfg TunnelConfig) (*Tunnel, error) {
 		return nil, fmt.Errorf("decoding peer public key: %w", err)
 	}
 
-	resolvedEndpoint, err := resolveEndpoint(cfg.Endpoint)
+	endpoints, err := resolveAllEndpoints(cfg.Endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("resolving endpoint: %w", err)
 	}
 
 	dev := device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, "wg: "))
 
-	ipcConfig := fmt.Sprintf(
-		"private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=0.0.0.0/0\nallowed_ip=::/0\npersistent_keepalive_interval=25\n",
-		privKeyHex,
-		pubKeyHex,
-		resolvedEndpoint,
-	)
+	var lastErr error
+	for _, ep := range endpoints {
+		ipcConfig := fmt.Sprintf(
+			"private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=0.0.0.0/0\nallowed_ip=::/0\npersistent_keepalive_interval=25\n",
+			privKeyHex,
+			pubKeyHex,
+			ep,
+		)
 
-	if err := dev.IpcSet(ipcConfig); err != nil {
-		dev.Close()
-		return nil, fmt.Errorf("setting ipc config: %w", err)
+		if err := dev.IpcSet(ipcConfig); err != nil {
+			lastErr = fmt.Errorf("setting ipc config for %s: %w", ep, err)
+			continue
+		}
+
+		if err := dev.Up(); err != nil {
+			lastErr = fmt.Errorf("bringing device up for %s: %w", ep, err)
+			continue
+		}
+
+		t := &Tunnel{
+			device: dev,
+			tnet:   tnet,
+			config: cfg,
+		}
+
+		if waitForHandshake(t, 8*time.Second) {
+			return t, nil
+		}
+
+		lastErr = fmt.Errorf("handshake timeout for %s", ep)
 	}
 
-	if err := dev.Up(); err != nil {
-		dev.Close()
-		return nil, fmt.Errorf("bringing device up: %w", err)
+	dev.Close()
+	if lastErr != nil {
+		return nil, fmt.Errorf("all endpoints failed, last: %w", lastErr)
 	}
-
-	return &Tunnel{
-		device: dev,
-		tnet:   tnet,
-		config: cfg,
-	}, nil
+	return nil, fmt.Errorf("no endpoints resolved for %s", cfg.Endpoint)
 }
 
 func (t *Tunnel) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
@@ -178,22 +193,38 @@ func base64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func resolveEndpoint(endpoint string) (string, error) {
+func resolveAllEndpoints(endpoint string) ([]string, error) {
 	host, port, err := net.SplitHostPort(endpoint)
 	if err != nil {
-		return "", fmt.Errorf("splitting host:port: %w", err)
+		return nil, fmt.Errorf("splitting host:port: %w", err)
 	}
 	if _, err := netip.ParseAddr(host); err == nil {
-		return endpoint, nil
+		return []string{endpoint}, nil
 	}
 	ips, err := net.LookupHost(host)
 	if err != nil {
-		return "", fmt.Errorf("resolving %q: %w", host, err)
+		return nil, fmt.Errorf("resolving %q: %w", host, err)
 	}
 	if len(ips) == 0 {
-		return "", fmt.Errorf("no addresses for %q", host)
+		return nil, fmt.Errorf("no addresses for %q", host)
 	}
-	return net.JoinHostPort(ips[0], port), nil
+	result := make([]string, len(ips))
+	for i, ip := range ips {
+		result[i] = net.JoinHostPort(ip, port)
+	}
+	return result, nil
+}
+
+func waitForHandshake(t *Tunnel, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		stats, err := t.Stats()
+		if err == nil && stats.LastHandshakeSec > 0 {
+			return true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
 }
 
 func MaskPrivateKey(key string) string {

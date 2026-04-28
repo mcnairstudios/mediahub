@@ -105,7 +105,9 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	filename = c.fetch(r.Context(), logoURL, hash)
 	if filename == "" {
-		http.Error(w, "failed to fetch logo", http.StatusBadGateway)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="20" fill="#374151"/><text x="100" y="115" font-family="sans-serif" font-size="80" fill="#9CA3AF" text-anchor="middle">TV</text></svg>`))
 		return
 	}
 

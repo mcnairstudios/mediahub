@@ -20,6 +20,7 @@ Delivers media via HTTP Live Streaming. Produces MPEG-TS segments + m3u8 playlis
 - **Output**: Serves playlist + segments via ServeHTTP (implements ServablePlugin)
 - **Muxer**: Uses pkg/av/mux HLSMuxer (libavformat native)
 - **Conversion**: Uses pkg/av/conv for packet conversion
+- **CORS**: All playlist and segment HTTP responses include `Access-Control-Allow-Origin: *` headers for cross-origin playback (hls.js in browsers)
 
 ## Reference Implementation
 Port from tvproxy's HLSCopyPipeline (pkg/session/gopipeline.go ~line 1638-1860) — muxing and serving only.

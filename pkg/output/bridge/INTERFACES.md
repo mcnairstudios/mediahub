@@ -9,6 +9,7 @@ type Config struct {
     Downstream    av.PacketSink  // FanOut or single output plugin
     Info          *media.ProbeResult
     AudioIndex    int
+    AudioOnly     bool           // only decode/encode audio; video passes through
     HWAccel       string
     DecodeHWAccel string
     OutputCodec   string         // "h264", "h265", "av1"
@@ -17,6 +18,7 @@ type Config struct {
     OutputHeight  int
     MaxBitDepth   int
     Deinterlace   bool
+    Framerate     int
     EncoderName   string
     DecoderName   string
     VideoCodecParams any  // *astiav.CodecParameters
@@ -35,6 +37,10 @@ func (b *Bridge) PushSubtitle(data []byte, pts int64, duration int64) error
 func (b *Bridge) EndOfStream()
 func (b *Bridge) ResetForSeek()
 func (b *Bridge) Stop()
+func (b *Bridge) VideoEncoderExtradata() []byte
+func (b *Bridge) VideoEncoderCodecID() astiav.CodecID
+func (b *Bridge) AudioEncoderExtradata() []byte
+func (b *Bridge) AudioEncoderCodecID() astiav.CodecID
 ```
 
 ## Internal Components

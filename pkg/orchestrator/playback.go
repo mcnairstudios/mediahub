@@ -106,14 +106,15 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		runner = deps.SessionMgr.RunPipeline
 	}
 	pipelineResult, err := runner(sess, session.PipelineConfig{
-		StreamURL:        pipelineURL,
-		StreamID:         stream.ID,
-		UserAgent:        deps.UserAgent,
-		NeedsTranscode:   decision.NeedsTranscode,
-		OutputCodec:      string(decision.VideoCodec),
-		OutputAudioCodec: string(decision.AudioCodec),
-		HWAccel:          decision.HWAccel,
-		Deinterlace:      decision.Deinterlace,
+		StreamURL:           pipelineURL,
+		StreamID:            stream.ID,
+		UserAgent:           deps.UserAgent,
+		NeedsTranscode:      decision.NeedsTranscode,
+		NeedsAudioTranscode: decision.NeedsAudioTranscode,
+		OutputCodec:         string(decision.VideoCodec),
+		OutputAudioCodec:    string(decision.AudioCodec),
+		HWAccel:             decision.HWAccel,
+		Deinterlace:         decision.Deinterlace,
 	})
 	if err != nil {
 		deps.SessionMgr.Stop(stream.ID)
@@ -130,6 +131,12 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		IsLive:           true,
 		VideoCodecParams: pipelineResult.VideoCodecParams,
 		AudioCodecParams: pipelineResult.AudioCodecParams,
+	}
+	if len(pipelineResult.VideoExtradata) > 0 {
+		pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
+	}
+	if len(pipelineResult.AudioExtradata) > 0 {
+		pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
 	}
 	if info.Video != nil {
 		pluginCfg.Video = info.Video
@@ -227,6 +234,12 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		VideoCodecParams: pipelineResult.VideoCodecParams,
 		AudioCodecParams: pipelineResult.AudioCodecParams,
 	}
+	if len(pipelineResult.VideoExtradata) > 0 {
+		pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
+	}
+	if len(pipelineResult.AudioExtradata) > 0 {
+		pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
+	}
 	if info.Video != nil {
 		pluginCfg.Video = info.Video
 	}
@@ -260,6 +273,6 @@ func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 	if sess == nil {
 		return fmt.Errorf("session %s not found", streamID)
 	}
-	sess.Seek(positionMs)
+	sess.SeekTo(positionMs)
 	return nil
 }

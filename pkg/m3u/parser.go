@@ -36,10 +36,7 @@ func Parse(r io.Reader) ([]Entry, error) {
 		}
 
 		if strings.HasPrefix(line, "#EXTINF:") {
-			e := parseExtinf(line)
-			if e != nil {
-				pending = e
-			}
+			pending = parseExtinf(line)
 			continue
 		}
 

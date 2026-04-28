@@ -42,7 +42,7 @@ func TestProxyURLEncodesSpecialChars(t *testing.T) {
 }
 
 func TestStartAndStop(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestStartAndStop(t *testing.T) {
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 }
 
 func TestIsConnectedReflectsState(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestIsConnectedReflectsState(t *testing.T) {
 }
 
 func TestHTTPClientNonNil(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestProxyForwardsToUpstream(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestProxyForwardsRangeHeader(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestProxyForwardsRangeHeader(t *testing.T) {
 }
 
 func TestProxyMissingURLParam(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestProxyWithCustomTransport(t *testing.T) {
 		},
 	}
 
-	p, err := New(customTransport)
+	p, err := New(customTransport, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,7 +234,7 @@ func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func TestProxyUpstreamError(t *testing.T) {
-	p, err := New(nil)
+	p, err := New(nil, nil, PluginConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -249,5 +249,100 @@ func TestProxyUpstreamError(t *testing.T) {
 
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected 502 for unreachable upstream, got %d", resp.StatusCode)
+	}
+}
+
+func TestResolveURLLocallyIP(t *testing.T) {
+	resolved, host, err := resolveURLLocally("http://192.168.1.1:8080/path")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if host != "" {
+		t.Fatalf("expected empty originalHost for IP, got %q", host)
+	}
+	if resolved != "http://192.168.1.1:8080/path" {
+		t.Fatalf("expected unchanged URL for IP, got %q", resolved)
+	}
+}
+
+func TestResolveURLLocallyHostname(t *testing.T) {
+	resolved, host, err := resolveURLLocally("http://localhost:8080/path")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if host != "localhost" {
+		t.Fatalf("expected originalHost=localhost, got %q", host)
+	}
+	if resolved == "http://localhost:8080/path" {
+		t.Fatalf("expected URL to be resolved to IP, got %q", resolved)
+	}
+}
+
+func TestResolveURLLocallyBadHost(t *testing.T) {
+	_, _, err := resolveURLLocally("http://this-host-does-not-exist-abc123.invalid/path")
+	if err == nil {
+		t.Fatal("expected error for unresolvable host")
+	}
+}
+
+func TestProxyForwardsHostHeader(t *testing.T) {
+	var gotHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	p, err := New(nil, nil, PluginConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer p.Close()
+
+	proxyURL := p.ProxyURL(upstream.URL)
+	resp, err := http.Get(proxyURL)
+	if err != nil {
+		t.Fatalf("proxy request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if gotHost == "" {
+		t.Fatal("expected Host header to be forwarded")
+	}
+}
+
+func TestProxyForwardsIncomingHeaders(t *testing.T) {
+	var gotUA string
+	var gotBypass string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		gotBypass = r.Header.Get("X-Bypass")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	p, err := New(nil, nil, PluginConfig{
+		UserAgent:    "TestAgent/1.0",
+		BypassHeader: "X-Bypass",
+		BypassSecret: "secret123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer p.Close()
+
+	proxyURL := p.ProxyURL(upstream.URL)
+	req, _ := http.NewRequest("GET", proxyURL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if gotUA != "TestAgent/1.0" {
+		t.Fatalf("expected User-Agent from config, got %q", gotUA)
+	}
+	if gotBypass != "secret123" {
+		t.Fatalf("expected X-Bypass from config, got %q", gotBypass)
 	}
 }

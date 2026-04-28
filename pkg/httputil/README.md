@@ -14,15 +14,16 @@ JSON response helpers for HTTP handlers.
 
 ### headers.go
 
-Browser-like headers for upstream HTTP requests.
+Browser-like headers and request URL helpers.
 
 - `SetBrowserHeaders(req, userAgent)` — sets User-Agent, Accept, Accept-Language, Connection
+- `RequestBaseURL(r)` — derive base URL from incoming request, respecting X-Forwarded-Proto and X-Forwarded-Host for reverse proxy setups
 
 ### fetch.go
 
 Conditional HTTP fetch with ETag support.
 
-- `FetchConditional(ctx, client, url, etag, userAgent)` — sends If-None-Match when etag provided, returns Changed=false on 304, Changed=true with body on 200
+- `FetchConditional(ctx, client, url, etag, userAgent, extraHeaders...)` — sends If-None-Match when etag provided, returns Changed=false on 304, Changed=true with body on 200. Optional `extraHeaders` maps are merged onto the request.
 
 ## Dependencies
 
