@@ -72,6 +72,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/sources/hdhr/{id}/retune", s.adminOnly(s.handleHDHRRetune))
 	s.mux.Handle("GET /api/sources/hdhr/{id}/status", s.authenticated(s.handleHDHRRetuneStatus))
 	s.mux.Handle("POST /api/sources/hdhr/{id}/clear", s.adminOnly(s.handleHDHRClear))
+	s.mux.Handle("GET /api/satip/systems", s.authenticated(s.handleListDVBSystems))
+	s.mux.Handle("GET /api/satip/transmitters", s.authenticated(s.handleListTransmitters))
 	s.mux.Handle("POST /api/sources/satip", s.adminOnly(s.handleCreateSatIPSource))
 	s.mux.Handle("PUT /api/sources/satip/{id}", s.adminOnly(s.handleUpdateSatIPSource))
 	s.mux.Handle("DELETE /api/sources/satip/{id}", s.adminOnly(s.handleDeleteSatIPSource))

@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/source/satip/scan"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 )
 
@@ -208,6 +213,66 @@ func (s *Server) handleSatIPScanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, status)
+}
+
+func dvbTablesDir() string {
+	return scan.DVBTablesDir
+}
+
+func (s *Server) handleListTransmitters(w http.ResponseWriter, r *http.Request) {
+	system := r.URL.Query().Get("system")
+	if system == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "system parameter required (e.g. dvb-t, dvb-s, dvb-c)")
+		return
+	}
+
+	dir := filepath.Join(dvbTablesDir(), system)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			httputil.RespondJSON(w, http.StatusOK, []struct{}{})
+			return
+		}
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list transmitters: "+err.Error())
+		return
+	}
+
+	type entry struct {
+		Name string `json:"name"`
+		File string `json:"file"`
+	}
+	var result []entry
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		result = append(result, entry{Name: n, File: system + "/" + n})
+	}
+	if result == nil {
+		result = []entry{}
+	}
+	httputil.RespondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleListDVBSystems(w http.ResponseWriter, r *http.Request) {
+	dir := dvbTablesDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		httputil.RespondJSON(w, http.StatusOK, []string{})
+		return
+	}
+	var systems []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			systems = append(systems, e.Name())
+		}
+	}
+	sort.Strings(systems)
+	httputil.RespondJSON(w, http.StatusOK, systems)
 }
 
 func (s *Server) handleSatIPClear(w http.ResponseWriter, r *http.Request) {

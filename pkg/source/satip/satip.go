@@ -4,11 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/source/satip/scan"
 	"github.com/mcnairstudios/mediahub/pkg/store"
+	"github.com/rs/zerolog/log"
 )
 
 const defaultHTTPPort = 8875
@@ -59,7 +63,69 @@ func (s *Source) Info(_ context.Context) source.SourceInfo {
 	}
 }
 
-func (s *Source) Refresh(_ context.Context) error {
+func (s *Source) Refresh(ctx context.Context) error {
+	host := s.cfg.Host
+	if host == "" {
+		return fmt.Errorf("satip source %s: host not configured", s.cfg.ID)
+	}
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		host = net.JoinHostPort(host, "554")
+	}
+
+	cfg := scan.Config{
+		SeedTimeout:     60 * time.Second,
+		MuxTimeout:      60 * time.Second,
+		Timeout:         60 * time.Second,
+		Parallel:        4,
+		TransmitterFile: s.cfg.TransmitterFile,
+		Log:             log.With().Str("source", s.cfg.ID).Logger(),
+	}
+
+	result, err := scan.Scan(host, s.cfg.HTTPPort, cfg)
+	if err != nil {
+		s.mu.Lock()
+		s.lastError = err.Error()
+		s.mu.Unlock()
+		return fmt.Errorf("satip scan: %w", err)
+	}
+
+	var streams []media.Stream
+	for _, ch := range result.Channels {
+		rtspURL := ch.RTSPURL(host)
+		stream := media.Stream{
+			ID:         deterministicStreamID(s.cfg.ID, ch.ServiceID),
+			SourceType: "satip",
+			SourceID:   s.cfg.ID,
+			Name:       ch.Name,
+			URL:        rtspURL,
+			Group:      streamGroup(ch.ServiceType),
+			IsActive:   !ch.Encrypted,
+		}
+		streams = append(streams, stream)
+	}
+
+	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
+		s.mu.Lock()
+		s.lastError = err.Error()
+		s.mu.Unlock()
+		return fmt.Errorf("upserting streams: %w", err)
+	}
+
+	keepIDs := make([]string, len(streams))
+	for i, st := range streams {
+		keepIDs[i] = st.ID
+	}
+	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "satip", s.cfg.ID, keepIDs); err != nil {
+		log.Warn().Err(err).Str("source", s.cfg.ID).Msg("failed to delete stale streams")
+	}
+
+	now := time.Now()
+	s.mu.Lock()
+	s.streamCount = len(streams)
+	s.lastRefreshed = &now
+	s.lastError = ""
+	s.mu.Unlock()
+
 	return nil
 }
 

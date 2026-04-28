@@ -39,6 +39,12 @@ func Match(c Client, port int, headers map[string]string) bool {
 
 	for _, rule := range c.MatchRules {
 		headerVal, ok := headers[rule.HeaderName]
+		if rule.MatchType == "exists" {
+			if !ok {
+				return false
+			}
+			continue
+		}
 		if !ok {
 			return false
 		}
@@ -56,7 +62,7 @@ func matchRule(rule MatchRule, value string) bool {
 		return strings.Contains(value, rule.MatchValue)
 	case "prefix":
 		return strings.HasPrefix(value, rule.MatchValue)
-	case "exact":
+	case "exact", "equals":
 		return value == rule.MatchValue
 	case "regex":
 		re, err := regexp.Compile(rule.MatchValue)

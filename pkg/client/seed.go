@@ -41,9 +41,10 @@ func SeedDefaults(ctx context.Context, store Store) error {
 		},
 		{
 			ID: generateClientID(), Name: "Plex", Priority: 80, ListenPort: 8080,
-			IsEnabled: true, IsSystem: true,
+			IsEnabled: true, IsSystem: false,
 			MatchRules: []MatchRule{
 				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Lavf/"},
+				{HeaderName: "Icy-Metadata", MatchType: "exists", MatchValue: ""},
 			},
 			Profile: Profile{
 				Delivery:   "stream",
@@ -54,9 +55,37 @@ func SeedDefaults(ctx context.Context, store Store) error {
 		},
 		{
 			ID: generateClientID(), Name: "VLC", Priority: 70, ListenPort: 8080,
-			IsEnabled: true, IsSystem: true,
+			IsEnabled: true, IsSystem: false,
 			MatchRules: []MatchRule{
 				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "VLC/"},
+			},
+			Profile: Profile{
+				Delivery:   "stream",
+				VideoCodec: "copy",
+				AudioCodec: "copy",
+				Container:  "matroska",
+			},
+		},
+		{
+			ID: generateClientID(), Name: "Skybox", Priority: 65, ListenPort: 8080,
+			IsEnabled: true, IsSystem: false,
+			MatchRules: []MatchRule{
+				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "libmpv"},
+				{HeaderName: "Icy-Metadata", MatchType: "exists", MatchValue: ""},
+			},
+			Profile: Profile{
+				Delivery:   "stream",
+				VideoCodec: "copy",
+				AudioCodec: "copy",
+				Container:  "mpegts",
+			},
+		},
+		{
+			ID: generateClientID(), Name: "4XVR", Priority: 63, ListenPort: 8080,
+			IsEnabled: true, IsSystem: false,
+			MatchRules: []MatchRule{
+				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Dalvik/2.1.0"},
+				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Quest 3"},
 			},
 			Profile: Profile{
 				Delivery:   "stream",
@@ -92,6 +121,19 @@ func SeedDefaults(ctx context.Context, store Store) error {
 			},
 		},
 		{
+			ID: generateClientID(), Name: "Panasonic TV", Priority: 53, ListenPort: 8080,
+			IsEnabled: true, IsSystem: false,
+			MatchRules: []MatchRule{
+				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Viera"},
+			},
+			Profile: Profile{
+				Delivery:   "stream",
+				VideoCodec: "copy",
+				AudioCodec: "copy",
+				Container:  "mpegts",
+			},
+		},
+		{
 			ID: generateClientID(), Name: "iPhone", Priority: 50, ListenPort: 8080,
 			IsEnabled: true, IsSystem: false,
 			MatchRules: []MatchRule{
@@ -106,7 +148,7 @@ func SeedDefaults(ctx context.Context, store Store) error {
 		},
 		{
 			ID: generateClientID(), Name: "HDHomeRun", Priority: 40, ListenPort: 8080,
-			IsEnabled: false, IsSystem: false,
+			IsEnabled: true, IsSystem: true,
 			MatchRules: []MatchRule{
 				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "HDHomeRun/"},
 			},

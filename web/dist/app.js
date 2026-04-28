@@ -2699,7 +2699,8 @@
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="satip-name" placeholder="Home SAT>IP Server"></div>' +
       '<div class="form-group"><label class="form-label">Host / IP Address</label><input class="form-input" id="satip-host" placeholder="192.168.1.100"></div>' +
       '<div class="form-group"><label class="form-label">HTTP Port</label><input class="form-input" id="satip-port" type="number" value="8875" min="1" max="65535"></div>' +
-      '<div class="form-group"><label class="form-label">Transmitter File (optional)</label><input class="form-input" id="satip-transmitter" placeholder="dvb-t/uk-Crystal_Palace"></div>' +
+      '<div class="form-group"><label class="form-label">System</label><select class="form-input" id="satip-system"><option value="">Loading...</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Transmitter</label><select class="form-input" id="satip-transmitter" disabled><option value="">-- Select System First --</option></select></div>' +
       '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="satip-maxstreams" type="number" value="0" min="0"></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="satip-enabled" checked> Enabled</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-satip-btn">Create</button>' +
@@ -2725,6 +2726,16 @@
       f.querySelectorAll('input[type="checkbox"]').forEach(function(inp) {
         inp.checked = inp.defaultChecked;
       });
+      f.querySelectorAll('select').forEach(function(sel) {
+        sel.selectedIndex = 0;
+      });
+      if (formId === 'add-satip-form') {
+        var txSel = document.getElementById('satip-transmitter');
+        if (txSel) {
+          txSel.innerHTML = '<option value="">-- Select System First --</option>';
+          txSel.disabled = true;
+        }
+      }
     }
 
     function setFormTitle(formId, title) {
@@ -2800,6 +2811,54 @@
       document.getElementById('add-satip-form').style.display = 'none';
     });
 
+    async function loadSystems(selectedSystem) {
+      var sel = document.getElementById('satip-system');
+      try {
+        var r = await api.get('/api/satip/systems');
+        var systems = await r.json();
+        sel.innerHTML = '<option value="">-- Select System --</option>';
+        systems.forEach(function(s) {
+          var opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s.toUpperCase().replace('-', ' ');
+          if (selectedSystem && s === selectedSystem) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        sel.innerHTML = '<option value="">-- No systems available --</option>';
+      }
+    }
+    loadSystems();
+
+    async function loadTransmitters(system, selectedFile) {
+      var sel = document.getElementById('satip-transmitter');
+      sel.innerHTML = '<option value="">Loading...</option>';
+      sel.disabled = true;
+      if (!system) {
+        sel.innerHTML = '<option value="">-- Select System First --</option>';
+        return;
+      }
+      try {
+        var r = await api.get('/api/satip/transmitters?system=' + encodeURIComponent(system));
+        var data = await r.json();
+        sel.innerHTML = '<option value="">-- Select Transmitter --</option>';
+        data.forEach(function(t) {
+          var opt = document.createElement('option');
+          opt.value = t.file;
+          opt.textContent = t.name;
+          if (selectedFile && t.file === selectedFile) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.disabled = false;
+      } catch (err) {
+        sel.innerHTML = '<option value="">Failed to load transmitters</option>';
+      }
+    }
+
+    document.getElementById('satip-system').addEventListener('change', function() {
+      loadTransmitters(this.value);
+    });
+
     document.getElementById('create-hdhr-btn').addEventListener('click', async function() {
       var name = document.getElementById('hdhr-name').value.trim();
       var enabled = document.getElementById('hdhr-enabled').checked;
@@ -2831,7 +2890,7 @@
       var name = document.getElementById('satip-name').value.trim();
       var host = document.getElementById('satip-host').value.trim();
       var port = parseInt(document.getElementById('satip-port').value) || 8875;
-      var transmitter = document.getElementById('satip-transmitter').value.trim();
+      var transmitter = document.getElementById('satip-transmitter').value;
       var maxStreams = parseInt(document.getElementById('satip-maxstreams').value) || 0;
       var enabled = document.getElementById('satip-enabled').checked;
       if (!name || !host) { toast('Name and host required', 'error'); return; }
@@ -3382,7 +3441,13 @@
             document.getElementById('satip-name').value = name || '';
             document.getElementById('satip-host').value = config.host || '';
             document.getElementById('satip-port').value = config.http_port || '8875';
-            document.getElementById('satip-transmitter').value = config.transmitter_file || '';
+            var txFile = config.transmitter_file || '';
+            if (txFile && txFile.indexOf('/') !== -1) {
+              var sysVal = txFile.substring(0, txFile.indexOf('/'));
+              loadSystems(sysVal).then(function() { loadTransmitters(sysVal, txFile); });
+            } else {
+              loadSystems();
+            }
             document.getElementById('satip-maxstreams').value = config.max_streams || '0';
             document.getElementById('satip-enabled').checked = entry.is_enabled;
             setFormTitle('add-satip-form', 'Edit SAT>IP Source');
@@ -5978,17 +6043,15 @@
           var heightStr = p.output_height && p.output_height > 0 ? p.output_height + 'p' : 'Source';
 
           var actions = '';
+          actions += '<button class="btn btn-sm btn-ghost client-edit-btn" data-id="' + esc(p.id) + '" title="Edit">' + icons.edit + '</button>';
           if (!p.is_system) {
-            actions += '<button class="btn btn-sm btn-ghost client-edit-btn" data-id="' + esc(p.id) + '" title="Edit">' + icons.edit + '</button>';
-          }
-          if (!p.is_system && !p.is_client) {
             actions += '<button class="btn btn-sm btn-icon btn-danger client-del-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '" title="Delete">' + icons.trash + '</button>';
           }
 
           var matchStr = '';
           if (p.match_rules && p.match_rules.length > 0) {
             matchStr = '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">' +
-              p.match_rules.map(function(r) { return esc(r.header + ': ' + r.pattern); }).join(', ') + '</div>';
+              p.match_rules.map(function(r) { return esc(r.header_name + ' ' + r.match_type + ' ' + r.match_value); }).join(', ') + '</div>';
           }
 
           html += '<tr>' +
@@ -6086,15 +6149,9 @@
         '<option value="480"' + (p.output_height === 480 ? ' selected' : '') + '>480p</option>' +
         '</select></div>';
 
-      if (p.match_rules && p.match_rules.length > 0) {
-        html += '<div class="form-group"><label class="form-label">Match Rules</label>' +
-          '<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:12px;font-family:monospace;color:var(--text-dim)">';
-        for (var mi = 0; mi < p.match_rules.length; mi++) {
-          var rule = p.match_rules[mi];
-          html += esc(rule.header) + ': ' + esc(rule.pattern) + '<br>';
-        }
-        html += '</div></div>';
-      }
+      html += '<div class="form-group"><label class="form-label">Match Rules (all must match)</label>' +
+          '<div id="cp-rules-container"></div>' +
+          '<button class="btn btn-sm" id="cp-add-rule" type="button">+ Add Rule</button></div>';
 
       html += '</div>' +
         '<div class="modal-footer">' +
@@ -6104,6 +6161,77 @@
 
       document.body.insertAdjacentHTML('beforeend', html);
 
+      var rules = (p.match_rules && p.match_rules.length > 0)
+        ? p.match_rules.map(function(r) { return { header_name: r.header_name || '', match_type: r.match_type || 'contains', match_value: r.match_value || '' }; })
+        : [{ header_name: '', match_type: 'contains', match_value: '' }];
+      var rulesContainer = document.getElementById('cp-rules-container');
+
+      function renderRuleRows() {
+        rulesContainer.innerHTML = '';
+        for (var ri = 0; ri < rules.length; ri++) {
+          (function(idx) {
+            var rule = rules[idx];
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+
+            var headerInp = document.createElement('input');
+            headerInp.className = 'form-input';
+            headerInp.type = 'text';
+            headerInp.placeholder = 'User-Agent';
+            headerInp.value = rule.header_name;
+            headerInp.style.cssText = 'flex:1;min-width:120px';
+            headerInp.addEventListener('input', function() { rules[idx].header_name = headerInp.value; });
+
+            var typeSelect = document.createElement('select');
+            typeSelect.className = 'form-input';
+            typeSelect.style.width = '120px';
+            var matchTypes = ['contains', 'equals', 'prefix', 'exists', 'regex'];
+            for (var ti = 0; ti < matchTypes.length; ti++) {
+              var opt = document.createElement('option');
+              opt.value = matchTypes[ti];
+              opt.textContent = matchTypes[ti];
+              if (rule.match_type === matchTypes[ti]) opt.selected = true;
+              typeSelect.appendChild(opt);
+            }
+
+            var valueInp = document.createElement('input');
+            valueInp.className = 'form-input';
+            valueInp.type = 'text';
+            valueInp.placeholder = 'Match value';
+            valueInp.value = rule.match_value;
+            valueInp.style.cssText = 'flex:1;min-width:120px';
+            if (rule.match_type === 'exists') valueInp.style.display = 'none';
+            valueInp.addEventListener('input', function() { rules[idx].match_value = valueInp.value; });
+
+            typeSelect.addEventListener('change', function() {
+              rules[idx].match_type = typeSelect.value;
+              valueInp.style.display = typeSelect.value === 'exists' ? 'none' : '';
+            });
+
+            var removeBtn = document.createElement('button');
+            removeBtn.className = 'btn btn-sm btn-danger';
+            removeBtn.textContent = '\u2715';
+            removeBtn.addEventListener('click', function() {
+              rules.splice(idx, 1);
+              if (rules.length === 0) rules.push({ header_name: '', match_type: 'contains', match_value: '' });
+              renderRuleRows();
+            });
+
+            row.appendChild(headerInp);
+            row.appendChild(typeSelect);
+            row.appendChild(valueInp);
+            row.appendChild(removeBtn);
+            rulesContainer.appendChild(row);
+          })(ri);
+        }
+      }
+      renderRuleRows();
+
+      document.getElementById('cp-add-rule').addEventListener('click', function() {
+        rules.push({ header_name: '', match_type: 'contains', match_value: '' });
+        renderRuleRows();
+      });
+
       document.getElementById('cp-cancel').addEventListener('click', function() {
         document.getElementById('client-modal').remove();
       });
@@ -6111,13 +6239,17 @@
         if (e.target === this) this.remove();
       });
       document.getElementById('cp-save').addEventListener('click', async function() {
+        var matchRules = rules.map(function(r) {
+          return { header_name: r.header_name, match_type: r.match_type, match_value: r.match_type === 'exists' ? '' : r.match_value };
+        });
         var payload = {
           name: document.getElementById('cp-name').value.trim(),
           delivery: document.getElementById('cp-delivery').value,
           video_codec: document.getElementById('cp-video').value,
           audio_codec: document.getElementById('cp-audio').value,
           container: document.getElementById('cp-container').value,
-          output_height: parseInt(document.getElementById('cp-height').value) || 0
+          output_height: parseInt(document.getElementById('cp-height').value) || 0,
+          match_rules: matchRules
         };
         if (!payload.name) { toast('Name required', 'error'); return; }
         try {

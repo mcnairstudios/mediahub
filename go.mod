@@ -14,6 +14,7 @@ require (
 
 require (
 	github.com/asticode/go-astikit v0.42.0 // indirect
+	github.com/asticode/go-astits v1.15.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

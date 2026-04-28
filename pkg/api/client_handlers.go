@@ -95,7 +95,7 @@ func (s *Server) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 	if req.IsEnabled != nil {
 		existing.IsEnabled = *req.IsEnabled
 	}
-	if req.MatchRules != nil && !existing.IsSystem {
+	if req.MatchRules != nil {
 		existing.MatchRules = *req.MatchRules
 	}
 	if req.Profile != nil {
