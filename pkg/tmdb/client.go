@@ -9,16 +9,26 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 )
+
+type SyncStatus struct {
+	Syncing   bool `json:"syncing"`
+	Total     int  `json:"total"`
+	Completed int  `json:"completed"`
+}
 
 type Client struct {
 	httpClient *http.Client
 	apiKeyFn   func() string
 	cache      *tmdbcache.Cache
 	mu         sync.Mutex
+	syncing    atomic.Bool
+	syncTotal  atomic.Int64
+	syncDone   atomic.Int64
 }
 
 func NewClient(apiKeyFn func() string, cache *tmdbcache.Cache) *Client {
@@ -382,16 +392,30 @@ func (c *Client) SyncStream(streamName, mediaType, tmdbIDStr string) {
 }
 
 func (c *Client) SyncBatch(items []SyncItem) {
-	if c.apiKey() == "" {
+	if c.apiKey() == "" || c.syncing.Load() {
 		return
 	}
 
+	c.syncTotal.Store(int64(len(items)))
+	c.syncDone.Store(0)
+	c.syncing.Store(true)
+
 	go func() {
+		defer c.syncing.Store(false)
 		for _, item := range items {
 			c.SyncStream(item.Name, item.MediaType, item.TMDBID)
+			c.syncDone.Add(1)
 			time.Sleep(250 * time.Millisecond)
 		}
 	}()
+}
+
+func (c *Client) Status() SyncStatus {
+	return SyncStatus{
+		Syncing:   c.syncing.Load(),
+		Total:     int(c.syncTotal.Load()),
+		Completed: int(c.syncDone.Load()),
+	}
 }
 
 type SyncItem struct {

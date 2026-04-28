@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
@@ -60,15 +61,41 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 	out := strategy.Output{
 		VideoCodec: "copy",
-		AudioCodec: "copy",
+		AudioCodec: "aac",
 		Container:  "mp4",
 	}
 
+	var detectedClient *client.Client
 	if deps.Detector != nil {
-		detected := deps.Detector.Detect(port, headers)
-		if detected != nil {
-			out.VideoCodec = detected.Name
-			out.AudioCodec = detected.Name
+		detectedClient = deps.Detector.Detect(port, headers)
+		if detectedClient != nil {
+			p := detectedClient.Profile
+			if p.VideoCodec != "" {
+				out.VideoCodec = p.VideoCodec
+			}
+			if p.AudioCodec != "" {
+				out.AudioCodec = p.AudioCodec
+			}
+			if p.Container != "" {
+				out.Container = p.Container
+			}
+			if p.HWAccel != "" {
+				out.HWAccel = p.HWAccel
+			}
+			if p.OutputHeight > 0 {
+				out.OutputHeight = p.OutputHeight
+			}
+		}
+	}
+
+	if deps.SettingsStore != nil {
+		if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" && out.HWAccel == "" {
+			out.HWAccel = hw
+		}
+		if mbd, err := deps.SettingsStore.Get(ctx, "default_max_bit_depth"); err == nil && mbd != "" {
+			if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
+				out.MaxBitDepth = v
+			}
 		}
 	}
 
@@ -124,6 +151,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	result.ProbeInfo = info
 
 	delivery := resolveDelivery(ctx, deps)
+	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
+		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+	}
 	sess.Delivery = string(delivery)
 
 	pluginCfg := output.PluginConfig{

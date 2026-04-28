@@ -3,6 +3,8 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
@@ -23,6 +25,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
+	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 )
 
 type OrchestratorDeps struct {
@@ -47,6 +50,7 @@ type OrchestratorDeps struct {
 	LogoCache         *logocache.Cache
 	Activity          *activity.Service
 	TMDBClient        *tmdb.Client
+	TMDBCache         *tmdbcache.Cache
 	TMDBImages        *tmdb.ImageCache
 	Config            *config.Config
 	StaticFS          fs.FS
@@ -55,10 +59,16 @@ type OrchestratorDeps struct {
 	BypassSecret      string
 }
 
+type vodCacheEntry struct {
+	data      any
+	createdAt time.Time
+}
+
 type Server struct {
 	mux        *http.ServeMux
 	middleware *middleware.AuthMiddleware
 	deps       OrchestratorDeps
+	vodCache   sync.Map
 }
 
 func NewServer(deps OrchestratorDeps) *Server {

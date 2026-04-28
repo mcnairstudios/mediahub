@@ -41,7 +41,7 @@ func Resolve(in Input, out Output) Decision {
 
 	needsTranscode := false
 
-	isDefaultOrCopy := outVideo == media.VideoCopy || outVideo == "default"
+	isDefaultOrCopy := outVideo == media.VideoCopy || outVideo == "" || outVideo == "default"
 
 	if in.Interlaced {
 		d.Deinterlace = true
@@ -77,13 +77,12 @@ func Resolve(in Input, out Output) Decision {
 
 	if outAudio == media.AudioCopy {
 		d.AudioCodec = media.AudioCopy
+	} else if outAudio == "" || outAudio == "default" {
+		d.NeedsAudioTranscode = true
+		d.AudioCodec = media.AudioAAC
 	} else {
 		d.NeedsAudioTranscode = true
-		if outAudio == "" || outAudio == "default" {
-			d.AudioCodec = media.AudioAAC
-		} else {
-			d.AudioCodec = outAudio
-		}
+		d.AudioCodec = outAudio
 	}
 
 	return d

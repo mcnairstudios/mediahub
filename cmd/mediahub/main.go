@@ -113,7 +113,7 @@ func main() {
 		BypassSecret: cfg.BypassSecret,
 	})
 
-	tmdbCache := tmdbcache.New()
+	tmdbCache := tmdbcache.NewPersistent(filepath.Join(cfg.DataDir, "tmdb_cache"))
 
 	sourceReg := source.NewRegistry()
 	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -391,6 +391,7 @@ func main() {
 		LogoCache:         logoCache,
 		Activity:          activityService,
 		TMDBClient:        tmdbClient,
+		TMDBCache:         tmdbCache,
 		TMDBImages:        tmdbImages,
 		Config:            cfg,
 		StaticFS:          staticFS,
