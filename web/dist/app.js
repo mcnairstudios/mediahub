@@ -48,9 +48,41 @@
     return d.innerHTML;
   }
 
+  function decodeJWT(token) {
+    if (!token) return null;
+    try {
+      var parts = token.split('.');
+      if (parts.length !== 3) return null;
+      var payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (payload.length % 4) payload += '=';
+      var json = atob(payload);
+      return JSON.parse(json);
+    } catch (e) { return null; }
+  }
+
+  function userFromToken(token) {
+    var claims = decodeJWT(token);
+    if (!claims) return null;
+    return {
+      username: claims.username || '',
+      role: claims.role || 'standard',
+      is_admin: claims.role === 'admin',
+      user_id: claims.user_id || ''
+    };
+  }
+
   var api = {
     get token() { return localStorage.getItem(TOKEN_KEY); },
-    set token(v) { if (v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY); },
+    set token(v) {
+      if (v) {
+        localStorage.setItem(TOKEN_KEY, v);
+        var u = userFromToken(v);
+        if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
+      } else {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+      }
+    },
 
     get user() {
       try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch (e) { return null; }
@@ -380,7 +412,6 @@
         }
         var result = await resp.json();
         api.token = result.access_token;
-        api.user = { username: user, is_admin: true };
         router.navigate('dashboard');
       } catch (err) {
         errEl.textContent = 'Connection failed';
@@ -1241,7 +1272,10 @@
       var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '-';
       var streamCount = c.stream_ids ? c.stream_ids.length : 0;
       var status = c.is_enabled !== false ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
-      var actions = '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_ids && c.stream_ids.length ? c.stream_ids[0] : c.id) + '" data-name="' + esc(c.name) + '">' + icons.play + '</button>';
+      var actions = '';
+      if (c.stream_ids && c.stream_ids.length > 0) {
+        actions += '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_ids[0]) + '" data-name="' + esc(c.name) + '">' + icons.play + '</button>';
+      }
       if (isAdmin) {
         actions += '<button class="btn btn-sm btn-ghost ch-edit-btn" data-id="' + esc(c.id) + '" title="Edit">' + icons.edit + '</button>' +
           '<button class="btn btn-sm btn-danger ch-delete-btn" data-id="' + esc(c.id) + '" data-name="' + esc(c.name) + '" title="Delete">' + icons.trash + '</button>';

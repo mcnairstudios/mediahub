@@ -13,7 +13,7 @@ func newTestEnvWithWG(t *testing.T) *testEnv {
 	t.Helper()
 	env := newTestEnv(t)
 	settingsStore := store.NewMemorySettingsStore()
-	env.server.deps.WGService = wg.NewService(settingsStore)
+	env.server.deps.WGService = wg.NewService(settingsStore, wg.PluginConfig{})
 	return env
 }
 

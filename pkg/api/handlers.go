@@ -123,13 +123,40 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusOK, channels)
 }
 
+var apiSettableKeys = map[string]bool{
+	"base_url":               true,
+	"default_hwaccel":        true,
+	"default_video_codec":    true,
+	"default_decode_hwaccel": true,
+	"encoder_h264":           true,
+	"encoder_h265":           true,
+	"encoder_av1":            true,
+	"decoder_h264":           true,
+	"decoder_h265":           true,
+	"decoder_av1":            true,
+	"decoder_mpeg2":          true,
+	"delivery":               true,
+	"dlna_enabled":           true,
+	"debug_enabled":          true,
+	"tmdb_api_key":           true,
+	"max_bit_depth":          true,
+	"default_max_bit_depth":  true,
+	"epg_channel_meta":       true,
+}
+
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	settings, err := s.deps.SettingsStore.List(r.Context())
+	all, err := s.deps.SettingsStore.List(r.Context())
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to get settings")
 		return
 	}
-	httputil.RespondJSON(w, http.StatusOK, settings)
+	filtered := make(map[string]string, len(apiSettableKeys))
+	for k, v := range all {
+		if apiSettableKeys[k] {
+			filtered[k] = v
+		}
+	}
+	httputil.RespondJSON(w, http.StatusOK, filtered)
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +167,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for key, value := range settings {
+		if !apiSettableKeys[key] {
+			httputil.RespondError(w, http.StatusBadRequest, "unknown setting: "+key)
+			return
+		}
 		if err := s.deps.SettingsStore.Set(r.Context(), key, value); err != nil {
 			httputil.RespondError(w, http.StatusInternalServerError, "failed to update settings")
 			return

@@ -245,38 +245,22 @@ func TestOutputEPGExcludesDisabledChannels(t *testing.T) {
 	}
 }
 
-func TestChannelStreamRedirect(t *testing.T) {
+func TestChannelStreamDisabled(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.close()
 
 	ctx := context.Background()
 	env.server.deps.ChannelStore.Create(ctx, &channel.Channel{
-		ID:        "ch1",
-		Name:      "BBC One",
+		ID:        "ch-disabled",
+		Name:      "Disabled Channel",
 		Number:    1,
-		IsEnabled: true,
+		IsEnabled: false,
 		StreamIDs: []string{"stream-1"},
 	})
 
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	req, _ := http.NewRequest("GET", env.httpServer.URL+"/channel/ch1", nil)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusFound {
-		t.Fatalf("expected 302, got %d", resp.StatusCode)
-	}
-
-	location := resp.Header.Get("Location")
-	if location != "http://example.com/bbc1" {
-		t.Errorf("Location = %q, want %q", location, "http://example.com/bbc1")
+	resp := env.request("GET", "/channel/ch-disabled", nil, "")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for disabled channel, got %d", resp.StatusCode)
 	}
 }
 

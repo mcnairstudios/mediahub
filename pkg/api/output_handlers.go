@@ -1,11 +1,16 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
+	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 )
 
 func (s *Server) handleOutputM3U(w http.ResponseWriter, r *http.Request) {
@@ -184,18 +189,93 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !ch.IsEnabled {
+		httputil.RespondError(w, http.StatusForbidden, "channel is disabled")
+		return
+	}
+
 	if len(ch.StreamIDs) == 0 {
 		httputil.RespondError(w, http.StatusNotFound, "channel has no streams")
 		return
 	}
 
-	stream, err := s.deps.StreamStore.Get(r.Context(), ch.StreamIDs[0])
-	if err != nil || stream == nil {
-		httputil.RespondError(w, http.StatusNotFound, "stream not found")
+	streamID := ch.StreamIDs[0]
+
+	headers := make(map[string]string)
+	for key := range r.Header {
+		headers[key] = r.Header.Get(key)
+	}
+
+	deps := orchestrator.PlaybackDeps{
+		StreamStore:       s.deps.StreamStore,
+		SettingsStore:     s.deps.SettingsStore,
+		SourceConfigStore: s.deps.SourceConfigStore,
+		ConnRegistry:      s.deps.ConnRegistry,
+		SessionMgr:        s.deps.SessionMgr,
+		Detector:          s.deps.Detector,
+		OutputReg:         s.deps.OutputReg,
+		Strategy:          s.deps.Strategy,
+		UserAgent:         s.deps.UserAgent,
+	}
+
+	result, err := orchestrator.StartPlayback(r.Context(), deps, streamID, 0, headers)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	http.Redirect(w, r, stream.URL, http.StatusFound)
+	outputPath := filepath.Join(result.Session.OutputDir, "source.ts")
+
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	tailFile(r.Context(), w, outputPath)
+}
+
+func tailFile(ctx context.Context, w http.ResponseWriter, path string) {
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		var offset int64
+		for {
+			select {
+			case <-ctx.Done():
+				f.Close()
+				return
+			default:
+			}
+
+			n, err := f.ReadAt(buf, offset)
+			if n > 0 {
+				if _, wErr := w.Write(buf[:n]); wErr != nil {
+					f.Close()
+					return
+				}
+				offset += int64(n)
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			if err != nil {
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}
 }
 
 func xmlEscape(s string) string {
