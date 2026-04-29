@@ -15,7 +15,8 @@ var (
 	bucketUsers        = []byte("users")
 	bucketSourceConfigs = []byte("source_configs")
 	bucketFavorites    = []byte("favorites")
-	bucketClients      = []byte("clients")
+	bucketClients        = []byte("clients")
+	bucketSourceProfiles = []byte("source_profiles")
 )
 
 type DB struct {
@@ -32,6 +33,7 @@ func Open(path string) (*DB, error) {
 		bucketStreams, bucketSettings, bucketChannels, bucketGroups,
 		bucketEPGSources, bucketEPGPrograms, bucketRecordings, bucketUsers,
 		bucketSourceConfigs, bucketFavorites, bucketClients,
+		bucketSourceProfiles,
 	}
 
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -96,4 +98,8 @@ func (d *DB) FavoriteStore() *FavoriteStore {
 
 func (d *DB) ClientStore() *ClientStore {
 	return &ClientStore{db: d.db}
+}
+
+func (d *DB) SourceProfileStore() *SourceProfileStore {
+	return &SourceProfileStore{db: d.db}
 }

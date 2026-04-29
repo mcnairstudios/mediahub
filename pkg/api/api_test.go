@@ -36,11 +36,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	authService := auth.NewJWTService(userStore, "test-secret-key-for-api-tests")
 
 	ctx := context.Background()
-	_, err := authService.CreateUser(ctx, "admin", "adminpass", auth.RoleAdmin)
+	_, err := authService.CreateUser(ctx, "admin", "adminpass", "", auth.RoleAdmin)
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
-	_, err = authService.CreateUser(ctx, "viewer", "viewerpass", auth.RoleStandard)
+	_, err = authService.CreateUser(ctx, "viewer", "viewerpass", "", auth.RoleStandard)
 	if err != nil {
 		t.Fatalf("create viewer: %v", err)
 	}

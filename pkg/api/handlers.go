@@ -142,6 +142,8 @@ var apiSettableKeys = map[string]bool{
 	"max_bit_depth":          true,
 	"default_max_bit_depth":  true,
 	"epg_channel_meta":       true,
+	"google_client_id":       true,
+	"google_client_secret":   true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -501,6 +503,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string    `json:"username"`
 		Password string    `json:"password"`
+		Email    string    `json:"email"`
 		Role     auth.Role `json:"role"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
@@ -515,7 +518,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		req.Role = auth.RoleStandard
 	}
 
-	user, err := s.deps.AuthService.CreateUser(r.Context(), req.Username, req.Password, req.Role)
+	user, err := s.deps.AuthService.CreateUser(r.Context(), req.Username, req.Password, req.Email, req.Role)
 	if err != nil {
 		httputil.RespondError(w, http.StatusConflict, err.Error())
 		return

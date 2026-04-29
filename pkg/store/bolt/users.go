@@ -3,6 +3,7 @@ package bolt
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	bbolt "go.etcd.io/bbolt"
@@ -49,6 +50,34 @@ func (s *UserStore) GetByUsername(_ context.Context, username string) (*auth.Use
 				return err
 			}
 			if su.User.Username == username {
+				u := su.User
+				user = &u
+			}
+			return nil
+		})
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, auth.ErrUserNotFound
+	}
+	return user, nil
+}
+
+func (s *UserStore) GetByEmail(_ context.Context, email string) (*auth.User, error) {
+	var user *auth.User
+
+	lower := strings.ToLower(email)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		return b.ForEach(func(_, v []byte) error {
+			var su boltStoredUser
+			if err := json.Unmarshal(v, &su); err != nil {
+				return err
+			}
+			if strings.ToLower(su.User.Email) == lower {
 				u := su.User
 				user = &u
 			}

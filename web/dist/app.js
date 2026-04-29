@@ -385,7 +385,14 @@
       '<div class="form-group"><label class="form-label">Password</label>' +
       '<input class="form-input" id="login-pass" type="password" placeholder="password" autocomplete="current-password"></div>' +
       '<button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" type="submit">Sign In</button>' +
-      '</form></div></div>';
+      '</form>' +
+      '<div id="google-oauth-section" style="display:none">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin:20px 0"><div style="flex:1;height:1px;background:var(--border)"></div><span style="color:var(--text-muted);font-size:13px">or</span><div style="flex:1;height:1px;background:var(--border)"></div></div>' +
+      '<button id="google-signin-btn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;color:#3c4043;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.15s,box-shadow 0.15s">' +
+      '<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 010-9.18l-7.98-6.19a24.08 24.08 0 000 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>' +
+      'Sign in with Google</button>' +
+      '</div>' +
+      '</div></div>';
   }
 
   function bindLogin() {
@@ -418,6 +425,21 @@
         errEl.style.display = 'block';
       }
     });
+
+    fetch('/api/auth/google').then(function(resp) {
+      if (!resp.ok) return;
+      return resp.json();
+    }).then(function(data) {
+      if (!data || !data.url) return;
+      var section = document.getElementById('google-oauth-section');
+      if (section) section.style.display = 'block';
+      var btn = document.getElementById('google-signin-btn');
+      if (btn) {
+        btn.addEventListener('mouseenter', function() { btn.style.background = '#f8f9fa'; btn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)'; });
+        btn.addEventListener('mouseleave', function() { btn.style.background = '#fff'; btn.style.boxShadow = 'none'; });
+        btn.addEventListener('click', function() { window.location.href = data.url; });
+      }
+    }).catch(function() {});
   }
 
   async function renderDashboard(el) {
@@ -3885,6 +3907,25 @@
       '</div>' +
       '</div></div>';
 
+    var baseUrl = getSetting(settings, 'base_url') || window.location.origin;
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Google OAuth</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-section-desc">Allow users with an email on their account to sign in with Google. <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Create OAuth credentials</a></div>' +
+      '<div class="settings-field">' +
+        '<label>Client ID</label>' +
+        '<input type="text" id="setting-google-client-id" value="' + esc(getSetting(settings, 'google_client_id')) + '" placeholder="xxxx.apps.googleusercontent.com">' +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>Client Secret</label>' +
+        '<input type="password" id="setting-google-client-secret" value="' + esc(getSetting(settings, 'google_client_secret')) + '" placeholder="GOCSPX-...">' +
+      '</div>' +
+      '<div style="margin-top:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:13px">' +
+        '<div style="color:var(--text-muted);margin-bottom:4px">Redirect URI (add this in Google Console)</div>' +
+        '<code style="color:var(--accent);word-break:break-all">' + esc(baseUrl) + '/api/auth/google/callback</code>' +
+      '</div>' +
+      '</div></div>';
+
     container.innerHTML = html;
 
     if (caps && caps.video_encoders) {
@@ -3910,6 +3951,8 @@
     bindTextSave(container, 'setting-user-agent', 'user_agent');
     bindToggle(container, 'setting-dlna', 'dlna_enabled');
     bindTextSave(container, 'setting-tmdb-key', 'tmdb_api_key');
+    bindTextSave(container, 'setting-google-client-id', 'google_client_id');
+    bindTextSave(container, 'setting-google-client-secret', 'google_client_secret');
   }
 
   async function renderUsers(el) {
@@ -3921,6 +3964,7 @@
       '<div class="card-title">New User</div>' +
       '<div class="form-group"><label class="form-label">Username</label><input class="form-input" id="new-username" placeholder="username"></div>' +
       '<div class="form-group"><label class="form-label">Password</label><input class="form-input" id="new-password" type="password" placeholder="password"></div>' +
+      '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="new-email" type="email" placeholder="user@example.com (optional, for Google SSO)"></div>' +
       '<div class="form-group"><label class="form-label">Role</label>' +
       '<select class="form-input" id="new-role"><option value="standard">Standard</option><option value="admin">Admin</option><option value="jellyfin">Jellyfin</option></select></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-user-btn">Create</button>' +
@@ -3934,10 +3978,13 @@
     document.getElementById('create-user-btn').addEventListener('click', async function() {
       var un = document.getElementById('new-username').value.trim();
       var pw = document.getElementById('new-password').value;
+      var em = document.getElementById('new-email').value.trim();
       var role = document.getElementById('new-role').value;
       if (!un || !pw) { toast('Username and password required', 'error'); return; }
+      var createBody = { username: un, password: pw, role: role };
+      if (em) createBody.email = em;
       try {
-        var r = await api.post('/api/users', { username: un, password: pw, role: role });
+        var r = await api.post('/api/users', createBody);
         if (r.ok) {
           toast('User created');
           formEl.style.display = 'none';
@@ -3970,11 +4017,12 @@
 
       function renderUserTable() {
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Username</th><th>Role</th><th>Actions</th>' +
+          '<th>Username</th><th>Email</th><th>Role</th><th>Actions</th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < users.length; i++) {
           var u = users[i];
           var username = u.Username || u.username;
+          var email = u.Email || u.email || '';
           var role = u.Role || u.role || 'standard';
           var uid = u.ID || u.id;
           var isMe = currentUser && currentUser.username === username;
@@ -3987,6 +4035,7 @@
             '<div>' + esc(username) +
             (isMe ? ' <span class="badge badge-you">You</span>' : '') +
             '</div></div></td>' +
+            '<td>' + (email ? '<span style="color:var(--text-secondary);font-size:13px">' + esc(email) + '</span>' : '<span style="color:var(--text-muted);font-size:13px">-</span>') + '</td>' +
             '<td><div class="user-role-cell" data-uid="' + esc(uid) + '">' +
             '<span class="badge ' + roleClass + '" id="role-badge-' + esc(uid) + '">' + esc(role) + '</span>' +
             '<select class="user-role-select" id="role-select-' + esc(uid) + '" data-uid="' + esc(uid) + '" style="display:none">' +
@@ -3996,6 +4045,7 @@
             '</select></div></td>' +
             '<td><div class="actions-cell">' +
             '<button class="btn btn-sm btn-ghost user-edit-role-btn" data-uid="' + esc(uid) + '" title="Change role">' + icons.edit + '</button>' +
+            '<button class="btn btn-sm btn-ghost user-email-btn" data-uid="' + esc(uid) + '" data-email="' + esc(email) + '" data-username="' + esc(username) + '" title="Edit email">' + icons.edit + '</button>' +
             '<button class="btn btn-sm btn-ghost user-pw-btn" data-uid="' + esc(uid) + '" data-username="' + esc(username) + '" title="Change password">' + icons.key + '</button>' +
             (!isMe ? '<button class="btn btn-sm btn-icon btn-danger user-del-btn" data-uid="' + esc(uid) + '" data-username="' + esc(username) + '" title="Delete user">' + icons.trash + '</button>' : '') +
             '</div></td></tr>';
@@ -4046,6 +4096,15 @@
               sel.style.display = 'none';
               badge.style.display = '';
             }
+          });
+        });
+
+        container.querySelectorAll('.user-email-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var uid = this.getAttribute('data-uid');
+            var username = this.getAttribute('data-username');
+            var currentEmail = this.getAttribute('data-email') || '';
+            showEmailModal(uid, username, currentEmail);
           });
         });
 
@@ -4120,6 +4179,49 @@
             }
           } catch (err) {
             toast('Failed to change password', 'error');
+          }
+        });
+      }
+
+      function showEmailModal(uid, username, currentEmail) {
+        var existing = document.getElementById('email-modal');
+        if (existing) existing.remove();
+
+        var html = '<div class="modal-overlay" id="email-modal">' +
+          '<div class="modal-content">' +
+          '<div class="modal-header">Edit Email - ' + esc(username) + '</div>' +
+          '<div class="modal-body">' +
+          '<div class="form-group"><label class="form-label">Email</label>' +
+          '<input class="form-input" id="email-input" type="email" value="' + esc(currentEmail) + '" placeholder="user@example.com (optional, for Google SSO)"></div>' +
+          '</div>' +
+          '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" id="email-cancel">Cancel</button>' +
+          '<button class="btn btn-primary" id="email-save">Save</button>' +
+          '</div></div></div>';
+
+        document.body.insertAdjacentHTML('beforeend', html);
+        document.getElementById('email-input').focus();
+
+        document.getElementById('email-cancel').addEventListener('click', function() {
+          document.getElementById('email-modal').remove();
+        });
+        document.getElementById('email-modal').addEventListener('click', function(e) {
+          if (e.target === this) this.remove();
+        });
+        document.getElementById('email-save').addEventListener('click', async function() {
+          var newEmail = document.getElementById('email-input').value.trim();
+          try {
+            var r = await api.put('/api/users/' + uid, { email: newEmail });
+            if (r.ok) {
+              toast('Email updated');
+              document.getElementById('email-modal').remove();
+              renderUsers(el);
+            } else {
+              var data = await r.json().catch(function() { return {}; });
+              toast(data.error || 'Failed to update email', 'error');
+            }
+          } catch (err) {
+            toast('Failed to update email', 'error');
           }
         });
       }
@@ -6436,6 +6538,36 @@
   };
 
   router.init();
+
+  (function handleOAuthCallback() {
+    var hash = location.hash || '';
+    var match = hash.match(/[?&]token=([^&]+)/);
+    if (match) {
+      var token = decodeURIComponent(match[1]);
+      var refreshMatch = hash.match(/[?&]refresh=([^&]+)/);
+      api.token = token;
+      if (refreshMatch) {
+        try { localStorage.setItem('mediahub_refresh', decodeURIComponent(refreshMatch[1])); } catch (e) {}
+      }
+      history.replaceState(null, '', '#/dashboard');
+      router.current = 'dashboard';
+      router.params = {};
+    } else {
+      var errorMatch = hash.match(/[?&]error=([^&]+)/);
+      if (errorMatch) {
+        var errorCode = decodeURIComponent(errorMatch[1]);
+        if (errorCode === 'no_account') {
+          setTimeout(function() { toast('No account with this email. Ask an admin to add your email.', 'error'); }, 200);
+        } else {
+          setTimeout(function() { toast('Sign in failed: ' + errorCode, 'error'); }, 200);
+        }
+        history.replaceState(null, '', '#/login');
+        router.current = 'login';
+        router.params = {};
+      }
+    }
+  })();
+
   render();
 
   if (typeof module !== 'undefined' && module.exports) {

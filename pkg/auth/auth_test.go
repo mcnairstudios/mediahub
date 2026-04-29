@@ -43,11 +43,11 @@ type mockService struct{}
 func (m *mockService) Login(_ context.Context, _, _ string) (string, error)        { return "", nil }
 func (m *mockService) ValidateToken(_ context.Context, _ string) (*User, error)    { return nil, nil }
 func (m *mockService) RefreshToken(_ context.Context, _ string) (string, error)    { return "", nil }
-func (m *mockService) CreateUser(_ context.Context, _, _ string, _ Role) (*User, error) {
+func (m *mockService) CreateUser(_ context.Context, _, _, _ string, _ Role) (*User, error) {
 	return nil, nil
 }
-func (m *mockService) ListUsers(_ context.Context) ([]*User, error)                          { return nil, nil }
-func (m *mockService) UpdateUser(_ context.Context, _ string, _ string, _ Role) (*User, error) { return nil, nil }
+func (m *mockService) ListUsers(_ context.Context) ([]*User, error)                             { return nil, nil }
+func (m *mockService) UpdateUser(_ context.Context, _ string, _, _ string, _ Role) (*User, error) { return nil, nil }
 func (m *mockService) DeleteUser(_ context.Context, _ string) error                          { return nil }
 func (m *mockService) ChangePassword(_ context.Context, _, _ string) error                   { return nil }
 
@@ -59,6 +59,7 @@ type mockUserStore struct{}
 
 func (m *mockUserStore) Get(_ context.Context, _ string) (*User, error)            { return nil, nil }
 func (m *mockUserStore) GetByUsername(_ context.Context, _ string) (*User, error)   { return nil, nil }
+func (m *mockUserStore) GetByEmail(_ context.Context, _ string) (*User, error)     { return nil, nil }
 func (m *mockUserStore) List(_ context.Context) ([]*User, error)                   { return nil, nil }
 func (m *mockUserStore) Create(_ context.Context, _ *User) error             { return nil }
 func (m *mockUserStore) Update(_ context.Context, _ *User) error             { return nil }

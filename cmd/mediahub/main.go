@@ -38,6 +38,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
 	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
@@ -84,6 +85,7 @@ func main() {
 	sourceConfigStore := db.SourceConfigStore()
 	favoriteStore := db.FavoriteStore()
 	clientStore := db.ClientStore()
+	sourceProfileStore := db.SourceProfileStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
@@ -95,7 +97,7 @@ func main() {
 		log.Fatalf("listing users: %v", err)
 	}
 	if len(users) == 0 {
-		if _, err := authService.CreateUser(ctx, "admin", "admin", auth.RoleAdmin); err != nil {
+		if _, err := authService.CreateUser(ctx, "admin", "admin", "", auth.RoleAdmin); err != nil {
 			log.Fatalf("seeding admin user: %v", err)
 		}
 		log.Println("seeded default admin user (admin/admin)")
@@ -105,6 +107,10 @@ func main() {
 
 	if err := client.SeedDefaults(ctx, clientStore); err != nil {
 		log.Printf("warning: failed to seed default clients: %v", err)
+	}
+
+	if err := sourceprofile.SeedDefaults(ctx, sourceProfileStore); err != nil {
+		log.Printf("warning: failed to seed default source profiles: %v", err)
 	}
 
 	wgService := wg.NewService(settingsStore, wg.PluginConfig{
@@ -393,6 +399,7 @@ func main() {
 		TMDBClient:        tmdbClient,
 		TMDBCache:         tmdbCache,
 		TMDBImages:        tmdbImages,
+		SourceProfileStore: sourceProfileStore,
 		Config:            cfg,
 		StaticFS:          staticFS,
 		UserAgent:         cfg.UserAgent,

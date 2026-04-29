@@ -22,6 +22,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
+	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
@@ -52,6 +53,7 @@ type OrchestratorDeps struct {
 	TMDBClient        *tmdb.Client
 	TMDBCache         *tmdbcache.Cache
 	TMDBImages        *tmdb.ImageCache
+	SourceProfileStore sourceprofile.Store
 	Config            *config.Config
 	StaticFS          fs.FS
 	UserAgent         string

@@ -42,7 +42,7 @@ func (m *mockAuthService) RefreshToken(_ context.Context, token string) (string,
 	return token, nil
 }
 
-func (m *mockAuthService) CreateUser(_ context.Context, username, password string, role auth.Role) (*auth.User, error) {
+func (m *mockAuthService) CreateUser(_ context.Context, username, password, email string, role auth.Role) (*auth.User, error) {
 	return nil, nil
 }
 
@@ -50,7 +50,7 @@ func (m *mockAuthService) ListUsers(_ context.Context) ([]*auth.User, error) {
 	return m.users, nil
 }
 
-func (m *mockAuthService) UpdateUser(_ context.Context, id string, username string, role auth.Role) (*auth.User, error) {
+func (m *mockAuthService) UpdateUser(_ context.Context, id string, username, email string, role auth.Role) (*auth.User, error) {
 	return nil, nil
 }
 

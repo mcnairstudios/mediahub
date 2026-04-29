@@ -9,6 +9,8 @@ import (
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/auth/refresh", s.handleRefreshToken)
+	s.mux.HandleFunc("GET /api/auth/google", s.handleGoogleAuth)
+	s.mux.HandleFunc("GET /api/auth/google/callback", s.handleGoogleCallback)
 
 	s.mux.Handle("GET /api/streams", s.authenticated(s.handleListStreams))
 	s.mux.Handle("GET /api/channels", s.authenticated(s.handleListChannels))
@@ -116,6 +118,12 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/clients", s.adminOnly(s.handleCreateClient))
 	s.mux.Handle("PUT /api/clients/{id}", s.adminOnly(s.handleUpdateClient))
 	s.mux.Handle("DELETE /api/clients/{id}", s.adminOnly(s.handleDeleteClient))
+
+	s.mux.Handle("GET /api/source-profiles", s.authenticated(s.handleListSourceProfiles))
+	s.mux.Handle("GET /api/source-profiles/{id}", s.authenticated(s.handleGetSourceProfile))
+	s.mux.Handle("POST /api/source-profiles", s.adminOnly(s.handleCreateSourceProfile))
+	s.mux.Handle("PUT /api/source-profiles/{id}", s.adminOnly(s.handleUpdateSourceProfile))
+	s.mux.Handle("DELETE /api/source-profiles/{id}", s.adminOnly(s.handleDeleteSourceProfile))
 
 	s.mux.Handle("GET /api/capabilities", s.authenticated(s.handleCapabilities))
 	s.mux.Handle("GET /api/activity", s.adminOnly(s.handleListActivity))

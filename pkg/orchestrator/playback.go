@@ -12,6 +12,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
+	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
 )
@@ -19,16 +20,17 @@ import (
 type PipelineRunner func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error)
 
 type PlaybackDeps struct {
-	StreamStore       store.StreamStore
-	SettingsStore     store.SettingsStore
-	SourceConfigStore sourceconfig.Store
-	ConnRegistry      *connectivity.Registry
-	SessionMgr        *session.Manager
-	Detector          *client.Detector
-	OutputReg         *output.Registry
-	Strategy          func(strategy.Input, strategy.Output) strategy.Decision
-	UserAgent         string
-	PipelineRunner    PipelineRunner
+	StreamStore        store.StreamStore
+	SettingsStore      store.SettingsStore
+	SourceConfigStore  sourceconfig.Store
+	SourceProfileStore sourceprofile.Store
+	ConnRegistry       *connectivity.Registry
+	SessionMgr         *session.Manager
+	Detector           *client.Detector
+	OutputReg          *output.Registry
+	Strategy           func(strategy.Input, strategy.Output) strategy.Decision
+	UserAgent          string
+	PipelineRunner     PipelineRunner
 }
 
 type PlaybackResult struct {
@@ -128,11 +130,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 	}
 
-	runner := deps.PipelineRunner
-	if runner == nil {
-		runner = deps.SessionMgr.RunPipeline
-	}
-	pipelineResult, err := runner(sess, session.PipelineConfig{
+	pipeCfg := session.PipelineConfig{
 		StreamURL:           pipelineURL,
 		StreamID:            stream.ID,
 		UserAgent:           deps.UserAgent,
@@ -142,7 +140,15 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		OutputAudioCodec:    string(decision.AudioCodec),
 		HWAccel:             decision.HWAccel,
 		Deinterlace:         decision.Deinterlace,
-	})
+	}
+
+	applySourceProfile(ctx, deps, stream, &pipeCfg)
+
+	runner := deps.PipelineRunner
+	if runner == nil {
+		runner = deps.SessionMgr.RunPipeline
+	}
+	pipelineResult, err := runner(sess, pipeCfg)
 	if err != nil {
 		deps.SessionMgr.Stop(stream.ID)
 		return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
@@ -296,6 +302,37 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 
 func StopRecordingPlayback(deps PlaybackDeps, recordingID string) {
 	deps.SessionMgr.Stop("rec:" + recordingID)
+}
+
+func applySourceProfile(ctx context.Context, deps PlaybackDeps, stream *media.Stream, cfg *session.PipelineConfig) {
+	if deps.SourceProfileStore == nil || deps.SourceConfigStore == nil || stream.SourceID == "" {
+		return
+	}
+	sc, err := deps.SourceConfigStore.Get(ctx, stream.SourceID)
+	if err != nil || sc == nil {
+		return
+	}
+	profileID := sc.Config["source_profile_id"]
+	if profileID == "" {
+		return
+	}
+	profile, err := deps.SourceProfileStore.Get(ctx, profileID)
+	if err != nil || profile == nil {
+		return
+	}
+
+	if profile.Deinterlace {
+		cfg.Deinterlace = true
+	}
+	if profile.AudioLanguage != "" && cfg.AudioLanguage == "" {
+		cfg.AudioLanguage = profile.AudioLanguage
+	}
+	if profile.HTTPTimeoutSec > 0 && cfg.TimeoutSec == 0 {
+		cfg.TimeoutSec = profile.HTTPTimeoutSec
+	}
+	if profile.HTTPUserAgent != "" && cfg.UserAgent == "" {
+		cfg.UserAgent = profile.HTTPUserAgent
+	}
 }
 
 func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {

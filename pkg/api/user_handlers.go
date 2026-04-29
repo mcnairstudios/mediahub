@@ -18,6 +18,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Username string    `json:"username"`
+		Email    string    `json:"email"`
 		Role     auth.Role `json:"role"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
@@ -25,7 +26,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.deps.AuthService.UpdateUser(r.Context(), id, req.Username, req.Role)
+	user, err := s.deps.AuthService.UpdateUser(r.Context(), id, req.Username, req.Email, req.Role)
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			httputil.RespondError(w, http.StatusNotFound, "user not found")

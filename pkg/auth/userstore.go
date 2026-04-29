@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 )
 
@@ -48,6 +49,20 @@ func (s *MemoryUserStore) GetByUsername(_ context.Context, username string) (*Us
 
 	for _, su := range s.users {
 		if su.User.Username == username {
+			u := su.User
+			return &u, nil
+		}
+	}
+	return nil, ErrUserNotFound
+}
+
+func (s *MemoryUserStore) GetByEmail(_ context.Context, email string) (*User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	lower := strings.ToLower(email)
+	for _, su := range s.users {
+		if strings.ToLower(su.User.Email) == lower {
 			u := su.User
 			return &u, nil
 		}

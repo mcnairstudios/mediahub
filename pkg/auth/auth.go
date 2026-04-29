@@ -13,6 +13,7 @@ const (
 type User struct {
 	ID       string `json:"id"`
 	Username string `json:"username"`
+	Email    string `json:"email,omitempty"`
 	IsAdmin  bool   `json:"is_admin"`
 	Role     Role   `json:"role"`
 }
@@ -21,9 +22,9 @@ type Service interface {
 	Login(ctx context.Context, username, password string) (token string, err error)
 	ValidateToken(ctx context.Context, token string) (*User, error)
 	RefreshToken(ctx context.Context, token string) (newToken string, err error)
-	CreateUser(ctx context.Context, username, password string, role Role) (*User, error)
+	CreateUser(ctx context.Context, username, password, email string, role Role) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
-	UpdateUser(ctx context.Context, id string, username string, role Role) (*User, error)
+	UpdateUser(ctx context.Context, id string, username, email string, role Role) (*User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ChangePassword(ctx context.Context, id, newPassword string) error
 }
@@ -31,6 +32,7 @@ type Service interface {
 type UserStore interface {
 	Get(ctx context.Context, id string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
+	GetByEmail(ctx context.Context, email string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Create(ctx context.Context, user *User) error
 	Update(ctx context.Context, user *User) error

@@ -19,7 +19,7 @@ func TestJWT_CreateUserAndLogin(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	user, err := svc.CreateUser(ctx, "alice", "password123", RoleAdmin)
+	user, err := svc.CreateUser(ctx, "alice", "password123", "", RoleAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestJWT_LoginWrongPassword(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "password123", RoleAdmin)
+	svc.CreateUser(ctx, "alice", "password123", "", RoleAdmin)
 
 	_, err := svc.Login(ctx, "alice", "wrongpassword")
 	if err != ErrInvalidCredentials {
@@ -62,7 +62,7 @@ func TestJWT_ValidateToken(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "pass", RoleStandard)
+	svc.CreateUser(ctx, "alice", "pass", "", RoleStandard)
 	token, _ := svc.Login(ctx, "alice", "pass")
 
 	user, err := svc.ValidateToken(ctx, token)
@@ -83,7 +83,7 @@ func TestJWT_ValidateExpiredToken(t *testing.T) {
 	svc.tokenTTL = 1 * time.Millisecond
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
+	svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
 	token, _ := svc.Login(ctx, "alice", "pass")
 
 	time.Sleep(10 * time.Millisecond)
@@ -108,7 +108,7 @@ func TestJWT_RefreshToken(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	user, _ := svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
+	user, _ := svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
 
 	refreshToken, err := svc.GenerateRefreshToken(user)
 	if err != nil {
@@ -133,7 +133,7 @@ func TestJWT_RefreshTokenRejectsAccessToken(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
+	svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
 	accessToken, _ := svc.Login(ctx, "alice", "pass")
 
 	_, err := svc.RefreshToken(ctx, accessToken)
@@ -146,8 +146,8 @@ func TestJWT_ListUsers(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
-	svc.CreateUser(ctx, "bob", "pass", RoleStandard)
+	svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
+	svc.CreateUser(ctx, "bob", "pass", "", RoleStandard)
 
 	users, err := svc.ListUsers(ctx)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestJWT_DeleteUser(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	user, _ := svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
+	user, _ := svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
 
 	if err := svc.DeleteUser(ctx, user.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
@@ -178,7 +178,7 @@ func TestJWT_ChangePasswordAndLogin(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	user, _ := svc.CreateUser(ctx, "alice", "oldpass", RoleAdmin)
+	user, _ := svc.CreateUser(ctx, "alice", "oldpass", "", RoleAdmin)
 
 	if err := svc.ChangePassword(ctx, user.ID, "newpass"); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
@@ -202,7 +202,7 @@ func TestJWT_PasswordsAreBcryptHashed(t *testing.T) {
 	svc, store := newTestService()
 	ctx := context.Background()
 
-	user, _ := svc.CreateUser(ctx, "alice", "mypassword", RoleAdmin)
+	user, _ := svc.CreateUser(ctx, "alice", "mypassword", "", RoleAdmin)
 
 	hash, err := store.GetPasswordHash(ctx, user.ID)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestJWT_TokenContainsCorrectClaims(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	svc.CreateUser(ctx, "alice", "pass", RoleAdmin)
+	svc.CreateUser(ctx, "alice", "pass", "", RoleAdmin)
 	token, _ := svc.Login(ctx, "alice", "pass")
 
 	parsed, err := jwt.ParseWithClaims(token, &claims{}, func(t *jwt.Token) (interface{}, error) {
@@ -251,12 +251,12 @@ func TestJWT_DuplicateUsernameRejected(t *testing.T) {
 	svc, _ := newTestService()
 	ctx := context.Background()
 
-	_, err := svc.CreateUser(ctx, "alice", "pass1", RoleAdmin)
+	_, err := svc.CreateUser(ctx, "alice", "pass1", "", RoleAdmin)
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
 
-	_, err = svc.CreateUser(ctx, "alice", "pass2", RoleStandard)
+	_, err = svc.CreateUser(ctx, "alice", "pass2", "", RoleStandard)
 	if err != ErrUsernameExists {
 		t.Fatalf("expected ErrUsernameExists, got %v", err)
 	}
