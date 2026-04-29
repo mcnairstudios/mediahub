@@ -144,6 +144,7 @@ var apiSettableKeys = map[string]bool{
 	"decoder_mpeg2":          true,
 	"delivery":               true,
 	"dlna_enabled":           true,
+	"jellyfin_enabled":       true,
 	"debug_enabled":          true,
 	"tmdb_api_key":           true,
 	"max_bit_depth":          true,
@@ -238,6 +239,7 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		Detector:          s.deps.Detector,
 		OutputReg:         s.deps.OutputReg,
 		Strategy:          s.deps.Strategy,
+		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
 	}
 

@@ -401,6 +401,7 @@ func main() {
 	recScheduler.SetStopFunc(func(streamID string) error {
 		return orchestrator.StopRecording(ctx, recDeps, streamID)
 	})
+	orchestrator.RecoverRecordings(ctx, recDeps)
 	recScheduler.Start(ctx)
 
 	logoCache := logocache.New(filepath.Join(cfg.DataDir, "logocache"))
@@ -445,6 +446,7 @@ func main() {
 		UserAgent:         cfg.UserAgent,
 		BypassHeader:      cfg.BypassHeader,
 		BypassSecret:      cfg.BypassSecret,
+		DBClearer:         db,
 	})
 
 	epgRefreshFn = apiServer.RefreshEPGSource
@@ -520,6 +522,12 @@ func main() {
 	go func() {
 		log.Printf("hdhr discovery responder starting (UDP 65001)")
 		hdhrDiscovery.Run(ctx)
+	}()
+
+	hdhrSsdp := hdhr.NewSSDPAdvertiser(cfg.BaseURL, 30*time.Second, zlog)
+	go func() {
+		log.Printf("hdhr SSDP advertiser starting")
+		hdhrSsdp.Run(ctx)
 	}()
 
 	if cfg.DLNAEnabled {

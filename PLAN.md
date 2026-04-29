@@ -149,3 +149,64 @@ DELETE /api/source-profiles/{id}    — delete
 4. **Reusable** — a profile created for one SAT>IP device works on any similar device
 5. **Overridable** — external `/config/source_profiles.json` overrides embedded defaults
 6. **Seeded, not hardcoded** — defaults are JSON data, not Go code
+
+---
+
+# Current Work Plan
+
+## In Progress (agents running)
+
+1. **Auto-recovery for live streams** — 3 retries with exponential backoff (2s, 4s, 6s)
+2. **Recording intent persistence** — recording.json on start, recover on restart
+3. **Dockerfile** — Multi-stage build, linuxserver/ffmpeg, HW accel drivers
+4. **CI pipeline** — GitHub Actions: test on push, Docker build on tags
+5. **DLNA/Jellyfin enable/disable** — Settings toggles, verify Jellyfin matches tvproxy
+6. **HDHR SSDP advertisement** — Device discovery for Plex/Channels DVR
+7. **HW acceleration gaps** — Per-codec encoder settings, resolution-based bitrate
+8. **Recording playback** — End-to-end: play, seek, serve completed recordings
+
+## Completed This Session
+
+- Alphabet jump sidebar on library grids
+- Client profile save fix (nested profile object)
+- listen_port=0 for port-agnostic client detection
+- TV series grouping by group field
+- TMDB series lookup by group name
+- Tags system (edition, codec, resolution, audio format)
+- Sync progress live updates
+- VOD cache invalidation during sync
+- Token TTL 24h
+- Edition tag stripping for TMDB matching
+- Unified refresh intervals (all sources use same mechanism)
+- EPG refresh unified into source worker
+- Standalone movies not grouped as collections
+- Source stream profiles (format_hint, probe_duration_sec)
+- Global audio/subtitle language in settings
+- JSON defaults (clients.json, source_profiles.json, settings.json)
+- Source count cached in config (no bolt scan)
+- Slim streams API (?fields=slim)
+- Bandwidth estimation
+- Google OAuth SSO
+- SAT>IP full scan package
+- MSE playback pipeline fixes
+- Audio transcode (always unless explicit copy)
+- Bridge AudioOnly mode
+
+## Next Up (prioritized)
+
+### HIGH
+9. **Import/Export** — JSON backup of channels, settings, accounts. Soft/hard reset.
+10. **Per-channel profile override** — Channel forces specific client profile.
+11. **Probe caching** — Store results in bolt, skip re-probe for known streams.
+
+### MEDIUM
+12. **HDHR per-device servers** — Separate lineup per physical device.
+13. **EPG deduplication** — Multiple sources, deduplicate by channel ID.
+14. **Multi-WireGuard failover** — Pool of tunnels, automatic failover.
+15. **Invite system** — Admin generates invite tokens.
+16. **Rename default_video_codec** — Recording only, not playback.
+
+### LOW
+17. **Subtitle extraction** — WebVTT from embedded subtitles.
+18. **OpenAPI spec** — Swagger at /api/docs.
+19. **Debug endpoints** — Pipeline state, session info.

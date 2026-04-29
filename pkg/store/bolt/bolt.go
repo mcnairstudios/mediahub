@@ -17,6 +17,7 @@ var (
 	bucketFavorites    = []byte("favorites")
 	bucketClients        = []byte("clients")
 	bucketSourceProfiles = []byte("source_profiles")
+	bucketProbeCache     = []byte("probe_cache")
 )
 
 type DB struct {
@@ -33,7 +34,7 @@ func Open(path string) (*DB, error) {
 		bucketStreams, bucketSettings, bucketChannels, bucketGroups,
 		bucketEPGSources, bucketEPGPrograms, bucketRecordings, bucketUsers,
 		bucketSourceConfigs, bucketFavorites, bucketClients,
-		bucketSourceProfiles,
+		bucketSourceProfiles, bucketProbeCache,
 	}
 
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -102,4 +103,40 @@ func (d *DB) ClientStore() *ClientStore {
 
 func (d *DB) SourceProfileStore() *SourceProfileStore {
 	return &SourceProfileStore{db: d.db}
+}
+
+func (d *DB) ProbeCacheStore() *ProbeCacheStore {
+	return &ProbeCacheStore{db: d.db}
+}
+
+func (d *DB) ClearBucket(name string) error {
+	bucketName := []byte(name)
+	return d.db.Update(func(tx *bbolt.Tx) error {
+		if err := tx.DeleteBucket(bucketName); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucket(bucketName)
+		return err
+	})
+}
+
+func (d *DB) ClearAll() error {
+	buckets := []string{
+		"streams", "settings", "channels", "groups",
+		"epg_sources", "epg_programs", "recordings", "users",
+		"source_configs", "favorites", "clients", "source_profiles",
+		"probe_cache",
+	}
+	return d.db.Update(func(tx *bbolt.Tx) error {
+		for _, name := range buckets {
+			b := []byte(name)
+			if err := tx.DeleteBucket(b); err != nil {
+				continue
+			}
+			if _, err := tx.CreateBucket(b); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

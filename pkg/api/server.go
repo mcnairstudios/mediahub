@@ -54,11 +54,13 @@ type OrchestratorDeps struct {
 	TMDBCache         *tmdbcache.Cache
 	TMDBImages        *tmdb.ImageCache
 	SourceProfileStore sourceprofile.Store
+	ProbeCache         store.ProbeCache
 	Config            *config.Config
 	StaticFS          fs.FS
 	UserAgent         string
 	BypassHeader      string
 	BypassSecret      string
+	DBClearer         any
 }
 
 type vodCacheEntry struct {

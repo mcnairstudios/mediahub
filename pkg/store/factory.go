@@ -163,6 +163,21 @@ func (f *Factory) UserStore(backend BackendType) (auth.UserStore, error) {
 	}
 }
 
+func (f *Factory) ProbeCache(backend BackendType) (ProbeCache, error) {
+	switch backend {
+	case BackendMemory:
+		return NewMemoryProbeCache(), nil
+	case BackendBolt:
+		db, err := boltstore.Open(filepath.Join(f.dataDir, "mediahub.db"))
+		if err != nil {
+			return nil, fmt.Errorf("open bolt db: %w", err)
+		}
+		return db.ProbeCacheStore(), nil
+	default:
+		return nil, fmt.Errorf("unknown backend: %q", backend)
+	}
+}
+
 func (f *Factory) FavoriteStore(backend BackendType) (favorite.Store, error) {
 	switch backend {
 	case BackendMemory:

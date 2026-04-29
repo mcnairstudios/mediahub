@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -22,6 +23,15 @@ type RecordingDeps struct {
 	RecordingStore recording.Store
 	OutputReg      *output.Registry
 	RecordDir      string
+}
+
+type recordingIntent struct {
+	StreamID   string    `json:"stream_id"`
+	StreamName string    `json:"stream_name"`
+	Title      string    `json:"title"`
+	UserID     string    `json:"user_id"`
+	StartedAt  time.Time `json:"started_at"`
+	StopAt     time.Time `json:"stop_at"`
 }
 
 func StartRecording(ctx context.Context, deps RecordingDeps, streamID string, title string, userID string, short bool) error {
@@ -51,6 +61,15 @@ func StartRecording(ctx context.Context, deps RecordingDeps, streamID string, ti
 
 	sess.SetRecorded(true)
 
+	writeIntent(sess.OutputDir, recordingIntent{
+		StreamID:   streamID,
+		StreamName: sess.StreamName,
+		Title:      title,
+		UserID:     userID,
+		StartedAt:  rec.StartedAt,
+		StopAt:     rec.ScheduledStop,
+	})
+
 	return nil
 }
 
@@ -61,6 +80,7 @@ func StopRecording(ctx context.Context, deps RecordingDeps, streamID string) err
 	}
 
 	sess.SetRecorded(false)
+	removeIntent(sess.OutputDir)
 
 	recs, err := deps.RecordingStore.ListByStatus(ctx, recording.StatusRecording)
 	if err != nil {
@@ -160,4 +180,56 @@ func generateRecordingID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func writeIntent(sessionDir string, intent recordingIntent) {
+	data, err := json.Marshal(intent)
+	if err != nil {
+		return
+	}
+	os.MkdirAll(sessionDir, 0755) //nolint:errcheck
+	os.WriteFile(filepath.Join(sessionDir, "recording.json"), data, 0644) //nolint:errcheck
+}
+
+func removeIntent(sessionDir string) {
+	os.Remove(filepath.Join(sessionDir, "recording.json")) //nolint:errcheck
+}
+
+func RecoverRecordings(ctx context.Context, deps RecordingDeps) {
+	entries, err := os.ReadDir(deps.RecordDir)
+	if err != nil {
+		log.Printf("recording recovery: failed to read record dir: %v", err)
+		return
+	}
+
+	now := time.Now()
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		intentPath := filepath.Join(deps.RecordDir, entry.Name(), "recording.json")
+		data, err := os.ReadFile(intentPath)
+		if err != nil {
+			continue
+		}
+
+		var intent recordingIntent
+		if err := json.Unmarshal(data, &intent); err != nil {
+			log.Printf("recording recovery: invalid intent in %s: %v", intentPath, err)
+			os.Remove(intentPath) //nolint:errcheck
+			continue
+		}
+
+		if !intent.StopAt.IsZero() && intent.StopAt.Before(now) {
+			log.Printf("recording recovery: expired intent for %s (%s), cleaning up", intent.StreamID, intent.Title)
+			os.Remove(intentPath) //nolint:errcheck
+			continue
+		}
+
+		log.Printf("recording recovery: restoring %s (%s), stop_at=%s", intent.StreamID, intent.Title, intent.StopAt.Format(time.RFC3339))
+		if err := StartRecording(ctx, deps, intent.StreamID, intent.Title, intent.UserID, false); err != nil {
+			log.Printf("recording recovery: failed to restart %s: %v", intent.StreamID, err)
+			os.Remove(intentPath) //nolint:errcheck
+		}
+	}
 }

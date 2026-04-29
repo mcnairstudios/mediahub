@@ -103,6 +103,7 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 		Detector:      s.deps.Detector,
 		OutputReg:     s.deps.OutputReg,
 		Strategy:      s.deps.Strategy,
+		ProbeCache:    s.deps.ProbeCache,
 		UserAgent:     s.deps.UserAgent,
 	}
 
@@ -111,7 +112,9 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 		title = rec.StreamName
 	}
 
-	result, err := orchestrator.PlayRecording(r.Context(), deps, rec.ID, rec.FilePath, title)
+	port := httputil.RequestPort(r)
+	hdrs := httputil.RequestHeaders(r)
+	result, err := orchestrator.PlayRecording(r.Context(), deps, rec.ID, rec.FilePath, title, port, hdrs)
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
 		return

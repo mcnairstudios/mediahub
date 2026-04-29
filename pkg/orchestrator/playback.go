@@ -30,6 +30,7 @@ type PlaybackDeps struct {
 	Detector           *client.Detector
 	OutputReg          *output.Registry
 	Strategy           func(strategy.Input, strategy.Output) strategy.Decision
+	ProbeCache         store.ProbeCache
 	UserAgent          string
 	PipelineRunner     PipelineRunner
 }
@@ -135,6 +136,15 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 	}
 
+	var cachedProbe *media.ProbeResult
+	if deps.ProbeCache != nil {
+		cachedProbe, _ = deps.ProbeCache.Get(stream.URL)
+	}
+
+	decodeHWAccel := resolveDecodeHWAccel(ctx, deps)
+	encoderName := resolveEncoderName(ctx, deps, string(decision.VideoCodec))
+	decoderName := resolveDecoderName(ctx, deps, stream.VideoCodec)
+
 	pipeCfg := session.PipelineConfig{
 		StreamURL:           pipelineURL,
 		StreamID:            stream.ID,
@@ -145,7 +155,14 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		OutputCodec:         string(decision.VideoCodec),
 		OutputAudioCodec:    string(decision.AudioCodec),
 		HWAccel:             decision.HWAccel,
+		DecodeHWAccel:       decodeHWAccel,
 		Deinterlace:         decision.Deinterlace,
+		OutputHeight:        out.OutputHeight,
+		MaxBitDepth:         out.MaxBitDepth,
+		EncoderName:         encoderName,
+		DecoderName:         decoderName,
+		IsLive:              true,
+		CachedStreamInfo:    cachedProbe,
 	}
 
 	applySourceProfile(ctx, deps, stream, &pipeCfg)
@@ -156,8 +173,15 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
 	if err != nil {
+		if deps.ProbeCache != nil && cachedProbe != nil {
+			_ = deps.ProbeCache.Delete(stream.URL)
+		}
 		deps.SessionMgr.Stop(stream.ID)
 		return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
+	}
+
+	if deps.ProbeCache != nil && cachedProbe == nil && pipelineResult.Info != nil {
+		_ = deps.ProbeCache.Set(stream.URL, pipelineResult.Info)
 	}
 	info := pipelineResult.Info
 	result.ProbeInfo = info
@@ -234,7 +258,7 @@ func resolveDelivery(ctx context.Context, deps PlaybackDeps) output.DeliveryMode
 	return delivery
 }
 
-func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath, title string) (*PlaybackResult, error) {
+func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath, title string, port int, headers map[string]string) (*PlaybackResult, error) {
 	sessionKey := "rec:" + recordingID
 
 	sess, isNew, err := deps.SessionMgr.GetOrCreate(ctx, sessionKey, filePath, title)
@@ -252,14 +276,84 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		return result, nil
 	}
 
+	out := strategy.Output{
+		VideoCodec: "copy",
+		AudioCodec: "aac",
+		Container:  "mp4",
+	}
+
+	var detectedClient *client.Client
+	if deps.Detector != nil {
+		detectedClient = deps.Detector.Detect(port, headers)
+		if detectedClient != nil {
+			p := detectedClient.Profile
+			if p.VideoCodec != "" {
+				out.VideoCodec = p.VideoCodec
+			}
+			if p.AudioCodec != "" {
+				out.AudioCodec = p.AudioCodec
+			}
+			if p.Container != "" {
+				out.Container = p.Container
+			}
+			if p.HWAccel != "" {
+				out.HWAccel = p.HWAccel
+			}
+			if p.OutputHeight > 0 {
+				out.OutputHeight = p.OutputHeight
+			}
+		}
+	}
+
+	var audioLanguage string
+	if deps.SettingsStore != nil {
+		if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" && out.HWAccel == "" {
+			out.HWAccel = hw
+		}
+		if mbd, err := deps.SettingsStore.Get(ctx, "default_max_bit_depth"); err == nil && mbd != "" {
+			if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
+				out.MaxBitDepth = v
+			}
+		}
+		if al, err := deps.SettingsStore.Get(ctx, "audio_language"); err == nil && al != "" {
+			audioLanguage = al
+		}
+	}
+
+	in := strategy.Input{
+		VideoCodec: "h264",
+		AudioCodec: "aac",
+	}
+	decision := deps.Strategy(in, out)
+	result.Decision = decision
+
+	decodeHWAccel := resolveDecodeHWAccel(ctx, deps)
+	encoderName := resolveEncoderName(ctx, deps, string(decision.VideoCodec))
+	decoderName := resolveDecoderName(ctx, deps, in.VideoCodec)
+
+	pipeCfg := session.PipelineConfig{
+		StreamURL:           filePath,
+		StreamID:            sessionKey,
+		UserAgent:           deps.UserAgent,
+		AudioLanguage:       audioLanguage,
+		NeedsTranscode:      decision.NeedsTranscode,
+		NeedsAudioTranscode: decision.NeedsAudioTranscode,
+		OutputCodec:         string(decision.VideoCodec),
+		OutputAudioCodec:    string(decision.AudioCodec),
+		HWAccel:             decision.HWAccel,
+		DecodeHWAccel:       decodeHWAccel,
+		Deinterlace:         decision.Deinterlace,
+		OutputHeight:        out.OutputHeight,
+		MaxBitDepth:         out.MaxBitDepth,
+		EncoderName:         encoderName,
+		DecoderName:         decoderName,
+	}
+
 	runner := deps.PipelineRunner
 	if runner == nil {
 		runner = deps.SessionMgr.RunPipeline
 	}
-	pipelineResult, err := runner(sess, session.PipelineConfig{
-		StreamURL: filePath,
-		StreamID:  sessionKey,
-	})
+	pipelineResult, err := runner(sess, pipeCfg)
 	if err != nil {
 		deps.SessionMgr.Stop(sessionKey)
 		return nil, fmt.Errorf("pipeline failed for recording %q (%s): %w", title, filePath, err)
@@ -268,6 +362,9 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 	result.ProbeInfo = info
 
 	delivery := resolveDelivery(ctx, deps)
+	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
+		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+	}
 	sess.Delivery = string(delivery)
 
 	pluginCfg := output.PluginConfig{
@@ -308,6 +405,51 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 
 func StopRecordingPlayback(deps PlaybackDeps, recordingID string) {
 	deps.SessionMgr.Stop("rec:" + recordingID)
+}
+
+func resolveDecodeHWAccel(ctx context.Context, deps PlaybackDeps) string {
+	if deps.SettingsStore == nil {
+		return ""
+	}
+	if val, err := deps.SettingsStore.Get(ctx, "default_decode_hwaccel"); err == nil && val != "" {
+		return val
+	}
+	if val, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && val != "" {
+		return val
+	}
+	return ""
+}
+
+func resolveEncoderName(ctx context.Context, deps PlaybackDeps, codec string) string {
+	if deps.SettingsStore == nil || codec == "" {
+		return ""
+	}
+	codec = strings.ToLower(codec)
+	switch codec {
+	case "h264", "h265", "av1":
+		if val, err := deps.SettingsStore.Get(ctx, "encoder_"+codec); err == nil && val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+func resolveDecoderName(ctx context.Context, deps PlaybackDeps, codec string) string {
+	if deps.SettingsStore == nil || codec == "" {
+		return ""
+	}
+	codec = strings.ToLower(codec)
+	switch codec {
+	case "h264", "h265", "av1":
+		if val, err := deps.SettingsStore.Get(ctx, "decoder_"+codec); err == nil && val != "" {
+			return val
+		}
+	case "mpeg2", "mpeg2video":
+		if val, err := deps.SettingsStore.Get(ctx, "decoder_mpeg2"); err == nil && val != "" {
+			return val
+		}
+	}
+	return ""
 }
 
 func applySourceProfile(ctx context.Context, deps PlaybackDeps, stream *media.Stream, cfg *session.PipelineConfig) {

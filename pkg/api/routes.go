@@ -128,6 +128,11 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/capabilities", s.authenticated(s.handleCapabilities))
 	s.mux.Handle("GET /api/activity", s.adminOnly(s.handleListActivity))
 
+	s.mux.Handle("GET /api/settings/export", s.adminOnly(s.handleExport))
+	s.mux.Handle("POST /api/settings/import", s.adminOnly(s.handleImport))
+	s.mux.Handle("POST /api/settings/soft-reset", s.adminOnly(s.handleSoftReset))
+	s.mux.Handle("POST /api/settings/hard-reset", s.adminOnly(s.handleHardReset))
+
 	s.mux.HandleFunc("GET /api/output/playlist.m3u", s.handleOutputM3U)
 	s.mux.HandleFunc("GET /api/output/epg.xml", s.handleOutputEPG)
 	s.mux.HandleFunc("GET /channel/{id}", s.handleChannelStream)

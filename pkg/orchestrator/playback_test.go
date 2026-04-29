@@ -330,7 +330,7 @@ func TestPlayRecording_NewSession(t *testing.T) {
 	deps := newTestPlaybackDeps(nil)
 	defer deps.SessionMgr.StopAll()
 
-	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording", 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestPlayRecording_JoinExisting(t *testing.T) {
 	deps := newTestPlaybackDeps(nil)
 	defer deps.SessionMgr.StopAll()
 
-	first, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	first, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording", 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestPlayRecording_JoinExisting(t *testing.T) {
 		t.Error("expected first to be new")
 	}
 
-	second, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	second, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording", 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestPlayRecording_JoinExisting(t *testing.T) {
 func TestStopRecordingPlayback_Works(t *testing.T) {
 	deps := newTestPlaybackDeps(nil)
 
-	_, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording")
+	_, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test Recording", 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestPlayRecording_IsNotLive(t *testing.T) {
 	deps.PipelineRunner = runner
 	defer deps.SessionMgr.StopAll()
 
-	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "My Recording")
+	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "My Recording", 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestPlayRecording_PipelineFailure(t *testing.T) {
 	}
 	defer deps.SessionMgr.StopAll()
 
-	_, err := PlayRecording(context.Background(), deps, "rec-1", "/nonexistent.mp4", "Bad Recording")
+	_, err := PlayRecording(context.Background(), deps, "rec-1", "/nonexistent.mp4", "Bad Recording", 0, nil)
 	if err == nil {
 		t.Fatal("expected error for pipeline failure")
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/av"
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
@@ -12,6 +13,11 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output/bridge"
 	"github.com/rs/zerolog"
+)
+
+const (
+	maxLiveRetries    = 3
+	liveRetryBaseWait = 2 * time.Second
 )
 
 type PipelineConfig struct {
@@ -32,9 +38,11 @@ type PipelineConfig struct {
 	EncoderName      string
 	DecoderName      string
 	Framerate        int
-	FormatHint       string
-	ProbeDurationSec int
-	TimeoutSec       int
+	FormatHint        string
+	ProbeDurationSec  int
+	TimeoutSec        int
+	IsLive            bool
+	CachedStreamInfo  *media.ProbeResult
 }
 
 type demuxCloser struct {
@@ -85,6 +93,9 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	}
 	if cfg.ProbeDurationSec > 0 {
 		opts.AnalyzeDuration = cfg.ProbeDurationSec * 1_000_000
+	}
+	if cfg.CachedStreamInfo != nil {
+		opts.CachedStreamInfo = cfg.CachedStreamInfo
 	}
 
 	d, err := demux.NewDemuxer(cfg.StreamURL, opts)
@@ -201,16 +212,66 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			}
 		}()
 
-		err := demuxloop.Run(sess.Context(), demuxloop.Config{
+		loopErr := demuxloop.Run(sess.Context(), demuxloop.Config{
 			Reader: d,
 			Sink:   sink,
 		})
-		if err != nil {
-			sess.SetError(err)
-			log.Error().Err(err).Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended with error")
-		} else {
+		if loopErr == nil {
 			log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended cleanly")
+			return
 		}
+
+		if !cfg.IsLive {
+			sess.SetError(loopErr)
+			log.Error().Err(loopErr).Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended with error")
+			return
+		}
+
+		for attempt := 1; attempt <= maxLiveRetries; attempt++ {
+			select {
+			case <-sess.Context().Done():
+				return
+			default:
+			}
+
+			wait := liveRetryBaseWait * time.Duration(1<<(attempt-1))
+			log.Warn().Err(loopErr).Int("attempt", attempt).Int("max", maxLiveRetries).Dur("backoff", wait).
+				Str("stream_id", cfg.StreamID).Msg("pipeline: live stream failed, retrying")
+
+			select {
+			case <-sess.Context().Done():
+				return
+			case <-time.After(wait):
+			}
+
+			for _, c := range sess.DrainClosers() {
+				c.Close()
+			}
+
+			sess.FanOut.ResetForSeek()
+			sess.ClearFinished()
+
+			newD, newSink, retryErr := m.openDemuxAndSink(sess, cfg, log, audioIdx, info)
+			if retryErr != nil {
+				log.Error().Err(retryErr).Int("attempt", attempt).Str("stream_id", cfg.StreamID).
+					Msg("pipeline: retry failed to reopen stream")
+				loopErr = retryErr
+				continue
+			}
+
+			loopErr = demuxloop.Run(sess.Context(), demuxloop.Config{
+				Reader: newD,
+				Sink:   newSink,
+			})
+			if loopErr == nil {
+				log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended cleanly after retry")
+				return
+			}
+		}
+
+		sess.SetError(loopErr)
+		log.Error().Err(loopErr).Int("retries_exhausted", maxLiveRetries).
+			Str("stream_id", cfg.StreamID).Msg("pipeline: all retries failed")
 	}()
 
 	return &PipelineResult{
@@ -220,6 +281,68 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		VideoExtradata:   videoExtradata,
 		AudioExtradata:   audioExtradata,
 	}, nil
+}
+
+func (m *Manager) openDemuxAndSink(sess *Session, cfg PipelineConfig, log zerolog.Logger, audioIdx int, info *media.ProbeResult) (*demux.Demuxer, av.PacketSink, error) {
+	opts := demux.DefaultDemuxOpts()
+	opts.UserAgent = cfg.UserAgent
+	timeoutSec := cfg.TimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = 10
+	}
+	opts.TimeoutSec = timeoutSec
+	if cfg.AudioLanguage != "" {
+		opts.AudioLanguage = cfg.AudioLanguage
+	}
+	if cfg.FormatHint != "" {
+		opts.FormatHint = cfg.FormatHint
+	}
+	if cfg.ProbeDurationSec > 0 {
+		opts.AnalyzeDuration = cfg.ProbeDurationSec * 1_000_000
+	}
+
+	d, err := demux.NewDemuxer(cfg.StreamURL, opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open stream %q: %w", cfg.StreamURL, err)
+	}
+
+	sess.AddCloser(&demuxCloser{d: d})
+
+	sess.SetSeekFunc(func(posMs int64) {
+		d.RequestSeek(posMs)
+	})
+
+	var sink av.PacketSink = sess.FanOut
+
+	if cfg.NeedsTranscode || cfg.NeedsAudioTranscode {
+		audioOnly := !cfg.NeedsTranscode && cfg.NeedsAudioTranscode
+		b, bErr := bridge.New(bridge.Config{
+			Downstream:       sess.FanOut,
+			Info:             info,
+			AudioIndex:       audioIdx,
+			HWAccel:          cfg.HWAccel,
+			DecodeHWAccel:    cfg.DecodeHWAccel,
+			OutputCodec:      cfg.OutputCodec,
+			OutputAudioCodec: cfg.OutputAudioCodec,
+			Bitrate:          cfg.Bitrate,
+			OutputHeight:     cfg.OutputHeight,
+			MaxBitDepth:      cfg.MaxBitDepth,
+			Deinterlace:      cfg.Deinterlace,
+			EncoderName:      cfg.EncoderName,
+			DecoderName:      cfg.DecoderName,
+			Framerate:        cfg.Framerate,
+			AudioOnly:        audioOnly,
+			Log:              log,
+		})
+		if bErr != nil {
+			d.Close()
+			return nil, nil, fmt.Errorf("create transcode bridge: %w", bErr)
+		}
+		sess.AddCloser(bridgeCloser{b: b})
+		sink = b
+	}
+
+	return d, sink, nil
 }
 
 type bridgeCloser struct {

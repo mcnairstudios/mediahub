@@ -6,6 +6,12 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/media"
 )
 
+type ProbeCache interface {
+	Get(url string) (*media.ProbeResult, error)
+	Set(url string, result *media.ProbeResult) error
+	Delete(url string) error
+}
+
 type StreamStore interface {
 	Get(ctx context.Context, id string) (*media.Stream, error)
 	List(ctx context.Context) ([]media.Stream, error)

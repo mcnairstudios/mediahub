@@ -4169,6 +4169,11 @@
         '<input type="checkbox" id="setting-dlna"' + (getSetting(settings, 'dlna_enabled') === 'true' ? ' checked' : '') + '>' +
         '<span class="field-hint">Advertise as DLNA MediaServer on the network</span>' +
       '</div>' +
+      '<div class="settings-field">' +
+        '<label>Jellyfin Enabled</label>' +
+        '<input type="checkbox" id="setting-jellyfin"' + (getSetting(settings, 'jellyfin_enabled') === 'true' ? ' checked' : '') + '>' +
+        '<span class="field-hint">Enable Jellyfin API emulation for native clients</span>' +
+      '</div>' +
       '</div></div>';
 
     html += '<div class="settings-section">' +
@@ -4216,7 +4221,128 @@
       '</div>' +
       '</div></div>';
 
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Import / Export</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-section-desc">Export your configuration as JSON. "Channels" exports channels, groups, and stream assignments. "Full" includes everything (clients, source profiles, sources, settings, EPG sources). Import merges with existing data — duplicates are skipped.</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-secondary" id="export-channels-btn">Export Channels</button>' +
+      '<button class="btn btn-secondary" id="export-full-btn">Export Full</button>' +
+      '<button class="btn btn-primary" id="import-btn">Import</button>' +
+      '<input type="file" accept=".json" id="import-file-input" style="display:none">' +
+      '</div>' +
+      '</div></div>';
+
+    html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Database Management</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-section-desc">Soft Reset removes all derived data (channels, streams, EPG programs, clients, source profiles, favorites, recordings) but keeps your sources, EPG sources, users, and settings. Hard Reset restores factory defaults — all data is deleted and default credentials are restored (admin/admin).</div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-danger" id="soft-reset-btn">Soft Reset</button>' +
+      '<button class="btn btn-danger" id="hard-reset-btn">Hard Reset</button>' +
+      '</div>' +
+      '</div></div>';
+
     container.innerHTML = html;
+
+    var exportChannelsBtn = document.getElementById('export-channels-btn');
+    if (exportChannelsBtn) {
+      exportChannelsBtn.addEventListener('click', async function() {
+        exportChannelsBtn.disabled = true;
+        try {
+          var resp = await fetch('/api/settings/export?scope=channels', { headers: { 'Authorization': 'Bearer ' + api.token } });
+          var blob = await resp.blob();
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'mediahub-channels.json';
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } catch (err) { toast(err.message, 'error'); }
+        exportChannelsBtn.disabled = false;
+      });
+    }
+
+    var exportFullBtn = document.getElementById('export-full-btn');
+    if (exportFullBtn) {
+      exportFullBtn.addEventListener('click', async function() {
+        exportFullBtn.disabled = true;
+        try {
+          var resp = await fetch('/api/settings/export?scope=full', { headers: { 'Authorization': 'Bearer ' + api.token } });
+          var blob = await resp.blob();
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'mediahub-full.json';
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } catch (err) { toast(err.message, 'error'); }
+        exportFullBtn.disabled = false;
+      });
+    }
+
+    var importFileInput = document.getElementById('import-file-input');
+    var importBtn = document.getElementById('import-btn');
+    if (importBtn && importFileInput) {
+      importBtn.addEventListener('click', function() { importFileInput.click(); });
+      importFileInput.addEventListener('change', async function() {
+        var file = importFileInput.files[0];
+        if (!file) return;
+        try {
+          var text = await file.text();
+          var data = JSON.parse(text);
+          var summary = [];
+          if (data.channels) summary.push(data.channels.length + ' channels');
+          if (data.channel_groups) summary.push(data.channel_groups.length + ' groups');
+          if (data.clients) summary.push(data.clients.length + ' clients');
+          if (data.source_profiles) summary.push(data.source_profiles.length + ' source profiles');
+          if (data.source_configs) summary.push(data.source_configs.length + ' sources');
+          if (data.epg_sources) summary.push(data.epg_sources.length + ' EPG sources');
+          if (data.settings) summary.push(Object.keys(data.settings).length + ' settings');
+          if (!confirm('Import ' + (summary.join(', ') || 'data') + '?\n\nExisting items with the same name will be skipped.')) {
+            importFileInput.value = '';
+            return;
+          }
+          var result = await api.post('/api/settings/import', data);
+          var body = await result.json();
+          toast('Import complete: ' + (body.imported || 0) + ' items imported');
+          router.navigate('settings');
+        } catch (err) { toast('Import failed: ' + err.message, 'error'); }
+        importFileInput.value = '';
+      });
+    }
+
+    var softResetBtn = document.getElementById('soft-reset-btn');
+    if (softResetBtn) {
+      softResetBtn.addEventListener('click', async function() {
+        if (!confirm('Soft Reset will delete all channels, streams, EPG programs, clients, source profiles, favorites, and recordings. Sources, EPG sources, users, and settings will be preserved.\n\nAre you sure?')) return;
+        softResetBtn.disabled = true;
+        try {
+          await api.post('/api/settings/soft-reset');
+          toast('Soft reset complete');
+        } catch (err) { toast(err.message, 'error'); }
+        softResetBtn.disabled = false;
+      });
+    }
+
+    var hardResetBtn = document.getElementById('hard-reset-btn');
+    if (hardResetBtn) {
+      hardResetBtn.addEventListener('click', async function() {
+        if (!confirm('Hard Reset will delete ALL data and restore factory defaults. You will be logged out.\n\nAre you sure?')) return;
+        if (!confirm('This cannot be undone. All users, sources, channels, and settings will be permanently deleted.\n\nProceed with hard reset?')) return;
+        hardResetBtn.disabled = true;
+        try {
+          await api.post('/api/settings/hard-reset');
+          toast('Hard reset complete. Logging out...');
+          setTimeout(function() {
+            api.token = null;
+            api.user = null;
+            router.navigate('login');
+          }, 1500);
+        } catch (err) {
+          toast(err.message, 'error');
+          hardResetBtn.disabled = false;
+        }
+      });
+    }
 
     if (caps && caps.video_encoders) {
       var encCodecs = ['h264', 'h265', 'av1'];
@@ -4236,6 +4362,7 @@
 
     bindTextSave(container, 'setting-base-url', 'base_url');
     bindToggle(container, 'setting-dlna', 'dlna_enabled');
+    bindToggle(container, 'setting-jellyfin', 'jellyfin_enabled');
     bindTextSave(container, 'setting-audio-lang', 'audio_language');
     bindTextSave(container, 'setting-subtitle-lang', 'subtitle_language');
     bindTextSave(container, 'setting-tmdb-key', 'tmdb_api_key');

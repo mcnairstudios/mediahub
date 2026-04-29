@@ -145,6 +145,21 @@ func (s *Session) MarkDone() {
 	s.finished = true
 }
 
+func (s *Session) ClearFinished() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.finished = false
+	s.err = nil
+}
+
+func (s *Session) DrainClosers() []io.Closer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.closers
+	s.closers = nil
+	return c
+}
+
 func (s *Session) IsFinished() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

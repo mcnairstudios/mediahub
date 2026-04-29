@@ -215,6 +215,7 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 		Detector:          s.deps.Detector,
 		OutputReg:         s.deps.OutputReg,
 		Strategy:          s.deps.Strategy,
+		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
 	}
 
