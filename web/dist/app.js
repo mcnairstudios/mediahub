@@ -5036,8 +5036,12 @@
         var groupKey = mi.group || '';
         var isCollection = false;
         if (groupKey) {
-          var groupMovies = movieItems.filter(function(m) { return m.group === groupKey; });
-          if (groupMovies.length > 1) isCollection = true;
+          var genericGroups = ['movies', 'films', 'vod', 'video', 'movie', 'film', 'all'];
+          var isGenericGroup = genericGroups.indexOf(groupKey.toLowerCase()) >= 0;
+          if (!isGenericGroup) {
+            var groupMovies = movieItems.filter(function(m) { return m.group === groupKey; });
+            if (groupMovies.length > 1) isCollection = true;
+          }
         }
         if (isCollection) {
           if (!collections[groupKey]) {
@@ -5304,11 +5308,11 @@
         var sy = d && d.sync;
         var html = '';
         if (sy && sy.syncing) {
-          var pct = sy.total > 0 ? Math.round(sy.completed / sy.total * 100) : 0;
+          var pct = t > 0 ? Math.round(c / t * 100) : 0;
+          var remaining = sy.total - sy.completed;
           html = '<div style="padding:10px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
-            '<span style="font-size:13px;color:var(--text-dim)">' + label + ': TMDB sync in progress</span>' +
-            '<span style="font-size:12px;color:var(--accent);font-weight:600">' + c + '/' + t + ' enriched (' + pct + '%)</span></div>' +
+            '<span style="font-size:13px;color:var(--text-dim)">' + label + ': ' + c + '/' + t + ' enriched (' + pct + '%)' + (remaining > 0 ? ' — syncing ' + remaining + ' remaining' : '') + '</span></div>' +
             '<div style="width:100%;height:4px;background:var(--border);border-radius:2px;overflow:hidden">' +
             '<div style="width:' + pct + '%;height:100%;background:var(--accent);border-radius:2px;transition:width 0.5s"></div></div></div>';
         } else if (t > 0 && c < t) {

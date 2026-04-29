@@ -15,9 +15,10 @@ import (
 
 func (s *Server) handleCreateEPGSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name         string `json:"name"`
-		URL          string `json:"url"`
-		UseWireGuard bool   `json:"use_wireguard"`
+		Name            string `json:"name"`
+		URL             string `json:"url"`
+		UseWireGuard    bool   `json:"use_wireguard"`
+		RefreshInterval string `json:"refresh_interval"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -28,12 +29,18 @@ func (s *Server) handleCreateEPGSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	refreshInterval := req.RefreshInterval
+	if refreshInterval == "" {
+		refreshInterval = "daily"
+	}
+
 	src := &epg.Source{
-		ID:           uuid.New().String(),
-		Name:         req.Name,
-		URL:          req.URL,
-		IsEnabled:    true,
-		UseWireGuard: req.UseWireGuard,
+		ID:              uuid.New().String(),
+		Name:            req.Name,
+		URL:             req.URL,
+		IsEnabled:       true,
+		UseWireGuard:    req.UseWireGuard,
+		RefreshInterval: refreshInterval,
 	}
 
 	if err := s.deps.EPGSourceStore.Create(r.Context(), src); err != nil {
@@ -62,10 +69,11 @@ func (s *Server) handleUpdateEPGSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name         *string `json:"name"`
-		URL          *string `json:"url"`
-		IsEnabled    *bool   `json:"is_enabled"`
-		UseWireGuard *bool   `json:"use_wireguard"`
+		Name            *string `json:"name"`
+		URL             *string `json:"url"`
+		IsEnabled       *bool   `json:"is_enabled"`
+		UseWireGuard    *bool   `json:"use_wireguard"`
+		RefreshInterval *string `json:"refresh_interval"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -83,6 +91,9 @@ func (s *Server) handleUpdateEPGSource(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.UseWireGuard != nil {
 		existing.UseWireGuard = *req.UseWireGuard
+	}
+	if req.RefreshInterval != nil {
+		existing.RefreshInterval = *req.RefreshInterval
 	}
 
 	if err := s.deps.EPGSourceStore.Update(r.Context(), existing); err != nil {
@@ -552,6 +563,10 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) RefreshEPGSource(ctx context.Context, src *epg.Source) {
+	s.refreshEPGSource(ctx, src)
 }
 
 func (s *Server) RefreshAllEPGSources(ctx context.Context) error {

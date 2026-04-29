@@ -364,9 +364,16 @@ func main() {
 		log.Printf("worker %s error: %v", name, err)
 	})
 
+	var epgRefreshFn orchestrator.EPGRefreshFunc
 	refreshDeps := orchestrator.RefreshDeps{
 		SourceReg:         sourceReg,
 		SourceConfigStore: sourceConfigStore,
+		EPGSourceStore:    epgSourceStore,
+		EPGRefreshFn: func(ctx context.Context, src *epg.Source) {
+			if epgRefreshFn != nil {
+				epgRefreshFn(ctx, src)
+			}
+		},
 	}
 	scheduler.Add(worker.Job{
 		Name:     "source-refresh",
@@ -375,18 +382,6 @@ func main() {
 			errs := orchestrator.RefreshAll(ctx, refreshDeps)
 			if len(errs) > 0 {
 				return fmt.Errorf("source refresh: %d errors, last: %w", len(errs), errs[len(errs)-1])
-			}
-			return nil
-		},
-	})
-
-	var epgRefreshFn func(ctx context.Context) error
-	scheduler.Add(worker.Job{
-		Name:     "epg-refresh",
-		Interval: 24 * time.Hour,
-		Fn: func(ctx context.Context) error {
-			if epgRefreshFn != nil {
-				return epgRefreshFn(ctx)
 			}
 			return nil
 		},
@@ -451,7 +446,7 @@ func main() {
 		BypassSecret:      cfg.BypassSecret,
 	})
 
-	epgRefreshFn = apiServer.RefreshAllEPGSources
+	epgRefreshFn = apiServer.RefreshEPGSource
 
 	mainMux := http.NewServeMux()
 

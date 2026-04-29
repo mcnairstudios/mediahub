@@ -7,13 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 )
 
+type EPGRefreshFunc func(ctx context.Context, src *epg.Source)
+
 type RefreshDeps struct {
 	SourceReg         *source.Registry
 	SourceConfigStore sourceconfig.Store
+	EPGSourceStore    epg.SourceStore
+	EPGRefreshFn      EPGRefreshFunc
 }
 
 var (
@@ -96,5 +101,43 @@ func RefreshAll(ctx context.Context, deps RefreshDeps) []error {
 			log.Printf("source-refresh: completed %s (%s)", cfg.Name, cfg.Type)
 		}
 	}
+
+	if deps.EPGSourceStore != nil && deps.EPGRefreshFn != nil {
+		epgSources, err := deps.EPGSourceStore.List(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("listing EPG sources: %w", err))
+		} else {
+			for i := range epgSources {
+				src := &epgSources[i]
+				if !src.IsEnabled {
+					continue
+				}
+				interval := src.RefreshInterval
+				if interval == "" || interval == "none" {
+					continue
+				}
+				dur, ok := intervalDurations[interval]
+				if !ok {
+					continue
+				}
+
+				lastRefreshedMu.Lock()
+				last, exists := lastRefreshed["epg:"+src.ID]
+				lastRefreshedMu.Unlock()
+
+				if exists && time.Since(last) < dur {
+					continue
+				}
+
+				log.Printf("source-refresh: refreshing EPG %s", src.Name)
+				deps.EPGRefreshFn(ctx, src)
+				lastRefreshedMu.Lock()
+				lastRefreshed["epg:"+src.ID] = time.Now()
+				lastRefreshedMu.Unlock()
+				log.Printf("source-refresh: completed EPG %s", src.Name)
+			}
+		}
+	}
+
 	return errs
 }

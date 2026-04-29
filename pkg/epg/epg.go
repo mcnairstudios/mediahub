@@ -6,16 +6,17 @@ import (
 )
 
 type Source struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	URL           string     `json:"url"`
-	IsEnabled     bool       `json:"is_enabled"`
-	UseWireGuard  bool       `json:"use_wireguard"`
-	LastRefreshed *time.Time `json:"last_refreshed,omitempty"`
-	ChannelCount  int        `json:"channel_count"`
-	ProgramCount  int        `json:"program_count"`
-	LastError     string     `json:"last_error,omitempty"`
-	ETag          string     `json:"etag,omitempty"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	URL             string     `json:"url"`
+	IsEnabled       bool       `json:"is_enabled"`
+	UseWireGuard    bool       `json:"use_wireguard"`
+	RefreshInterval string     `json:"refresh_interval"`
+	LastRefreshed   *time.Time `json:"last_refreshed,omitempty"`
+	ChannelCount    int        `json:"channel_count"`
+	ProgramCount    int        `json:"program_count"`
+	LastError       string     `json:"last_error,omitempty"`
+	ETag            string     `json:"etag,omitempty"`
 }
 
 type Program struct {
