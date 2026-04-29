@@ -701,6 +701,11 @@
       badges += '<span class="stream-badge stream-badge-res">' + label + '</span>';
     }
     if (s.audio_codec) badges += '<span class="stream-badge stream-badge-codec">' + esc(s.audio_codec) + '</span>';
+    if (s.tags && s.tags.length) {
+      for (var ti = 0; ti < s.tags.length; ti++) {
+        badges += '<span class="stream-badge stream-badge-tag">' + esc(s.tags[ti]) + '</span>';
+      }
+    }
     return badges;
   }
 
@@ -5068,7 +5073,7 @@
       var seriesMap = {};
       for (var si = 0; si < seriesItems.length; si++) {
         var item = seriesItems[si];
-        var key = item.series || item.group || item.name;
+        var key = item.series || item.name;
         if (!seriesMap[key]) {
           seriesMap[key] = {
             name: key,
@@ -5086,9 +5091,11 @@
         seriesMap[key].episodes.push(item);
         if (!seriesMap[key].poster_url && item.poster_url) seriesMap[key].poster_url = item.poster_url;
         if (!seriesMap[key].backdrop_url && item.backdrop_url) seriesMap[key].backdrop_url = item.backdrop_url;
-        var seasonKey = item.season || 0;
-        if (!seriesMap[key].seasons[seasonKey]) seriesMap[key].seasons[seasonKey] = [];
-        seriesMap[key].seasons[seasonKey].push(item);
+        var seasonKey = item.season > 0 ? item.season : null;
+        if (seasonKey !== null) {
+          if (!seriesMap[key].seasons[seasonKey]) seriesMap[key].seasons[seasonKey] = [];
+          seriesMap[key].seasons[seasonKey].push(item);
+        }
       }
 
       var allSeries = Object.keys(seriesMap).sort().map(function(k) { return seriesMap[k]; });
@@ -5114,6 +5121,7 @@
 
       var allGenres = {};
       var allDecades = {};
+      var allTags = {};
       var allItems = movieItems.concat(seriesItems);
       for (var gi = 0; gi < allItems.length; gi++) {
         var mg = allItems[gi];
@@ -5126,35 +5134,49 @@
           var decade = Math.floor(parseInt(mg.year) / 10) * 10;
           if (decade > 1900) allDecades[decade] = true;
         }
+        if (mg.tags) {
+          for (var tj = 0; tj < mg.tags.length; tj++) {
+            allTags[mg.tags[tj]] = true;
+          }
+        }
       }
 
       var activeTab = 'movies';
       var searchTerm = '';
       var filterGenre = '';
       var filterDecade = '';
+      var filterTag = '';
       var searchTimer = null;
       var genreOpts = Object.keys(allGenres).sort();
       var decadeOpts = Object.keys(allDecades).sort().reverse();
+      var tagOpts = Object.keys(allTags).sort();
 
       var content = document.getElementById('lib-content');
       if (!content) return;
 
       function buildFilterBar() {
-        return '<div class="filter-bar">' +
+        var html = '<div class="filter-bar">' +
           '<input class="form-input" id="lib-search" type="text" placeholder="Search..." style="flex:1;min-width:200px;max-width:320px;padding:8px 12px;font-size:13px">' +
           '<select class="filter-select" id="lib-genre"><option value="">All Genres</option>' +
           genreOpts.map(function(g) { return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('') +
           '</select>' +
           '<select class="filter-select" id="lib-decade"><option value="">All Decades</option>' +
           decadeOpts.map(function(d) { return '<option value="' + d + '">' + d + 's</option>'; }).join('') +
-          '</select>' +
-          '</div>';
+          '</select>';
+        if (tagOpts.length > 0) {
+          html += '<select class="filter-select" id="lib-tag"><option value="">All Tags</option>' +
+            tagOpts.map(function(t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') +
+            '</select>';
+        }
+        html += '</div>';
+        return html;
       }
 
       function matchMovieFilter(item) {
         if (searchTerm && (item.name || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         if (filterGenre && (!item.genres || item.genres.indexOf(filterGenre) === -1)) return false;
         if (filterDecade && (!item.year || item.year.indexOf(String(filterDecade)) !== 0)) return false;
+        if (filterTag && (!item.tags || item.tags.indexOf(filterTag) === -1)) return false;
         return true;
       }
 
@@ -5167,6 +5189,10 @@
         if (filterDecade) {
           var anyDecade = col.movies.some(function(m) { return m.year && m.year.indexOf(String(filterDecade)) === 0; });
           if (!anyDecade) return false;
+        }
+        if (filterTag) {
+          var anyTag = col.movies.some(function(m) { return m.tags && m.tags.indexOf(filterTag) >= 0; });
+          if (!anyTag) return false;
         }
         return true;
       }
@@ -5187,10 +5213,20 @@
             });
             if (!anyDecade) return false;
           }
+          if (filterTag) {
+            var anyTag = di.collection.shows.some(function(s) {
+              return s.episodes.some(function(ep) { return ep.tags && ep.tags.indexOf(filterTag) >= 0; });
+            });
+            if (!anyTag) return false;
+          }
         } else {
           var show = di.show;
           if (filterGenre && (!show.genres || show.genres.indexOf(filterGenre) === -1)) return false;
           if (filterDecade && (!show.year || show.year.indexOf(String(filterDecade)) !== 0)) return false;
+          if (filterTag) {
+            var anyEpTag = show.episodes.some(function(ep) { return ep.tags && ep.tags.indexOf(filterTag) >= 0; });
+            if (!anyEpTag) return false;
+          }
         }
         return true;
       }
@@ -5250,7 +5286,15 @@
               '<div class="poster-meta">';
             if (m.year) html += '<span class="poster-year">' + esc(m.year) + '</span>';
             if (m.rating > 0) html += ratingHtml(m.rating);
-            html += '</div></div></div>';
+            html += '</div>';
+            if (m.tags && m.tags.length) {
+              html += '<div class="poster-tags">';
+              for (var tg = 0; tg < m.tags.length; tg++) {
+                html += '<span class="poster-tag">' + esc(m.tags[tg]) + '</span>';
+              }
+              html += '</div>';
+            }
+            html += '</div></div>';
           }
         }
         html += '</div>';
@@ -5509,6 +5553,14 @@
       if (decadeEl) {
         decadeEl.addEventListener('change', function() {
           filterDecade = this.value;
+          renderActiveTab();
+        });
+      }
+
+      var tagEl = document.getElementById('lib-tag');
+      if (tagEl) {
+        tagEl.addEventListener('change', function() {
+          filterTag = this.value;
           renderActiveTab();
         });
       }
@@ -5799,6 +5851,10 @@
     }
 
     var seasonKeys = Object.keys(show.seasons);
+    if (seasonKeys.length === 0 && show.episodes.length > 0) {
+      show.seasons[1] = show.episodes;
+      seasonKeys = ['1'];
+    }
     seasonKeys.sort(function(a, b) {
       var aNum = parseInt(a, 10);
       var bNum = parseInt(b, 10);

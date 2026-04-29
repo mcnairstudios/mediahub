@@ -290,7 +290,16 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 	season, _ := strconv.Atoi(attrs["tvp-season"])
 	episode, _ := strconv.Atoi(attrs["tvp-episode"])
 
-	tags := extractTags(entry.Name, attrs["tvp-resolution"], attrs["tvp-codec"])
+	vcodec := attrs["tvp-vcodec"]
+	if vcodec == "" {
+		vcodec = attrs["tvp-codec"]
+	}
+	acodec := attrs["tvp-acodec"]
+	if acodec == "" {
+		acodec = attrs["tvp-audio"]
+	}
+	audioFormat := attrs["tvp-audio"]
+	tags := extractTags(entry.Name, attrs["tvp-resolution"], vcodec, acodec, audioFormat, attrs["tvp-container"])
 
 	return media.Stream{
 		ID:             id,
@@ -303,8 +312,8 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 		TvgName:        entry.TvgName,
 		TvgLogo:        entry.TvgLogo,
 		IsActive:       true,
-		VideoCodec:     attrs["tvp-codec"],
-		AudioCodec:     attrs["tvp-audio"],
+		VideoCodec:     vcodec,
+		AudioCodec:     acodec,
 		Width:          w,
 		Height:         h,
 		VODType:        vodType,
@@ -321,7 +330,7 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 	}
 }
 
-func extractTags(name, resolution, codec string) []string {
+func extractTags(name, resolution, vcodec, acodec, audioFormat, container string) []string {
 	var tags []string
 
 	for _, match := range editionTagRe.FindAllStringSubmatch(name, -1) {
@@ -337,6 +346,23 @@ func extractTags(name, resolution, codec string) []string {
 		tags = append(tags, "1080p")
 	case "720p":
 		tags = append(tags, "720p")
+	}
+
+	if vcodec != "" {
+		switch strings.ToUpper(vcodec) {
+		case "HEVC", "H265":
+			tags = append(tags, "HEVC")
+		case "H264", "AVC":
+			tags = append(tags, "H.264")
+		case "AV1":
+			tags = append(tags, "AV1")
+		}
+	}
+
+	if audioFormat != "" {
+		tags = append(tags, audioFormat)
+	} else if acodec != "" {
+		tags = append(tags, strings.ToUpper(acodec))
 	}
 
 	nameLower := strings.ToLower(name)

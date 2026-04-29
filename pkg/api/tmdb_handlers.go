@@ -125,7 +125,16 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		if st.VODType == "" {
 			continue
 		}
-		if vodType != "" && st.VODType != vodType {
+		if vodType != "" {
+			if vodType == "series" {
+				if st.VODType != "series" && st.VODType != "episode" {
+					continue
+				}
+			} else if st.VODType != vodType {
+				continue
+			}
+		}
+		if vodType == "series" && st.Season == 0 && st.Episode == 0 && st.IsLocal {
 			continue
 		}
 		if sourceID != "" && st.SourceID != sourceID {
@@ -161,8 +170,11 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		Season             int      `json:"season,omitempty"`
 		Episode            int      `json:"episode,omitempty"`
 		EpisodeName        string   `json:"episode_name,omitempty"`
+		EpisodeOverview    string   `json:"episode_overview,omitempty"`
+		EpisodeStill       string   `json:"episode_still,omitempty"`
 		SourceID           string   `json:"source_id,omitempty"`
 		SourceType         string   `json:"source_type,omitempty"`
+		Tags               []string `json:"tags,omitempty"`
 		Alternates         []vodAlt `json:"alternates,omitempty"`
 	}
 
@@ -243,17 +255,18 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		cached := lookupTMDB(st)
 
 		item := vodItem{
-			ID:         st.ID,
-			Name:       st.Name,
-			VODType:    st.VODType,
-			Group:      st.Group,
-			Series:     st.SeriesName,
-			Season:     st.Season,
-			Episode:    st.Episode,
+			ID:          st.ID,
+			Name:        st.Name,
+			VODType:     st.VODType,
+			Group:       st.Group,
+			Series:      st.SeriesName,
+			Season:      st.Season,
+			Episode:     st.Episode,
 			EpisodeName: st.EpisodeName,
-			SourceID:   st.SourceID,
-			SourceType: st.SourceType,
-			Year:       st.Year,
+			SourceID:    st.SourceID,
+			SourceType:  st.SourceType,
+			Year:        st.Year,
+			Tags:        st.Tags,
 		}
 
 		if st.CollectionName != "" {
@@ -296,6 +309,27 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 			}
 			if sr.BackdropPath != "" {
 				item.BackdropURL = "/api/tmdb/image?size=w1280&path=" + sr.BackdropPath
+			}
+			if st.Season > 0 && st.Episode > 0 {
+				for _, sn := range sr.Seasons {
+					if sn.SeasonNumber == st.Season {
+						for _, ep := range sn.Episodes {
+							if ep.EpisodeNumber == st.Episode {
+								if ep.Name != "" && item.EpisodeName == "" {
+									item.EpisodeName = ep.Name
+								}
+								if ep.Overview != "" {
+									item.EpisodeOverview = ep.Overview
+								}
+								if ep.StillPath != "" {
+									item.EpisodeStill = "/api/tmdb/image?size=w300&path=" + ep.StillPath
+								}
+								break
+							}
+						}
+						break
+					}
+				}
 			}
 		}
 
