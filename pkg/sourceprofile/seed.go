@@ -23,8 +23,6 @@ func SeedDefaults(ctx context.Context, store Store, defs []defaults.SourceProfil
 			Name:              d.Name,
 			Deinterlace:       d.Deinterlace,
 			DeinterlaceMethod: d.DeinterlaceMethod,
-			AudioLanguage:     d.AudioLanguage,
-			SubtitleLanguage:  d.SubtitleLanguage,
 			RTSPProtocols:     d.RTSPProtocols,
 			RTSPLatency:       d.RTSPLatency,
 			HTTPTimeoutSec:    d.HTTPTimeoutSec,

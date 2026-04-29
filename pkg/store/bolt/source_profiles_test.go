@@ -23,7 +23,6 @@ func TestSourceProfileStore_CRUD(t *testing.T) {
 		Name:              "SAT>IP DVB-T",
 		Deinterlace:       true,
 		DeinterlaceMethod: "auto",
-		AudioLanguage:     "eng",
 		RTSPProtocols:     "tcp",
 		HTTPTimeoutSec:    10,
 	}
@@ -47,9 +46,6 @@ func TestSourceProfileStore_CRUD(t *testing.T) {
 	}
 	if got.DeinterlaceMethod != "auto" {
 		t.Errorf("deinterlace_method = %s, want auto", got.DeinterlaceMethod)
-	}
-	if got.AudioLanguage != "eng" {
-		t.Errorf("audio_language = %s, want eng", got.AudioLanguage)
 	}
 	if got.RTSPProtocols != "tcp" {
 		t.Errorf("rtsp_protocols = %s, want tcp", got.RTSPProtocols)

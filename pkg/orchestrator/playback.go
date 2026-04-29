@@ -90,6 +90,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 	}
 
+	var audioLanguage string
 	if deps.SettingsStore != nil {
 		if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" && out.HWAccel == "" {
 			out.HWAccel = hw
@@ -98,6 +99,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 			if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
 				out.MaxBitDepth = v
 			}
+		}
+		if al, err := deps.SettingsStore.Get(ctx, "audio_language"); err == nil && al != "" {
+			audioLanguage = al
 		}
 	}
 
@@ -134,6 +138,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		StreamURL:           pipelineURL,
 		StreamID:            stream.ID,
 		UserAgent:           deps.UserAgent,
+		AudioLanguage:       audioLanguage,
 		NeedsTranscode:      decision.NeedsTranscode,
 		NeedsAudioTranscode: decision.NeedsAudioTranscode,
 		OutputCodec:         string(decision.VideoCodec),
@@ -323,9 +328,6 @@ func applySourceProfile(ctx context.Context, deps PlaybackDeps, stream *media.St
 
 	if profile.Deinterlace {
 		cfg.Deinterlace = true
-	}
-	if profile.AudioLanguage != "" && cfg.AudioLanguage == "" {
-		cfg.AudioLanguage = profile.AudioLanguage
 	}
 	if profile.HTTPTimeoutSec > 0 && cfg.TimeoutSec == 0 {
 		cfg.TimeoutSec = profile.HTTPTimeoutSec

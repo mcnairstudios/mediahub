@@ -101,11 +101,12 @@ func TestRefreshSource_UnknownType(t *testing.T) {
 }
 
 func TestRefreshAll(t *testing.T) {
+	ResetRefreshTracking()
 	m3u := &mockSource{info: source.SourceInfo{ID: "src-1", Type: "m3u"}}
 	hdhr := &mockSource{info: source.SourceInfo{ID: "src-2", Type: "hdhr"}}
 	configs := []sourceconfig.SourceConfig{
 		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
-		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true},
+		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
 	}
 	deps := newTestRefreshDeps(map[source.SourceType]*mockSource{
 		"m3u":  m3u,
@@ -125,11 +126,12 @@ func TestRefreshAll(t *testing.T) {
 }
 
 func TestRefreshAll_PartialFailure(t *testing.T) {
+	ResetRefreshTracking()
 	m3u := &mockSource{info: source.SourceInfo{ID: "src-1", Type: "m3u"}, refreshErr: errors.New("network error")}
 	hdhr := &mockSource{info: source.SourceInfo{ID: "src-2", Type: "hdhr"}}
 	configs := []sourceconfig.SourceConfig{
 		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
-		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true},
+		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
 	}
 	deps := newTestRefreshDeps(map[source.SourceType]*mockSource{
 		"m3u":  m3u,

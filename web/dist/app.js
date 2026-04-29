@@ -2686,8 +2686,6 @@
       '<div class="field-hint">Apply deinterlace filter for interlaced content (576i/1080i)</div></div>' +
       '<div class="form-group" id="sp-deinterlace-method-group" style="display:none"><label class="form-label">Deinterlace Method</label>' +
       '<select class="form-input" id="sp-deinterlace-method"><option value="auto">Auto (best available)</option><option value="bob">Bob (double framerate)</option><option value="weave">Weave (merge fields)</option></select></div>' +
-      '<div class="form-group"><label class="form-label">Preferred Audio Language</label><input class="form-input" id="sp-audio-lang" placeholder="eng">' +
-      '<div class="field-hint">ISO 639 language code. Empty = first available non-AD track.</div></div>' +
       '<div class="form-group"><label class="form-label">RTSP Protocol</label>' +
       '<select class="form-input" id="sp-rtsp-proto"><option value="tcp">TCP (recommended)</option><option value="udp">UDP</option></select></div>' +
       '<div class="form-group"><label class="form-label">RTSP Latency (ms)</label><input class="form-input" id="sp-rtsp-latency" type="number" value="0" min="0" placeholder="0">' +
@@ -2715,7 +2713,6 @@
       document.getElementById('sp-deinterlace').checked = false;
       document.getElementById('sp-deinterlace-method').value = 'auto';
       document.getElementById('sp-deinterlace-method-group').style.display = 'none';
-      document.getElementById('sp-audio-lang').value = '';
       document.getElementById('sp-rtsp-proto').value = 'tcp';
       document.getElementById('sp-rtsp-latency').value = '0';
       document.getElementById('sp-http-timeout').value = '30';
@@ -2736,7 +2733,6 @@
         name: name,
         deinterlace: document.getElementById('sp-deinterlace').checked,
         deinterlace_method: document.getElementById('sp-deinterlace-method').value,
-        audio_language: document.getElementById('sp-audio-lang').value.trim(),
         rtsp_protocols: document.getElementById('sp-rtsp-proto').value,
         rtsp_latency: parseInt(document.getElementById('sp-rtsp-latency').value) || 0,
         http_timeout_sec: parseInt(document.getElementById('sp-http-timeout').value) || 30,
@@ -2777,14 +2773,13 @@
       }
 
       var html = '<table class="list-table"><thead><tr>' +
-        '<th>Name</th><th>Deinterlace</th><th>Audio Language</th><th>RTSP Protocol</th><th>HTTP Timeout</th><th>Actions</th>' +
+        '<th>Name</th><th>Deinterlace</th><th>RTSP Protocol</th><th>HTTP Timeout</th><th>Actions</th>' +
         '</tr></thead><tbody>';
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
         html += '<tr>' +
           '<td>' + esc(p.name) + '</td>' +
           '<td>' + (p.deinterlace ? '<span class="badge badge-enabled">Yes</span>' : '') + '</td>' +
-          '<td>' + esc(p.audio_language || '-') + '</td>' +
           '<td>' + esc(p.rtsp_protocols || 'tcp') + '</td>' +
           '<td>' + (p.http_timeout_sec ? p.http_timeout_sec + 's' : '30s') + '</td>' +
           '<td><div class="actions-cell">' +
@@ -2805,7 +2800,6 @@
           document.getElementById('sp-deinterlace').checked = !!p.deinterlace;
           document.getElementById('sp-deinterlace-method').value = p.deinterlace_method || 'auto';
           document.getElementById('sp-deinterlace-method-group').style.display = p.deinterlace ? 'block' : 'none';
-          document.getElementById('sp-audio-lang').value = p.audio_language || '';
           document.getElementById('sp-rtsp-proto').value = p.rtsp_protocols || 'tcp';
           document.getElementById('sp-rtsp-latency').value = p.rtsp_latency || '0';
           document.getElementById('sp-http-timeout').value = p.http_timeout_sec || '30';
@@ -4071,6 +4065,21 @@
       '</div></div>';
 
     html += '<div class="settings-section">' +
+      '<div class="settings-section-header">Language</div>' +
+      '<div class="settings-section-body">' +
+      '<div class="settings-field">' +
+        '<label>Audio Language</label>' +
+        '<input type="text" id="setting-audio-lang" value="' + esc(getSetting(settings, 'audio_language')) + '" placeholder="eng">' +
+        '<span class="field-hint">ISO 639 language code for preferred audio track. Empty = first available non-AD track.</span>' +
+      '</div>' +
+      '<div class="settings-field">' +
+        '<label>Subtitle Language</label>' +
+        '<input type="text" id="setting-subtitle-lang" value="' + esc(getSetting(settings, 'subtitle_language')) + '" placeholder="eng">' +
+        '<span class="field-hint">ISO 639 language code for preferred subtitle track. Empty = no subtitles.</span>' +
+      '</div>' +
+      '</div></div>';
+
+    html += '<div class="settings-section">' +
       '<div class="settings-section-header">Integrations</div>' +
       '<div class="settings-section-body">' +
       '<div class="settings-section-desc">Third-party API keys for metadata enrichment.</div>' +
@@ -4120,6 +4129,8 @@
 
     bindTextSave(container, 'setting-base-url', 'base_url');
     bindToggle(container, 'setting-dlna', 'dlna_enabled');
+    bindTextSave(container, 'setting-audio-lang', 'audio_language');
+    bindTextSave(container, 'setting-subtitle-lang', 'subtitle_language');
     bindTextSave(container, 'setting-tmdb-key', 'tmdb_api_key');
     bindTextSave(container, 'setting-google-client-id', 'google_client_id');
     bindTextSave(container, 'setting-google-client-secret', 'google_client_secret');

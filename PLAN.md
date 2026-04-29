@@ -17,12 +17,6 @@ This means:
 | `deinterlace` | Enable deinterlacing | `true` for DVB SD content |
 | `deinterlace_method` | Algorithm | `"auto"`, `"bob"`, `"weave"` |
 
-### Stream Selection
-| Field | Purpose | Example |
-|-------|---------|---------|
-| `audio_language` | Preferred audio track | `"eng"`, `"fra"` |
-| `subtitle_language` | Preferred subtitle track | `"eng"` |
-
 ### Connection Tuning
 | Field | Purpose | Example |
 |-------|---------|---------|
@@ -62,14 +56,14 @@ Source → [Source Profile applied] → Demuxer → Bridge → FanOut → [Clien
          ├─ timeout                                              ├─ codec
          ├─ user agent                                           ├─ container
          ├─ rtsp protocol                                        ├─ delivery
-         ├─ audio language                                       ├─ bitrate
-         └─ deinterlace                                          └─ resolution
+         └─ deinterlace                                          ├─ bitrate
+                                                                 └─ resolution
 ```
 
 The orchestrator's `StartPlayback`:
 1. Looks up the stream's source → source config → `source_profile_id`
 2. Loads the source profile
-3. Applies to `PipelineConfig`: timeout, user agent, deinterlace, audio language
+3. Applies to `PipelineConfig`: timeout, user agent, deinterlace
 4. Detects the client → client profile
 5. Applies to strategy `Output`: codec, container, delivery, hwaccel
 6. Strategy produces decision → pipeline runs
@@ -88,7 +82,6 @@ Stored in `defaults/source_profiles.json`, loaded on first run:
     "name": "DVB Terrestrial",
     "deinterlace": true,
     "deinterlace_method": "auto",
-    "audio_language": "eng",
     "rtsp_protocols": "tcp",
     "http_timeout_sec": 60
   },
@@ -96,7 +89,6 @@ Stored in `defaults/source_profiles.json`, loaded on first run:
     "name": "DVB Satellite",
     "deinterlace": true,
     "deinterlace_method": "auto",
-    "audio_language": "eng",
     "rtsp_protocols": "tcp",
     "rtsp_latency": 200,
     "http_timeout_sec": 60
@@ -124,7 +116,7 @@ Users can:
 ## UI
 
 ### Source Profiles Page (admin)
-- Table: Name, Deinterlace, Audio Lang, RTSP, Timeout
+- Table: Name, Deinterlace, RTSP, Timeout
 - Create/Edit form shows ALL fields grouped by category
 - Help text per field explains when to use it
 

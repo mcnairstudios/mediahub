@@ -40,8 +40,6 @@ type SourceProfileDef struct {
 	Name              string `json:"name"`
 	Deinterlace       bool   `json:"deinterlace,omitempty"`
 	DeinterlaceMethod string `json:"deinterlace_method,omitempty"`
-	AudioLanguage     string `json:"audio_language,omitempty"`
-	SubtitleLanguage  string `json:"subtitle_language,omitempty"`
 	RTSPProtocols     string `json:"rtsp_protocols,omitempty"`
 	RTSPLatency       int    `json:"rtsp_latency,omitempty"`
 	HTTPTimeoutSec    int    `json:"http_timeout_sec,omitempty"`

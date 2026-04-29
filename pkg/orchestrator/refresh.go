@@ -21,6 +21,12 @@ var (
 	lastRefreshedMu sync.Mutex
 )
 
+func ResetRefreshTracking() {
+	lastRefreshedMu.Lock()
+	lastRefreshed = make(map[string]time.Time)
+	lastRefreshedMu.Unlock()
+}
+
 var intervalDurations = map[string]time.Duration{
 	"minute":  1 * time.Minute,
 	"hourly":  1 * time.Hour,

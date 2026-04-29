@@ -144,6 +144,8 @@ var apiSettableKeys = map[string]bool{
 	"epg_channel_meta":       true,
 	"google_client_id":       true,
 	"google_client_secret":   true,
+	"audio_language":         true,
+	"subtitle_language":      true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {

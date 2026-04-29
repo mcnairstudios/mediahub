@@ -8,7 +8,6 @@
       "name": "SAT>IP DVB-T",
       "deinterlace": true,
       "deinterlace_method": "auto",
-      "audio_language": "eng",
       "rtsp_protocols": "tcp",
       "http_timeout_sec": 10
     },
@@ -16,7 +15,6 @@
       "name": "DVB Satellite",
       "deinterlace": true,
       "deinterlace_method": "auto",
-      "audio_language": "eng",
       "rtsp_protocols": "tcp",
       "rtsp_latency": 200,
       "http_timeout_sec": 10

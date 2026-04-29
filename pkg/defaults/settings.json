@@ -11,5 +11,7 @@
   "dlna_enabled": "true",
   "delivery": "hls",
   "container": "mp4",
-  "tmdb_api_key": ""
+  "tmdb_api_key": "",
+  "audio_language": "eng",
+  "subtitle_language": ""
 }
