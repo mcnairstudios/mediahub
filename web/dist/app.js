@@ -4713,6 +4713,7 @@
       '<div class="card-title" id="epg-form-title">New EPG Source</div>' +
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="epg-name" placeholder="UK XMLTV"></div>' +
       '<div class="form-group"><label class="form-label">XMLTV URL</label><input class="form-input" id="epg-url" placeholder="http://example.com/guide.xml"></div>' +
+      '<div class="form-group"><label class="form-label">Auto Refresh</label><select class="form-input" id="epg-refresh"><option value="none">None (manual only)</option><option value="hourly">Hourly</option><option value="daily" selected>Daily</option><option value="weekly">Weekly</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="epg-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px">' +
       '<button class="btn btn-primary" id="save-epg-btn">Create</button>' +
@@ -4727,6 +4728,7 @@
       document.getElementById('save-epg-btn').textContent = 'Create';
       document.getElementById('epg-name').value = '';
       document.getElementById('epg-url').value = '';
+      document.getElementById('epg-refresh').value = 'daily';
       document.getElementById('epg-wireguard').checked = false;
       formEl.style.display = 'block';
     });
@@ -4735,14 +4737,15 @@
     document.getElementById('save-epg-btn').addEventListener('click', async function() {
       var name = document.getElementById('epg-name').value.trim();
       var url = document.getElementById('epg-url').value.trim();
+      var refreshInterval = document.getElementById('epg-refresh').value;
       var wg = document.getElementById('epg-wireguard').checked;
       if (!name || !url) { toast('Name and URL required', 'error'); return; }
       try {
         var r;
         if (epgEditId) {
-          r = await api.put('/api/epg/sources/' + epgEditId, { name: name, url: url, use_wireguard: wg });
+          r = await api.put('/api/epg/sources/' + epgEditId, { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
         } else {
-          r = await api.post('/api/epg/sources', { name: name, url: url, use_wireguard: wg });
+          r = await api.post('/api/epg/sources', { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
         }
         if (r.ok) {
           toast(epgEditId ? 'EPG source updated' : 'EPG source created');
@@ -4780,7 +4783,7 @@
           statusBadge = '<span class="badge badge-live" title="' + esc(s.last_error) + '">ERROR</span>';
         }
         var lastRefreshed = s.last_refreshed ? new Date(s.last_refreshed).toLocaleString() : 'Never';
-        epgSourceConfigs[s.id] = { name: s.name, url: s.url, use_wireguard: s.use_wireguard };
+        epgSourceConfigs[s.id] = { name: s.name, url: s.url, refresh_interval: s.refresh_interval, use_wireguard: s.use_wireguard };
         html += '<tr>' +
           '<td><a href="#" class="epg-source-name" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" style="color:var(--accent);cursor:pointer">' + esc(s.name) + '</a></td>' +
           '<td>' + (s.channel_count || 0) + '</td>' +
@@ -4926,6 +4929,7 @@
           document.getElementById('save-epg-btn').textContent = 'Update';
           document.getElementById('epg-name').value = cfg.name || '';
           document.getElementById('epg-url').value = cfg.url || '';
+          document.getElementById('epg-refresh').value = cfg.refresh_interval || 'daily';
           document.getElementById('epg-wireguard').checked = !!cfg.use_wireguard;
           formEl.style.display = 'block';
         });

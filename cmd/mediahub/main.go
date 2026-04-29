@@ -29,6 +29,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/config"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
+	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/dlna"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/jellyfin"
