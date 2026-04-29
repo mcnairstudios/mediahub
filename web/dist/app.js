@@ -1140,11 +1140,7 @@
       if (!Array.isArray(channelGroups)) channelGroups = [];
     } catch (e) { channelGroups = []; }
 
-    try {
-      var streamResp = await api.get('/api/streams?fields=slim');
-      channelStreams = await streamResp.json();
-      if (!Array.isArray(channelStreams)) channelStreams = [];
-    } catch (e) { channelStreams = []; }
+    channelStreams = null;
 
     function populateForm(ch) {
       var groupSelect = document.getElementById('ch-group');
@@ -1155,13 +1151,17 @@
         groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
       }
       var streamSelect = document.getElementById('ch-streams');
-      streamSelect.innerHTML = '';
+      streamSelect.innerHTML = '<option value="">Loading streams...</option>';
       var existingStreams = ch && ch.stream_ids ? ch.stream_ids : [];
-      for (var si = 0; si < channelStreams.length; si++) {
-        var st = channelStreams[si];
-        var selected = existingStreams.indexOf(st.id) >= 0 ? ' selected' : '';
-        streamSelect.innerHTML += '<option value="' + esc(st.id) + '"' + selected + '>' + esc(st.name) + '</option>';
-      }
+      (channelStreams ? Promise.resolve(channelStreams) : api.get('/api/streams?fields=slim').then(function(r) { return r.json(); }).then(function(d) { channelStreams = d; return d; })).then(function(streams) {
+        if (!Array.isArray(streams)) streams = [];
+        streamSelect.innerHTML = '';
+        for (var si = 0; si < streams.length; si++) {
+          var st = streams[si];
+          var selected = existingStreams.indexOf(st.id) >= 0 ? ' selected' : '';
+          streamSelect.innerHTML += '<option value="' + esc(st.id) + '"' + selected + '>' + esc(st.name) + '</option>';
+        }
+      });
     }
 
     if (isAdmin) {
