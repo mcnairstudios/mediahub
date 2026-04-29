@@ -109,6 +109,11 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	cacheKey := "vod:" + vodType + ":" + sourceID
 	if entry, ok := s.vodCache.Load(cacheKey); ok {
 		if ce, ok := entry.(*vodCacheEntry); ok {
+			if result, ok := ce.data.(map[string]any); ok {
+				if s.deps.TMDBClient != nil {
+					result["sync"] = s.deps.TMDBClient.Status()
+				}
+			}
 			httputil.RespondJSON(w, http.StatusOK, ce.data)
 			return
 		}
