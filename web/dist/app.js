@@ -5253,7 +5253,7 @@
         if (!grid) return;
 
         if (combined.length === 0) {
-          grid.innerHTML = '<div class="empty-state">' + icons.empty + '<p>' + (searchTerm || filterGenre || filterDecade ? 'No movies match your filters' : 'No movies found') + '</p></div>';
+          grid.innerHTML = '<div class="empty-state">' + icons.empty + '<p>' + (searchTerm || filterGenre || filterDecade || filterTag ? 'No movies match your filters' : 'No movies found') + '</p></div>';
           return;
         }
 
@@ -5518,12 +5518,15 @@
           searchTerm = '';
           filterGenre = '';
           filterDecade = '';
+          filterTag = '';
           var si = document.getElementById('lib-search');
           if (si) si.value = '';
           var gi = document.getElementById('lib-genre');
           if (gi) gi.value = '';
           var di = document.getElementById('lib-decade');
           if (di) di.value = '';
+          var ti = document.getElementById('lib-tag');
+          if (ti) ti.value = '';
           updateSyncForTab(activeTab);
           renderActiveTab();
         });
@@ -5636,6 +5639,14 @@
       var gSpan = document.createElement('span');
       gSpan.textContent = item.genres.slice(0, 3).join(' \u2022 ');
       metaLine.appendChild(gSpan);
+    }
+    if (item.tags && item.tags.length) {
+      for (var tgi = 0; tgi < item.tags.length; tgi++) {
+        var tagSpan = document.createElement('span');
+        tagSpan.style.cssText = 'background:rgba(234,179,8,0.2);color:#eab308;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;';
+        tagSpan.textContent = item.tags[tgi];
+        metaLine.appendChild(tagSpan);
+      }
     }
     metaRow.appendChild(metaLine);
 

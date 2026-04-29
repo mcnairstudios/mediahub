@@ -858,3 +858,121 @@ func TestSourceFieldsSet(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractTags(t *testing.T) {
+	tests := []struct {
+		name       string
+		resolution string
+		vcodec     string
+		acodec     string
+		audio      string
+		container  string
+		expected   []string
+	}{
+		{
+			name:       "Blade Runner (1982) {edition-Director's Cut}",
+			resolution: "4K",
+			vcodec:     "hevc",
+			acodec:     "truehd",
+			audio:      "TrueHD Atmos",
+			container:  "mkv",
+			expected:   []string{"Director's Cut", "4K", "HEVC", "TrueHD Atmos"},
+		},
+		{
+			name:       "Apocalypse Now (1979) {edition-NOIR Edition}",
+			resolution: "1080p",
+			vcodec:     "h264",
+			acodec:     "aac",
+			audio:      "",
+			container:  "",
+			expected:   []string{"NOIR Edition", "1080p", "H.264", "AAC"},
+		},
+		{
+			name:       "The Matrix (1999)",
+			resolution: "720p",
+			vcodec:     "h264",
+			acodec:     "ac3",
+			audio:      "",
+			container:  "",
+			expected:   []string{"720p", "H.264", "AC3"},
+		},
+		{
+			name:       "Movie HDR10+ Version",
+			resolution: "",
+			vcodec:     "",
+			acodec:     "",
+			audio:      "",
+			container:  "",
+			expected:   []string{"HDR"},
+		},
+		{
+			name:       "Dune (2021) {edition-Extended} {edition-IMAX}",
+			resolution: "4K",
+			vcodec:     "av1",
+			acodec:     "eac3",
+			audio:      "EAC3",
+			container:  "",
+			expected:   []string{"Extended", "IMAX", "4K", "AV1", "EAC3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractTags(tt.name, tt.resolution, tt.vcodec, tt.acodec, tt.audio, tt.container)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("extractTags(%q) = %v, want %v", tt.name, got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Fatalf("extractTags(%q)[%d] = %q, want %q", tt.name, i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestRefreshPopulatesTags(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, testPlaylist)
+	}))
+	defer ts.Close()
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:          "tvp-1",
+		Name:        "Test",
+		URL:         ts.URL,
+		StreamStore: ss,
+		HTTPClient:  ts.Client(),
+	})
+
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	streams, _ := ss.ListBySource(context.Background(), "tvpstreams", "tvp-1")
+	for _, stream := range streams {
+		if len(stream.Tags) == 0 {
+			t.Fatalf("expected tags for stream %s, got none", stream.Name)
+		}
+	}
+
+	for _, stream := range streams {
+		if stream.Name == "Inception (2010)" {
+			hasTag := func(tag string) bool {
+				for _, t := range stream.Tags {
+					if t == tag {
+						return true
+					}
+				}
+				return false
+			}
+			if !hasTag("4K") {
+				t.Fatalf("expected 4K tag for Inception, got %v", stream.Tags)
+			}
+			if !hasTag("HEVC") {
+				t.Fatalf("expected HEVC tag for Inception, got %v", stream.Tags)
+			}
+		}
+	}
+}
