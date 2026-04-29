@@ -9,7 +9,8 @@
       "deinterlace": true,
       "deinterlace_method": "auto",
       "rtsp_protocols": "tcp",
-      "http_timeout_sec": 10
+      "http_timeout_sec": 10,
+      "format_hint": "rtsp"
     },
     {
       "name": "DVB Satellite",
@@ -17,7 +18,8 @@
       "deinterlace_method": "auto",
       "rtsp_protocols": "tcp",
       "rtsp_latency": 200,
-      "http_timeout_sec": 10
+      "http_timeout_sec": 10,
+      "format_hint": "rtsp"
     },
     {
       "name": "HDHomeRun",
@@ -25,7 +27,8 @@
     },
     {
       "name": "Remote IPTV",
-      "http_timeout_sec": 30
+      "http_timeout_sec": 30,
+      "probe_duration_sec": 10
     },
     {
       "name": "Local Network",

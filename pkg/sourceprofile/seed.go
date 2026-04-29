@@ -27,6 +27,8 @@ func SeedDefaults(ctx context.Context, store Store, defs []defaults.SourceProfil
 			RTSPLatency:       d.RTSPLatency,
 			HTTPTimeoutSec:    d.HTTPTimeoutSec,
 			HTTPUserAgent:     d.HTTPUserAgent,
+			FormatHint:        d.FormatHint,
+			ProbeDurationSec:  d.ProbeDurationSec,
 		}
 		if err := store.Create(ctx, &p); err != nil {
 			return err

@@ -24,16 +24,16 @@ This means:
 | `rtsp_latency` | RTSP buffer (ms) | `0` (min latency) to `2000` (stable) |
 | `http_timeout_sec` | Connection timeout | `5` (LAN) to `60` (remote) |
 | `http_user_agent` | UA override | Provider-specific UA strings |
+| `format_hint` | Force input format (ambiguous URLs only) | `"rtsp"`, `"mpegts"`, `"hls"` |
+| `probe_duration_sec` | How long to analyze stream | `10` for remote IPTV |
 
 ### Future Fields (added as needed)
 | Field | Purpose | When |
 |-------|---------|------|
 | `audio_sync_mode` | PTS handling strategy | IP cameras with broken timestamps |
-| `probe_duration_sec` | How long to analyze stream | Unusual containers |
 | `reconnect_attempts` | Auto-reconnect count | Unreliable sources |
 | `reconnect_delay_sec` | Backoff between retries | Unreliable sources |
 | `buffer_size_kb` | Input buffer | High bitrate sources |
-| `format_hint` | Force input format | `"rtsp"`, `"mpegts"`, `"hls"` |
 
 New fields are added with `omitempty` — old profiles remain valid. No migration needed.
 

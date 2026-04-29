@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
@@ -334,6 +335,15 @@ func applySourceProfile(ctx context.Context, deps PlaybackDeps, stream *media.St
 	}
 	if profile.HTTPUserAgent != "" && cfg.UserAgent == "" {
 		cfg.UserAgent = profile.HTTPUserAgent
+	}
+	if cfg.FormatHint == "" && profile.FormatHint != "" &&
+		!strings.HasPrefix(stream.URL, "rtsp://") &&
+		!strings.HasPrefix(stream.URL, "http://") &&
+		!strings.HasPrefix(stream.URL, "https://") {
+		cfg.FormatHint = profile.FormatHint
+	}
+	if profile.ProbeDurationSec > 0 && cfg.ProbeDurationSec == 0 {
+		cfg.ProbeDurationSec = profile.ProbeDurationSec
 	}
 }
 

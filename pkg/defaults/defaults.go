@@ -44,6 +44,8 @@ type SourceProfileDef struct {
 	RTSPLatency       int    `json:"rtsp_latency,omitempty"`
 	HTTPTimeoutSec    int    `json:"http_timeout_sec,omitempty"`
 	HTTPUserAgent     string `json:"http_user_agent,omitempty"`
+	FormatHint        string `json:"format_hint,omitempty"`
+	ProbeDurationSec  int    `json:"probe_duration_sec,omitempty"`
 }
 
 type sourceProfilesFile struct {

@@ -34,6 +34,7 @@ type PipelineConfig struct {
 	DecoderName      string
 	Framerate        int
 	FormatHint       string
+	ProbeDurationSec int
 	TimeoutSec       int
 }
 
@@ -82,6 +83,9 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	}
 	if cfg.FormatHint != "" {
 		opts.FormatHint = cfg.FormatHint
+	}
+	if cfg.ProbeDurationSec > 0 {
+		opts.AnalyzeDuration = cfg.ProbeDurationSec * 1_000_000
 	}
 	if strings.HasPrefix(cfg.StreamURL, "rtsp://") && opts.FormatHint == "" {
 		opts.FormatHint = "rtsp"
