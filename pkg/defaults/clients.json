@@ -3,11 +3,15 @@
     {
       "name": "Browser",
       "priority": 100,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": true,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Mozilla/"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Mozilla/"
+        }
       ],
       "profile": {
         "delivery": "mse",
@@ -33,12 +37,20 @@
     {
       "name": "Plex",
       "priority": 80,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Lavf/"},
-        {"header_name": "Icy-Metadata", "match_type": "exists", "match_value": ""}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Lavf/"
+        },
+        {
+          "header_name": "Icy-Metadata",
+          "match_type": "exists",
+          "match_value": ""
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -50,11 +62,15 @@
     {
       "name": "VLC",
       "priority": 70,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "VLC/"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "VLC/"
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -66,12 +82,20 @@
     {
       "name": "Skybox",
       "priority": 65,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "libmpv"},
-        {"header_name": "Icy-Metadata", "match_type": "exists", "match_value": ""}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "libmpv"
+        },
+        {
+          "header_name": "Icy-Metadata",
+          "match_type": "exists",
+          "match_value": ""
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -83,12 +107,20 @@
     {
       "name": "4XVR",
       "priority": 63,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Dalvik/2.1.0"},
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Quest 3"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Dalvik/2.1.0"
+        },
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Quest 3"
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -100,11 +132,15 @@
     {
       "name": "LG TV",
       "priority": 60,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Web0S"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Web0S"
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -116,11 +152,15 @@
     {
       "name": "Samsung TV",
       "priority": 55,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "SMART-TV"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "SMART-TV"
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -132,11 +172,15 @@
     {
       "name": "Panasonic TV",
       "priority": 53,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Viera"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "Viera"
+        }
       ],
       "profile": {
         "delivery": "stream",
@@ -148,11 +192,15 @@
     {
       "name": "iPhone",
       "priority": 50,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": false,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "iPhone"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "iPhone"
+        }
       ],
       "profile": {
         "delivery": "hls",
@@ -164,11 +212,15 @@
     {
       "name": "HDHomeRun",
       "priority": 40,
-      "listen_port": 8080,
+      "listen_port": 0,
       "is_enabled": true,
       "is_system": true,
       "match_rules": [
-        {"header_name": "User-Agent", "match_type": "contains", "match_value": "HDHomeRun/"}
+        {
+          "header_name": "User-Agent",
+          "match_type": "contains",
+          "match_value": "HDHomeRun/"
+        }
       ],
       "profile": {
         "delivery": "stream",
