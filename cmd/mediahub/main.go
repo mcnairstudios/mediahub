@@ -165,12 +165,13 @@ func main() {
 			BypassSecret: cfg.BypassSecret,
 			InitialETag:  sc.Config["etag"],
 			StreamStore:  streamStore,
-			OnETagChanged: func(sourceID, etag string) {
+			OnRefreshDone: func(sourceID, etag string, streamCount int) {
 				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
 				if err != nil || scUpd == nil {
 					return
 				}
 				scUpd.Config["etag"] = etag
+				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
 				sourceConfigStore.Update(ctx, scUpd)
 			},
 		}
@@ -204,12 +205,13 @@ func main() {
 			StreamStore:     streamStore,
 			TMDBCache:       tmdbCache,
 			InitialETag:     sc.Config["etag"],
-			OnETagChanged: func(sourceID, etag string) {
+			OnRefreshDone: func(sourceID, etag string, streamCount int) {
 				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
 				if err != nil || scUpd == nil {
 					return
 				}
 				scUpd.Config["etag"] = etag
+				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
 				sourceConfigStore.Update(ctx, scUpd)
 			},
 			OnEnrolled: func(sourceID string) error {

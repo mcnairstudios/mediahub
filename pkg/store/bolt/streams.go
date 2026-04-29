@@ -66,6 +66,24 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 	return result, err
 }
 
+func (s *StreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
+	count := 0
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketStreams)
+		return b.ForEach(func(_, v []byte) error {
+			var partial struct {
+				SourceType string `json:"source_type"`
+				SourceID   string `json:"source_id"`
+			}
+			if json.Unmarshal(v, &partial) == nil && partial.SourceType == sourceType && partial.SourceID == sourceID {
+				count++
+			}
+			return nil
+		})
+	})
+	return count, err
+}
+
 func (s *StreamStore) BulkUpsert(_ context.Context, streams []media.Stream) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)

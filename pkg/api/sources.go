@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -34,9 +35,10 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	for _, cfg := range configs {
 		resp := sourceResponse{SourceConfig: cfg}
 
-		streams, err := s.deps.StreamStore.ListBySource(r.Context(), cfg.Type, cfg.ID)
-		if err == nil {
-			resp.StreamCount = len(streams)
+		if countStr := cfg.Config["stream_count"]; countStr != "" {
+			if n, err := strconv.Atoi(countStr); err == nil {
+				resp.StreamCount = n
+			}
 		}
 
 		src, err := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)

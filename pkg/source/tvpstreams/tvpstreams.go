@@ -39,7 +39,7 @@ type Config struct {
 	TMDBCache       *tmdb.Cache
 	InitialETag     string
 	OnEnrolled      func(sourceID string) error
-	OnETagChanged   func(sourceID, etag string)
+	OnRefreshDone   func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -217,8 +217,8 @@ func (s *Source) Refresh(ctx context.Context) error {
 	s.lastError = ""
 	s.mu.Unlock()
 
-	if fetchResult.ETag != "" && s.cfg.OnETagChanged != nil {
-		s.cfg.OnETagChanged(s.cfg.ID, fetchResult.ETag)
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, fetchResult.ETag, len(streams))
 	}
 
 	return nil

@@ -30,7 +30,7 @@ type Config struct {
 	StreamStore  store.StreamStore
 	HTTPClient   *http.Client
 	WGClient     *http.Client
-	OnETagChanged func(sourceID, etag string)
+	OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -179,8 +179,8 @@ func (s *Source) Refresh(ctx context.Context) error {
 	s.lastError = ""
 	s.mu.Unlock()
 
-	if result.ETag != "" && s.cfg.OnETagChanged != nil {
-		s.cfg.OnETagChanged(s.cfg.ID, result.ETag)
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, result.ETag, len(streams))
 	}
 
 	s.mu.Lock()

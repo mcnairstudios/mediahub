@@ -53,6 +53,18 @@ func (s *MemoryStreamStore) ListBySource(_ context.Context, sourceType, sourceID
 	return result, nil
 }
 
+func (s *MemoryStreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, stream := range s.streams {
+		if stream.SourceType == sourceType && stream.SourceID == sourceID {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *MemoryStreamStore) BulkUpsert(_ context.Context, streams []media.Stream) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
