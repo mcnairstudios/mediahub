@@ -32,3 +32,27 @@ type Stream struct {
 	CollectionID   string `json:"collection_id,omitempty"`
 	IsLocal        bool   `json:"is_local,omitempty"`
 }
+
+type SlimStream struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Group      string `json:"group"`
+	SourceType string `json:"source_type"`
+	SourceID   string `json:"source_id"`
+	VODType    string `json:"vod_type,omitempty"`
+}
+
+func ToSlimStreams(streams []Stream) []SlimStream {
+	result := make([]SlimStream, len(streams))
+	for i, s := range streams {
+		result[i] = SlimStream{
+			ID:         s.ID,
+			Name:       s.Name,
+			Group:      s.Group,
+			SourceType: s.SourceType,
+			SourceID:   s.SourceID,
+			VODType:    s.VODType,
+		}
+	}
+	return result
+}

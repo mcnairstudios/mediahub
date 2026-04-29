@@ -582,7 +582,7 @@
       return;
     }
 
-    var html = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
       var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : 'M3U';
@@ -590,10 +590,23 @@
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
     }
+    html += '<button class="btn btn-ghost" id="stream-refresh-btn" title="Refresh" style="padding:4px 8px">' + icons.refresh + '</button>';
     html += '</div>';
     picker.innerHTML = html;
 
     picker.addEventListener('click', function(e) {
+      var refreshBtn = e.target.closest('#stream-refresh-btn');
+      if (refreshBtn) {
+        var activeTab = picker.querySelector('.stream-source-tab.active');
+        if (activeTab) {
+          var st = activeTab.dataset.sourceType;
+          var si = activeTab.dataset.sourceId;
+          var cacheKey = 'streams_' + st + '_' + si;
+          try { sessionStorage.removeItem(cacheKey); sessionStorage.removeItem(cacheKey + '_ts'); } catch (ex) {}
+          loadSourceStreams(st, si, st === 'tvpstreams');
+        }
+        return;
+      }
       var btn = e.target.closest('.stream-source-tab');
       if (!btn) return;
       var tabs = picker.querySelectorAll('.stream-source-tab');
@@ -616,9 +629,26 @@
     container.innerHTML = '<div class="skeleton" style="height:200px"></div>';
 
     try {
-      var resp = await api.get('/api/streams?source_type=' + encodeURIComponent(sourceType) + '&source_id=' + encodeURIComponent(sourceId));
-      var streams = await resp.json();
-      if (!Array.isArray(streams)) streams = [];
+      var cacheKey = 'streams_' + sourceType + '_' + sourceId;
+      var streams = null;
+      var CACHE_TTL = 5 * 60 * 1000;
+      try {
+        var tsStr = sessionStorage.getItem(cacheKey + '_ts');
+        if (tsStr && (Date.now() - parseInt(tsStr, 10)) < CACHE_TTL) {
+          var cached = sessionStorage.getItem(cacheKey);
+          if (cached) streams = JSON.parse(cached);
+        }
+      } catch (ex) {}
+
+      if (!streams) {
+        var resp = await api.get('/api/streams?source_type=' + encodeURIComponent(sourceType) + '&source_id=' + encodeURIComponent(sourceId));
+        streams = await resp.json();
+        if (!Array.isArray(streams)) streams = [];
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(streams));
+          sessionStorage.setItem(cacheKey + '_ts', String(Date.now()));
+        } catch (ex) {}
+      }
 
       if (isTvpStreams) {
         buildTvpStreamGroups(container, streams);
@@ -1111,7 +1141,7 @@
     } catch (e) { channelGroups = []; }
 
     try {
-      var streamResp = await api.get('/api/streams');
+      var streamResp = await api.get('/api/streams?fields=slim');
       channelStreams = await streamResp.json();
       if (!Array.isArray(channelStreams)) channelStreams = [];
     } catch (e) { channelStreams = []; }
@@ -2607,7 +2637,7 @@
       var streamIDs = favs.map(function(f) { return f.stream_id; });
       var allStreams = [];
       if (streamIDs.length > 0) {
-        var streamResp = await api.get('/api/streams');
+        var streamResp = await api.get('/api/streams?fields=slim');
         var all = await streamResp.json();
         if (Array.isArray(all)) {
           allStreams = all.filter(function(s) { return streamIDs.indexOf(s.id) >= 0; });

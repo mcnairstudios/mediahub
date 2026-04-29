@@ -88,6 +88,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
 	sourceType := r.URL.Query().Get("source_type")
 	sourceID := r.URL.Query().Get("source_id")
+	fields := r.URL.Query().Get("fields")
 
 	var streams []media.Stream
 	var err error
@@ -106,6 +107,12 @@ func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondJSON(w, http.StatusOK, []any{})
 		return
 	}
+
+	if fields == "slim" {
+		httputil.RespondJSON(w, http.StatusOK, media.ToSlimStreams(streams))
+		return
+	}
+
 	s.resolveStreamLogos(streams)
 	httputil.RespondJSON(w, http.StatusOK, streams)
 }
