@@ -108,7 +108,7 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := "vod:" + vodType + ":" + sourceID
 	if entry, ok := s.vodCache.Load(cacheKey); ok {
-		if ce, ok := entry.(*vodCacheEntry); ok && time.Since(ce.createdAt) < 5*time.Second {
+		if ce, ok := entry.(*vodCacheEntry); ok {
 			httputil.RespondJSON(w, http.StatusOK, ce.data)
 			return
 		}
