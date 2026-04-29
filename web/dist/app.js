@@ -48,6 +48,76 @@
     return d.innerHTML;
   }
 
+  function setupAlphabetBar(gridContainer) {
+    var existing = document.querySelector('.alpha-bar');
+    if (existing) existing.remove();
+    var existingKeyHandler = gridContainer._alphaKeyHandler;
+    if (existingKeyHandler) {
+      document.removeEventListener('keydown', existingKeyHandler);
+    }
+
+    var cards = gridContainer.querySelectorAll('[data-sort-name]');
+    if (cards.length === 0) return;
+
+    var letters = {};
+    for (var i = 0; i < cards.length; i++) {
+      var first = (cards[i].dataset.sortName || '')[0];
+      if (first && /[A-Z]/.test(first)) letters[first] = true;
+    }
+    var available = Object.keys(letters).sort();
+    if (available.length < 2) return;
+
+    var bar = document.createElement('div');
+    bar.className = 'alpha-bar';
+    available.forEach(function(ch) {
+      var span = document.createElement('span');
+      span.textContent = ch;
+      span.addEventListener('click', function() {
+        jumpToLetter(ch, gridContainer);
+      });
+      bar.appendChild(span);
+    });
+    document.body.appendChild(bar);
+
+    function jumpToLetter(letter, container) {
+      var items = container.querySelectorAll('[data-sort-name]');
+      for (var j = 0; j < items.length; j++) {
+        var name = (items[j].dataset.sortName || '').toUpperCase();
+        if (name >= letter) {
+          items[j].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          bar.querySelectorAll('span').forEach(function(s) { s.classList.remove('active'); });
+          var match = bar.querySelector('span[data-letter="' + letter + '"]');
+          if (match) match.classList.add('active');
+          break;
+        }
+      }
+    }
+
+    available.forEach(function(ch) {
+      var spans = bar.querySelectorAll('span');
+      for (var k = 0; k < spans.length; k++) {
+        if (spans[k].textContent === ch) spans[k].setAttribute('data-letter', ch);
+      }
+    });
+
+    function onKey(e) {
+      if (!document.body.contains(gridContainer)) {
+        document.removeEventListener('keydown', onKey);
+        var staleBar = document.querySelector('.alpha-bar');
+        if (staleBar) staleBar.remove();
+        return;
+      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+      var letter = e.key.toUpperCase();
+      if (/[A-Z]/.test(letter)) {
+        jumpToLetter(letter, gridContainer);
+      }
+    }
+    gridContainer._alphaKeyHandler = onKey;
+    document.addEventListener('keydown', onKey);
+  }
+
   function decodeJWT(token) {
     if (!token) return null;
     try {
@@ -292,6 +362,8 @@
   }
 
   function render() {
+    var existingBar = document.querySelector('.alpha-bar');
+    if (existingBar) existingBar.remove();
     var app = document.getElementById('app');
     if (!api.token) {
       playerState.cleanup();
@@ -5269,7 +5341,7 @@
           if (di.type === 'collection') {
             var col = di.collection;
             var colPoster = col.poster_url || (col.movies[0] && col.movies[0].poster_url) || '';
-            html += '<div class="poster-card" data-col-key="' + esc(col.name) + '">';
+            html += '<div class="poster-card" data-col-key="' + esc(col.name) + '" data-sort-name="' + esc(col.name.toUpperCase()) + '">';
             if (colPoster) {
               html += '<img class="poster-img" src="' + esc(colPoster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
               html += '<div class="poster-placeholder" style="display:none">' + esc(col.name) + '</div>';
@@ -5281,7 +5353,7 @@
               '<div class="poster-meta"><span class="poster-year">Collection</span></div></div></div>';
           } else {
             var m = di.item;
-            html += '<div class="poster-card" data-movie-id="' + esc(m.id) + '">';
+            html += '<div class="poster-card" data-movie-id="' + esc(m.id) + '" data-sort-name="' + esc(m.name.toUpperCase()) + '">';
             if (m.poster_url) {
               html += '<img class="poster-img" src="' + esc(m.poster_url) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
               html += '<div class="poster-placeholder" style="display:none">' + esc(m.name) + '</div>';
@@ -5324,6 +5396,8 @@
             if (col) showCollectionModal(col);
           });
         });
+
+        setupAlphabetBar(grid);
       }
 
       function getSeriesPoster(show) {
@@ -5418,7 +5492,7 @@
           if (di.type === 'tv-collection') {
             var col = di.collection;
             var colPoster = getCollectionPoster(col);
-            html += '<div class="poster-card" data-tvcol-key="' + esc(col.name) + '">';
+            html += '<div class="poster-card" data-tvcol-key="' + esc(col.name) + '" data-sort-name="' + esc(col.name.toUpperCase()) + '">';
             if (colPoster) {
               html += '<img class="poster-img" src="' + esc(colPoster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
               html += '<div class="poster-placeholder" style="display:none">' + esc(col.name) + '</div>';
@@ -5432,7 +5506,7 @@
             var show = di.show;
             var epCount = show.episodes.length;
             var poster = getSeriesPoster(show);
-            html += '<div class="poster-card" data-series-key="' + esc(show.name) + '">';
+            html += '<div class="poster-card" data-series-key="' + esc(show.name) + '" data-sort-name="' + esc(show.name.toUpperCase()) + '">';
             if (poster) {
               html += '<img class="poster-img" src="' + esc(poster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
               html += '<div class="poster-placeholder" style="display:none">' + esc(show.name) + '</div>';
@@ -5468,6 +5542,8 @@
             if (col) showTvCollectionModal(col);
           });
         });
+
+        setupAlphabetBar(grid);
       }
 
       function renderActiveTab() {
