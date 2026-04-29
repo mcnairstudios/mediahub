@@ -31,16 +31,18 @@ type Stream struct {
 	SeriesName     string `json:"series_name,omitempty"`
 	CollectionName string `json:"collection_name,omitempty"`
 	CollectionID   string `json:"collection_id,omitempty"`
-	IsLocal        bool   `json:"is_local,omitempty"`
+	IsLocal        bool     `json:"is_local,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
 }
 
 type SlimStream struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Group      string `json:"group"`
-	SourceType string `json:"source_type"`
-	SourceID   string `json:"source_id"`
-	VODType    string `json:"vod_type,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Group      string   `json:"group"`
+	SourceType string   `json:"source_type"`
+	SourceID   string   `json:"source_id"`
+	VODType    string   `json:"vod_type,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 func ToSlimStreams(streams []Stream) []SlimStream {
@@ -53,6 +55,7 @@ func ToSlimStreams(streams []Stream) []SlimStream {
 			SourceType: s.SourceType,
 			SourceID:   s.SourceID,
 			VODType:    s.VODType,
+			Tags:       s.Tags,
 		}
 	}
 	return result

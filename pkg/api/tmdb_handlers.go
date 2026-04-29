@@ -185,8 +185,12 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		lookupName := st.Name
-		if mediaType == "series" && st.SeriesName != "" {
-			lookupName = st.SeriesName
+		if mediaType == "series" {
+			if st.SeriesName != "" {
+				lookupName = st.SeriesName
+			} else if st.Group != "" {
+				lookupName = st.Group
+			}
 		}
 
 		cacheKey := lookupName + "_" + mediaType

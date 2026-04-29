@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -279,6 +280,8 @@ func (s *Source) Clear(ctx context.Context) error {
 	return nil
 }
 
+var editionTagRe = regexp.MustCompile(`\{edition-([^}]*)\}`)
+
 func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 	attrs := entry.Attributes
 
@@ -286,6 +289,8 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 	w, h := parseResolution(attrs["tvp-resolution"])
 	season, _ := strconv.Atoi(attrs["tvp-season"])
 	episode, _ := strconv.Atoi(attrs["tvp-episode"])
+
+	tags := extractTags(entry.Name, attrs["tvp-resolution"], attrs["tvp-codec"])
 
 	return media.Stream{
 		ID:             id,
@@ -312,7 +317,34 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 		CollectionName: attrs["tvp-collection"],
 		CollectionID:   attrs["tvp-collection-id"],
 		IsLocal:        attrs["tvp-local"] == "true",
+		Tags:           tags,
 	}
+}
+
+func extractTags(name, resolution, codec string) []string {
+	var tags []string
+
+	for _, match := range editionTagRe.FindAllStringSubmatch(name, -1) {
+		if len(match) > 1 && match[1] != "" {
+			tags = append(tags, strings.TrimSpace(match[1]))
+		}
+	}
+
+	switch strings.ToLower(resolution) {
+	case "4k", "2160p":
+		tags = append(tags, "4K")
+	case "1080p":
+		tags = append(tags, "1080p")
+	case "720p":
+		tags = append(tags, "720p")
+	}
+
+	nameLower := strings.ToLower(name)
+	if strings.Contains(nameLower, "hdr") || strings.Contains(nameLower, "dolby vision") {
+		tags = append(tags, "HDR")
+	}
+
+	return tags
 }
 
 func enrichFromTMDB(cache *tmdb.Cache, stream *media.Stream) {
