@@ -35,8 +35,6 @@ func RefreshAll(ctx context.Context, deps RefreshDeps) []error {
 	}
 	alwaysAutoRefresh := map[string]bool{
 		"tvpstreams": true,
-		"hdhr":       true,
-		"satip":      true,
 	}
 
 	var errs []error
