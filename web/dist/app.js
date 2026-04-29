@@ -5073,7 +5073,7 @@
       var seriesMap = {};
       for (var si = 0; si < seriesItems.length; si++) {
         var item = seriesItems[si];
-        var key = item.series || item.name;
+        var key = item.series || item.group || item.name;
         if (!seriesMap[key]) {
           seriesMap[key] = {
             name: key,
@@ -5098,6 +5098,12 @@
         }
       }
 
+      Object.keys(seriesMap).forEach(function(k) {
+        var show = seriesMap[k];
+        if (Object.keys(show.seasons).length === 0 && show.episodes.length > 0) {
+          show.seasons[1] = show.episodes;
+        }
+      });
       var allSeries = Object.keys(seriesMap).sort().map(function(k) { return seriesMap[k]; });
 
       var tvCollections = {};
