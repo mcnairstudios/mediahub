@@ -2877,6 +2877,7 @@
       '<div class="form-group"><label class="form-label">Password</label><input class="form-input" id="xt-password" type="password"></div>' +
       '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="xt-maxstreams" type="number" value="0" min="0"></div>' +
       '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="xt-profile"><option value="">None</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Auto Refresh</label><select class="form-input" id="xt-refresh"><option value="none">None (manual only)</option><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="xt-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-xtream-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-xtream-btn">Cancel</button></div></div>' +
@@ -3292,10 +3293,11 @@
       var maxStreams = parseInt(document.getElementById('xt-maxstreams').value) || 0;
       var wg = document.getElementById('xt-wireguard').checked;
       var xtProfileId = document.getElementById('xt-profile').value;
+      var xtRefresh = document.getElementById('xt-refresh').value;
       if (!name || !server || !username) { toast('Name, server, and username required', 'error'); return; }
       if (!editingSourceId && !password) { toast('Password required', 'error'); return; }
       try {
-        var payload = { name: name, server: server, username: username, max_streams: maxStreams, use_wireguard: wg, source_profile_id: xtProfileId || '' };
+        var payload = { name: name, server: server, username: username, max_streams: maxStreams, use_wireguard: wg, source_profile_id: xtProfileId || '', refresh_interval: xtRefresh || 'none' };
         if (password) payload.password = password;
         var r;
         if (editingSourceId && editingSourceType === 'xtream') {
@@ -3655,6 +3657,7 @@
             document.getElementById('xt-maxstreams').value = config.max_streams || '0';
             document.getElementById('xt-wireguard').checked = config.use_wireguard === 'true';
             document.getElementById('xt-profile').value = config.source_profile_id || '';
+            document.getElementById('xt-refresh').value = config.refresh_interval || 'none';
             setFormTitle('add-xtream-form', 'Edit Xtream Codes Source');
             setSubmitBtnText('create-xtream-btn', 'Update');
             document.getElementById('add-xtream-form').style.display = 'block';
