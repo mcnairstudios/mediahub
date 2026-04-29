@@ -308,6 +308,7 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 		Season:         season,
 		Episode:        episode,
 		EpisodeName:    attrs["tvp-episode-name"],
+		SeriesName:     attrs["tvp-series"],
 		CollectionName: attrs["tvp-collection"],
 		CollectionID:   attrs["tvp-collection-id"],
 		IsLocal:        attrs["tvp-local"] == "true",

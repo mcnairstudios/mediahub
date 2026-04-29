@@ -5068,14 +5068,15 @@
       var seriesMap = {};
       for (var si = 0; si < seriesItems.length; si++) {
         var item = seriesItems[si];
-        var key = item.collection_name || item.group || item.name;
+        var key = item.series || item.group || item.name;
         if (!seriesMap[key]) {
           seriesMap[key] = {
             name: key,
+            collection: item.collection_name || '',
             episodes: [],
             seasons: {},
-            poster_url: item.poster_url || '',
-            backdrop_url: item.backdrop_url || '',
+            poster_url: '',
+            backdrop_url: '',
             overview: item.overview || '',
             rating: item.rating || 0,
             year: item.year || '',
@@ -5089,7 +5090,27 @@
         if (!seriesMap[key].seasons[seasonKey]) seriesMap[key].seasons[seasonKey] = [];
         seriesMap[key].seasons[seasonKey].push(item);
       }
-      var seriesList = Object.keys(seriesMap).sort().map(function(k) { return seriesMap[k]; });
+
+      var allSeries = Object.keys(seriesMap).sort().map(function(k) { return seriesMap[k]; });
+
+      var tvCollections = {};
+      var standaloneSeries = [];
+      allSeries.forEach(function(show) {
+        if (show.collection) {
+          if (!tvCollections[show.collection]) tvCollections[show.collection] = { name: show.collection, shows: [] };
+          tvCollections[show.collection].shows.push(show);
+        } else {
+          standaloneSeries.push(show);
+        }
+      });
+
+      var seriesList = [];
+      standaloneSeries.forEach(function(show) { seriesList.push({ type: 'series', show: show, name: show.name }); });
+      Object.values(tvCollections).forEach(function(col) {
+        col.shows.sort(function(a, b) { return a.name.localeCompare(b.name); });
+        seriesList.push({ type: 'tv-collection', collection: col, name: col.name });
+      });
+      seriesList.sort(function(a, b) { return a.name.localeCompare(b.name); });
 
       var allGenres = {};
       var allDecades = {};
@@ -5150,10 +5171,27 @@
         return true;
       }
 
-      function matchSeriesFilter(series) {
-        if (searchTerm && series.name.toLowerCase().indexOf(searchTerm) === -1) return false;
-        if (filterGenre && (!series.genres || series.genres.indexOf(filterGenre) === -1)) return false;
-        if (filterDecade && (!series.year || series.year.indexOf(String(filterDecade)) !== 0)) return false;
+      function matchSeriesFilter(di) {
+        var displayName = di.name;
+        if (searchTerm && displayName.toLowerCase().indexOf(searchTerm) === -1) return false;
+        if (di.type === 'tv-collection') {
+          if (filterGenre) {
+            var anyGenre = di.collection.shows.some(function(s) {
+              return s.episodes.some(function(ep) { return ep.genres && ep.genres.indexOf(filterGenre) >= 0; });
+            });
+            if (!anyGenre) return false;
+          }
+          if (filterDecade) {
+            var anyDecade = di.collection.shows.some(function(s) {
+              return s.episodes.some(function(ep) { return ep.year && ep.year.indexOf(String(filterDecade)) === 0; });
+            });
+            if (!anyDecade) return false;
+          }
+        } else {
+          var show = di.show;
+          if (filterGenre && (!show.genres || show.genres.indexOf(filterGenre) === -1)) return false;
+          if (filterDecade && (!show.year || show.year.indexOf(String(filterDecade)) !== 0)) return false;
+        }
         return true;
       }
 
@@ -5238,6 +5276,81 @@
         });
       }
 
+      function getSeriesPoster(show) {
+        var p = show.poster_url || '';
+        if (!p) show.episodes.some(function(ep) { if (ep.poster_url) { p = ep.poster_url; return true; } return false; });
+        return p;
+      }
+
+      function getCollectionPoster(col) {
+        var p = '';
+        col.shows.some(function(s) {
+          var sp = getSeriesPoster(s);
+          if (sp) { p = sp; return true; }
+          return false;
+        });
+        return p;
+      }
+
+      function showTvCollectionModal(col) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
+        overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+        document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } });
+        var modal = document.createElement('div');
+        modal.style.cssText = 'width:90%;max-width:1080px;max-height:92vh;background:var(--bg-card, #1a1d23);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);';
+        var backdrop = document.createElement('div');
+        backdrop.style.cssText = 'width:100%;height:280px;background:linear-gradient(135deg,#1a1a2e,#0f3460);position:relative;overflow:hidden;flex-shrink:0;';
+        backdrop.innerHTML = '<div style="position:absolute;bottom:0;left:0;right:0;height:150px;background:linear-gradient(transparent,var(--bg-card, #1a1d23));"></div>';
+        var closeBtn = document.createElement('button');
+        closeBtn.textContent = '\u2715';
+        closeBtn.style.cssText = 'position:absolute;top:16px;right:16px;background:rgba(0,0,0,0.6);border:none;color:#fff;font-size:18px;width:40px;height:40px;border-radius:50%;cursor:pointer;z-index:3;';
+        closeBtn.onclick = function() { overlay.remove(); };
+        backdrop.appendChild(closeBtn);
+        var titleBlock = document.createElement('div');
+        titleBlock.style.cssText = 'position:absolute;bottom:24px;left:32px;z-index:1;';
+        titleBlock.innerHTML = '<div style="font-size:32px;font-weight:800;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,0.7)">' + esc(col.name) + '</div>' +
+          '<div style="color:rgba(255,255,255,0.7);font-size:14px;margin-top:4px">' + col.shows.length + ' series</div>';
+        backdrop.appendChild(titleBlock);
+        modal.appendChild(backdrop);
+        var body = document.createElement('div');
+        body.style.cssText = 'padding:24px 32px;overflow-y:auto;flex:1;';
+        col.shows.forEach(function(show) {
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:16px;padding:12px 16px;border-radius:8px;cursor:pointer;transition:background 0.15s;';
+          row.onmouseenter = function() { row.style.background = 'rgba(255,255,255,0.05)'; };
+          row.onmouseleave = function() { row.style.background = ''; };
+          var poster = getSeriesPoster(show);
+          if (poster) {
+            var img = document.createElement('img');
+            img.src = poster;
+            img.style.cssText = 'width:60px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;';
+            row.appendChild(img);
+          }
+          var info = document.createElement('div');
+          info.style.cssText = 'flex:1;min-width:0;';
+          var title = document.createElement('div');
+          title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary, #fff);';
+          title.textContent = show.name;
+          info.appendChild(title);
+          var sc = Object.keys(show.seasons).length;
+          var meta = [];
+          if (sc > 0) meta.push(sc + ' season' + (sc > 1 ? 's' : ''));
+          meta.push(show.episodes.length + ' episodes');
+          if (show.year) meta.push(show.year);
+          var metaEl = document.createElement('div');
+          metaEl.style.cssText = 'font-size:12px;color:var(--text-muted, #999);margin-top:2px;';
+          metaEl.textContent = meta.join(' \u2022 ');
+          info.appendChild(metaEl);
+          row.appendChild(info);
+          row.onclick = function() { overlay.remove(); showSeriesModal(show); };
+          body.appendChild(row);
+        });
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+      }
+
       function renderSeriesGrid() {
         var filtered = seriesList.filter(matchSeriesFilter);
         var grid = document.getElementById('lib-grid');
@@ -5250,33 +5363,59 @@
 
         var html = '<div class="poster-grid">';
         for (var i = 0; i < filtered.length; i++) {
-          var series = filtered[i];
-          var epCount = series.episodes.length;
-          html += '<div class="poster-card" data-series-key="' + esc(series.name) + '">';
-          if (series.poster_url) {
-            html += '<img class="poster-img" src="' + esc(series.poster_url) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-            html += '<div class="poster-placeholder" style="display:none">' + esc(series.name) + '</div>';
+          var di = filtered[i];
+          var displayName = di.name;
+          if (di.type === 'tv-collection') {
+            var col = di.collection;
+            var colPoster = getCollectionPoster(col);
+            html += '<div class="poster-card" data-tvcol-key="' + esc(col.name) + '">';
+            if (colPoster) {
+              html += '<img class="poster-img" src="' + esc(colPoster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+              html += '<div class="poster-placeholder" style="display:none">' + esc(col.name) + '</div>';
+            } else {
+              html += '<div class="poster-placeholder">' + esc(col.name) + '</div>';
+            }
+            html += '<div class="poster-badge">' + col.shows.length + ' series</div>';
+            html += '<div class="poster-info"><div class="poster-title">' + esc(col.name) + '</div>' +
+              '<div class="poster-meta"><span class="poster-year">Collection</span></div></div></div>';
           } else {
-            html += '<div class="poster-placeholder">' + esc(series.name) + '</div>';
+            var show = di.show;
+            var epCount = show.episodes.length;
+            var poster = getSeriesPoster(show);
+            html += '<div class="poster-card" data-series-key="' + esc(show.name) + '">';
+            if (poster) {
+              html += '<img class="poster-img" src="' + esc(poster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+              html += '<div class="poster-placeholder" style="display:none">' + esc(show.name) + '</div>';
+            } else {
+              html += '<div class="poster-placeholder">' + esc(show.name) + '</div>';
+            }
+            html += '<div class="poster-badge">' + epCount + ' ep' + (epCount !== 1 ? 's' : '') + '</div>';
+            html += '<div class="poster-info"><div class="poster-title">' + esc(show.name) + '</div>' +
+              '<div class="poster-meta">';
+            if (show.year) html += '<span class="poster-year">' + esc(show.year) + '</span>';
+            if (show.rating > 0) html += ratingHtml(show.rating);
+            html += '</div></div></div>';
           }
-          html += '<div class="poster-badge">' + epCount + ' ep' + (epCount !== 1 ? 's' : '') + '</div>';
-          html += '<div class="poster-info"><div class="poster-title">' + esc(series.name) + '</div>' +
-            '<div class="poster-meta">';
-          if (series.year) html += '<span class="poster-year">' + esc(series.year) + '</span>';
-          if (series.rating > 0) html += ratingHtml(series.rating);
-          html += '</div></div></div>';
         }
         html += '</div>';
         grid.innerHTML = html;
 
         var summary = document.getElementById('lib-summary');
-        if (summary) summary.textContent = filtered.length + ' series';
+        if (summary) summary.textContent = filtered.length + ' title' + (filtered.length !== 1 ? 's' : '');
 
         grid.querySelectorAll('.poster-card[data-series-key]').forEach(function(card) {
           card.addEventListener('click', function() {
             var key = this.getAttribute('data-series-key');
-            var series = seriesMap[key];
-            if (series) showSeriesModal(series);
+            var show = seriesMap[key];
+            if (show) showSeriesModal(show);
+          });
+        });
+
+        grid.querySelectorAll('.poster-card[data-tvcol-key]').forEach(function(card) {
+          card.addEventListener('click', function() {
+            var key = this.getAttribute('data-tvcol-key');
+            var col = tvCollections[key];
+            if (col) showTvCollectionModal(col);
           });
         });
       }

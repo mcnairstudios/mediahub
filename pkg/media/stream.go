@@ -28,6 +28,7 @@ type Stream struct {
 	Season         int    `json:"season,omitempty"`
 	Episode        int    `json:"episode,omitempty"`
 	EpisodeName    string `json:"episode_name,omitempty"`
+	SeriesName     string `json:"series_name,omitempty"`
 	CollectionName string `json:"collection_name,omitempty"`
 	CollectionID   string `json:"collection_id,omitempty"`
 	IsLocal        bool   `json:"is_local,omitempty"`

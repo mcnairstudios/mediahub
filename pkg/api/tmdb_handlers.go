@@ -153,6 +153,7 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		Certification      string   `json:"certification,omitempty"`
 		VODType            string   `json:"vod_type"`
 		Group              string   `json:"group,omitempty"`
+		Series             string   `json:"series,omitempty"`
 		CollectionName     string   `json:"collection_name,omitempty"`
 		CollectionID       int      `json:"collection_id,omitempty"`
 		CollectionPoster   string   `json:"collection_poster,omitempty"`
@@ -184,8 +185,8 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		lookupName := st.Name
-		if mediaType == "series" && st.CollectionName != "" {
-			lookupName = st.CollectionName
+		if mediaType == "series" && st.SeriesName != "" {
+			lookupName = st.SeriesName
 		}
 
 		cacheKey := lookupName + "_" + mediaType
@@ -242,6 +243,7 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 			Name:       st.Name,
 			VODType:    st.VODType,
 			Group:      st.Group,
+			Series:     st.SeriesName,
 			Season:     st.Season,
 			Episode:    st.Episode,
 			EpisodeName: st.EpisodeName,
