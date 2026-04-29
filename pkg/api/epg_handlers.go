@@ -476,9 +476,8 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		sourceBreakdown := make([]map[string]any, 0, len(configs))
 		for _, cfg := range configs {
 			count := 0
-			streams, sErr := s.deps.StreamStore.ListBySource(r.Context(), cfg.Type, cfg.ID)
-			if sErr == nil {
-				count = len(streams)
+			if cs := cfg.Config["stream_count"]; cs != "" {
+				count, _ = strconv.Atoi(cs)
 			}
 			totalStreams += count
 			sourceBreakdown = append(sourceBreakdown, map[string]any{
