@@ -34,7 +34,6 @@ func Resolve(in Input, out Output) Decision {
 	srcVideo := media.NormalizeVideoCodec(in.VideoCodec)
 	outVideo := media.NormalizeVideoCodec(out.VideoCodec)
 	outAudio := media.NormalizeAudioCodec(out.AudioCodec)
-	srcAudio := media.NormalizeAudioCodec(in.AudioCodec)
 
 	d := Decision{
 		Container: media.Container(out.Container),
@@ -79,9 +78,8 @@ func Resolve(in Input, out Output) Decision {
 	if outAudio == media.AudioCopy {
 		d.AudioCodec = media.AudioCopy
 	} else if outAudio == "" || outAudio == "default" {
-		d.AudioCodec = media.AudioCopy
-	} else if outAudio == srcAudio {
-		d.AudioCodec = media.AudioCopy
+		d.NeedsAudioTranscode = true
+		d.AudioCodec = media.AudioAAC
 	} else {
 		d.NeedsAudioTranscode = true
 		d.AudioCodec = outAudio
