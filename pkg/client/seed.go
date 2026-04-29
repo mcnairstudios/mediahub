@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+
+	"github.com/mcnairstudios/mediahub/pkg/defaults"
 )
 
-func SeedDefaults(ctx context.Context, store Store) error {
+func SeedDefaults(ctx context.Context, store Store, defs []defaults.ClientDef) error {
 	existing, err := store.List(ctx)
 	if err != nil {
 		return err
@@ -15,154 +17,31 @@ func SeedDefaults(ctx context.Context, store Store) error {
 		return nil
 	}
 
-	defaults := []Client{
-		{
-			ID: generateClientID(), Name: "Browser", Priority: 100, ListenPort: 8080,
-			IsEnabled: true, IsSystem: true,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Mozilla/"},
-			},
+	for _, d := range defs {
+		c := Client{
+			ID:         generateClientID(),
+			Name:       d.Name,
+			Priority:   d.Priority,
+			ListenPort: d.ListenPort,
+			IsEnabled:  d.IsEnabled,
+			IsSystem:   d.IsSystem,
 			Profile: Profile{
-				Delivery:   "mse",
-				VideoCodec: "copy",
-				AudioCodec: "aac",
-				Container:  "mp4",
+				Delivery:     d.Profile.Delivery,
+				VideoCodec:   d.Profile.VideoCodec,
+				AudioCodec:   d.Profile.AudioCodec,
+				Container:    d.Profile.Container,
+				HWAccel:      d.Profile.HWAccel,
+				OutputHeight: d.Profile.OutputHeight,
 			},
-		},
-		{
-			ID: generateClientID(), Name: "Jellyfin", Priority: 90, ListenPort: 8096,
-			IsEnabled: true, IsSystem: true,
-			Profile: Profile{
-				Delivery:   "hls",
-				VideoCodec: "copy",
-				AudioCodec: "aac",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "Plex", Priority: 80, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Lavf/"},
-				{HeaderName: "Icy-Metadata", MatchType: "exists", MatchValue: ""},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "VLC", Priority: 70, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "VLC/"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "matroska",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "Skybox", Priority: 65, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "libmpv"},
-				{HeaderName: "Icy-Metadata", MatchType: "exists", MatchValue: ""},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "4XVR", Priority: 63, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Dalvik/2.1.0"},
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Quest 3"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "matroska",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "LG TV", Priority: 60, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Web0S"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "Samsung TV", Priority: 55, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "SMART-TV"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "Panasonic TV", Priority: 53, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "Viera"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "iPhone", Priority: 50, ListenPort: 8080,
-			IsEnabled: true, IsSystem: false,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "iPhone"},
-			},
-			Profile: Profile{
-				Delivery:   "hls",
-				VideoCodec: "copy",
-				AudioCodec: "aac",
-				Container:  "mpegts",
-			},
-		},
-		{
-			ID: generateClientID(), Name: "HDHomeRun", Priority: 40, ListenPort: 8080,
-			IsEnabled: true, IsSystem: true,
-			MatchRules: []MatchRule{
-				{HeaderName: "User-Agent", MatchType: "contains", MatchValue: "HDHomeRun/"},
-			},
-			Profile: Profile{
-				Delivery:   "stream",
-				VideoCodec: "copy",
-				AudioCodec: "copy",
-				Container:  "mpegts",
-			},
-		},
-	}
-
-	for i := range defaults {
-		if err := store.Create(ctx, &defaults[i]); err != nil {
+		}
+		for _, r := range d.MatchRules {
+			c.MatchRules = append(c.MatchRules, MatchRule{
+				HeaderName: r.HeaderName,
+				MatchType:  r.MatchType,
+				MatchValue: r.MatchValue,
+			})
+		}
+		if err := store.Create(ctx, &c); err != nil {
 			return err
 		}
 	}

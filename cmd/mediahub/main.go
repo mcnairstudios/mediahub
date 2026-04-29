@@ -20,6 +20,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/api"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	"github.com/mcnairstudios/mediahub/pkg/defaults"
 	"github.com/mcnairstudios/mediahub/pkg/logocache"
 	"github.com/mcnairstudios/mediahub/pkg/cache"
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
@@ -46,7 +47,6 @@ import (
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	recscheduler "github.com/mcnairstudios/mediahub/pkg/scheduler"
-	"github.com/mcnairstudios/mediahub/pkg/store"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
@@ -110,13 +110,30 @@ func main() {
 		log.Println("seeded default admin user (admin/admin)")
 	}
 
-	seedDefaults(ctx, settingsStore)
+	settingsDefs, err := defaults.LoadSettings(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("loading default settings: %v", err)
+	}
+	for k, v := range settingsDefs {
+		existing, _ := settingsStore.Get(ctx, k)
+		if existing == "" {
+			settingsStore.Set(ctx, k, v)
+		}
+	}
 
-	if err := client.SeedDefaults(ctx, clientStore); err != nil {
+	clientDefs, err := defaults.LoadClients(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("loading default clients: %v", err)
+	}
+	if err := client.SeedDefaults(ctx, clientStore, clientDefs); err != nil {
 		log.Printf("warning: failed to seed default clients: %v", err)
 	}
 
-	if err := sourceprofile.SeedDefaults(ctx, sourceProfileStore); err != nil {
+	sourceProfileDefs, err := defaults.LoadSourceProfiles(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("loading default source profiles: %v", err)
+	}
+	if err := sourceprofile.SeedDefaults(ctx, sourceProfileStore, sourceProfileDefs); err != nil {
 		log.Printf("warning: failed to seed default source profiles: %v", err)
 	}
 
@@ -616,26 +633,3 @@ func (a *dlnaSettingsAdapter) IsEnabled(ctx context.Context) bool {
 	return val != "false" && val != "0"
 }
 
-func seedDefaults(ctx context.Context, s store.SettingsStore) {
-	defaults := map[string]string{
-		"default_hwaccel":        "none",
-		"default_video_codec":    "copy",
-		"default_decode_hwaccel": "",
-		"default_max_bit_depth":  "",
-		"encoder_h264":           "",
-		"encoder_h265":           "",
-		"encoder_av1":            "",
-		"decoder_h264":           "",
-		"decoder_h265":           "",
-		"dlna_enabled":           "true",
-		"delivery":               "hls",
-		"container":              "mp4",
-		"tmdb_api_key":           "",
-	}
-	for k, v := range defaults {
-		existing, _ := s.Get(ctx, k)
-		if existing == "" {
-			s.Set(ctx, k, v)
-		}
-	}
-}

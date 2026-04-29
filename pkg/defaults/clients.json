@@ -1,0 +1,181 @@
+{
+  "clients": [
+    {
+      "name": "Browser",
+      "priority": 100,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": true,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Mozilla/"}
+      ],
+      "profile": {
+        "delivery": "mse",
+        "video_codec": "copy",
+        "audio_codec": "aac",
+        "container": "mp4"
+      }
+    },
+    {
+      "name": "Jellyfin",
+      "priority": 90,
+      "listen_port": 8096,
+      "is_enabled": true,
+      "is_system": true,
+      "match_rules": [],
+      "profile": {
+        "delivery": "hls",
+        "video_codec": "copy",
+        "audio_codec": "aac",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "Plex",
+      "priority": 80,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Lavf/"},
+        {"header_name": "Icy-Metadata", "match_type": "exists", "match_value": ""}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "VLC",
+      "priority": 70,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "VLC/"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "matroska"
+      }
+    },
+    {
+      "name": "Skybox",
+      "priority": 65,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "libmpv"},
+        {"header_name": "Icy-Metadata", "match_type": "exists", "match_value": ""}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "4XVR",
+      "priority": 63,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Dalvik/2.1.0"},
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Quest 3"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "matroska"
+      }
+    },
+    {
+      "name": "LG TV",
+      "priority": 60,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Web0S"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "Samsung TV",
+      "priority": 55,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "SMART-TV"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "Panasonic TV",
+      "priority": 53,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "Viera"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "iPhone",
+      "priority": 50,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": false,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "iPhone"}
+      ],
+      "profile": {
+        "delivery": "hls",
+        "video_codec": "copy",
+        "audio_codec": "aac",
+        "container": "mpegts"
+      }
+    },
+    {
+      "name": "HDHomeRun",
+      "priority": 40,
+      "listen_port": 8080,
+      "is_enabled": true,
+      "is_system": true,
+      "match_rules": [
+        {"header_name": "User-Agent", "match_type": "contains", "match_value": "HDHomeRun/"}
+      ],
+      "profile": {
+        "delivery": "stream",
+        "video_codec": "copy",
+        "audio_codec": "copy",
+        "container": "mpegts"
+      }
+    }
+  ]
+}

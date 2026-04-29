@@ -3,6 +3,8 @@ package sourceprofile
 import (
 	"context"
 	"testing"
+
+	"github.com/mcnairstudios/mediahub/pkg/defaults"
 )
 
 type memStore struct {
@@ -47,11 +49,20 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func loadTestProfiles(t *testing.T) []defaults.SourceProfileDef {
+	t.Helper()
+	defs, err := defaults.LoadSourceProfiles("")
+	if err != nil {
+		t.Fatalf("loading embedded source profiles: %v", err)
+	}
+	return defs
+}
+
 func TestSeedDefaults_EmptyStore(t *testing.T) {
 	store := &memStore{}
 	ctx := context.Background()
 
-	if err := SeedDefaults(ctx, store); err != nil {
+	if err := SeedDefaults(ctx, store, loadTestProfiles(t)); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -83,7 +94,7 @@ func TestSeedDefaults_NonEmptyStore(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := SeedDefaults(ctx, store); err != nil {
+	if err := SeedDefaults(ctx, store, loadTestProfiles(t)); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -99,7 +110,7 @@ func TestSeedDefaults_UniqueIDs(t *testing.T) {
 	store := &memStore{}
 	ctx := context.Background()
 
-	SeedDefaults(ctx, store)
+	SeedDefaults(ctx, store, loadTestProfiles(t))
 
 	ids := make(map[string]bool)
 	for _, p := range store.profiles {

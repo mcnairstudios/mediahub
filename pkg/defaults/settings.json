@@ -1,0 +1,15 @@
+{
+  "default_hwaccel": "none",
+  "default_video_codec": "copy",
+  "default_decode_hwaccel": "",
+  "default_max_bit_depth": "",
+  "encoder_h264": "",
+  "encoder_h265": "",
+  "encoder_av1": "",
+  "decoder_h264": "",
+  "decoder_h265": "",
+  "dlna_enabled": "true",
+  "delivery": "hls",
+  "container": "mp4",
+  "tmdb_api_key": ""
+}

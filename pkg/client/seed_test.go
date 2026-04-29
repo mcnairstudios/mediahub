@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"testing"
+
+	"github.com/mcnairstudios/mediahub/pkg/defaults"
 )
 
 type memClientStore struct {
@@ -44,11 +46,20 @@ func (s *memClientStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func loadTestClients(t *testing.T) []defaults.ClientDef {
+	t.Helper()
+	defs, err := defaults.LoadClients("")
+	if err != nil {
+		t.Fatalf("loading embedded clients: %v", err)
+	}
+	return defs
+}
+
 func TestSeedDefaults(t *testing.T) {
 	store := newMemClientStore()
 	ctx := context.Background()
 
-	err := SeedDefaults(ctx, store)
+	err := SeedDefaults(ctx, store, loadTestClients(t))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +91,7 @@ func TestSeedDefaults_NoOverwrite(t *testing.T) {
 	existing := &Client{ID: "existing", Name: "Existing", IsEnabled: true}
 	store.Create(ctx, existing)
 
-	err := SeedDefaults(ctx, store)
+	err := SeedDefaults(ctx, store, loadTestClients(t))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +109,7 @@ func TestSeedDefaults_BrowserHasMSEDelivery(t *testing.T) {
 	store := newMemClientStore()
 	ctx := context.Background()
 
-	SeedDefaults(ctx, store)
+	SeedDefaults(ctx, store, loadTestClients(t))
 
 	clients, _ := store.List(ctx)
 	for _, c := range clients {
@@ -122,7 +133,7 @@ func TestSeedDefaults_JellyfinHasHLSDelivery(t *testing.T) {
 	store := newMemClientStore()
 	ctx := context.Background()
 
-	SeedDefaults(ctx, store)
+	SeedDefaults(ctx, store, loadTestClients(t))
 
 	clients, _ := store.List(ctx)
 	for _, c := range clients {

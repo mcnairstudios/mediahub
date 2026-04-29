@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+
+	"github.com/mcnairstudios/mediahub/pkg/defaults"
 )
 
-func SeedDefaults(ctx context.Context, store Store) error {
+func SeedDefaults(ctx context.Context, store Store, defs []defaults.SourceProfileDef) error {
 	existing, err := store.List(ctx)
 	if err != nil {
 		return err
@@ -15,50 +17,20 @@ func SeedDefaults(ctx context.Context, store Store) error {
 		return nil
 	}
 
-	defaults := []Profile{
-		{
-			ID:             generateID(),
-			Name:           "Default",
-			HTTPTimeoutSec: 30,
-		},
-		{
+	for _, d := range defs {
+		p := Profile{
 			ID:                generateID(),
-			Name:              "SAT>IP DVB-T",
-			Deinterlace:       true,
-			DeinterlaceMethod: "auto",
-			AudioLanguage:     "eng",
-			RTSPProtocols:     "tcp",
-			HTTPTimeoutSec:    10,
-		},
-		{
-			ID:                generateID(),
-			Name:              "DVB Satellite",
-			Deinterlace:       true,
-			DeinterlaceMethod: "auto",
-			AudioLanguage:     "eng",
-			RTSPProtocols:     "tcp",
-			RTSPLatency:       200,
-			HTTPTimeoutSec:    10,
-		},
-		{
-			ID:             generateID(),
-			Name:           "HDHomeRun",
-			HTTPTimeoutSec: 10,
-		},
-		{
-			ID:             generateID(),
-			Name:           "Remote IPTV",
-			HTTPTimeoutSec: 30,
-		},
-		{
-			ID:             generateID(),
-			Name:           "Local Network",
-			HTTPTimeoutSec: 5,
-		},
-	}
-
-	for i := range defaults {
-		if err := store.Create(ctx, &defaults[i]); err != nil {
+			Name:              d.Name,
+			Deinterlace:       d.Deinterlace,
+			DeinterlaceMethod: d.DeinterlaceMethod,
+			AudioLanguage:     d.AudioLanguage,
+			SubtitleLanguage:  d.SubtitleLanguage,
+			RTSPProtocols:     d.RTSPProtocols,
+			RTSPLatency:       d.RTSPLatency,
+			HTTPTimeoutSec:    d.HTTPTimeoutSec,
+			HTTPUserAgent:     d.HTTPUserAgent,
+		}
+		if err := store.Create(ctx, &p); err != nil {
 			return err
 		}
 	}
