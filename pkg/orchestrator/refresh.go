@@ -45,6 +45,16 @@ func RefreshSource(ctx context.Context, deps RefreshDeps, sourceType source.Sour
 	lastRefreshedMu.Lock()
 	lastRefreshed[sourceID] = time.Now()
 	lastRefreshedMu.Unlock()
+
+	if deps.SourceConfigStore != nil {
+		info := src.Info(ctx)
+		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
+		if err == nil && sc != nil {
+			sc.Config["stream_count"] = fmt.Sprintf("%d", info.StreamCount)
+			deps.SourceConfigStore.Update(ctx, sc)
+		}
+	}
+
 	return nil
 }
 
