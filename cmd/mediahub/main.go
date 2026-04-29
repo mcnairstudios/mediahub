@@ -351,7 +351,7 @@ func main() {
 	}
 	scheduler.Add(worker.Job{
 		Name:     "source-refresh",
-		Interval: 24 * time.Hour,
+		Interval: 1 * time.Minute,
 		Fn: func(ctx context.Context) error {
 			errs := orchestrator.RefreshAll(ctx, refreshDeps)
 			if len(errs) > 0 {

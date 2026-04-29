@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
@@ -14,6 +16,18 @@ type RefreshDeps struct {
 	SourceConfigStore sourceconfig.Store
 }
 
+var (
+	lastRefreshed   = make(map[string]time.Time)
+	lastRefreshedMu sync.Mutex
+)
+
+var intervalDurations = map[string]time.Duration{
+	"minute":  1 * time.Minute,
+	"hourly":  1 * time.Hour,
+	"daily":   24 * time.Hour,
+	"weekly":  7 * 24 * time.Hour,
+}
+
 func RefreshSource(ctx context.Context, deps RefreshDeps, sourceType source.SourceType, sourceID string) error {
 	src, err := deps.SourceReg.Create(ctx, sourceType, sourceID)
 	if err != nil {
@@ -22,6 +36,9 @@ func RefreshSource(ctx context.Context, deps RefreshDeps, sourceType source.Sour
 	if err := src.Refresh(ctx); err != nil {
 		return fmt.Errorf("refresh source %s: %w", sourceID, err)
 	}
+	lastRefreshedMu.Lock()
+	lastRefreshed[sourceID] = time.Now()
+	lastRefreshedMu.Unlock()
 	return nil
 }
 
@@ -33,21 +50,28 @@ func RefreshAll(ctx context.Context, deps RefreshDeps) []error {
 	if err != nil {
 		return []error{fmt.Errorf("listing source configs: %w", err)}
 	}
-	alwaysAutoRefresh := map[string]bool{
-		"tvpstreams": true,
-	}
-
 	var errs []error
 	for _, cfg := range configs {
 		if !cfg.IsEnabled {
 			continue
 		}
-		if !alwaysAutoRefresh[cfg.Type] {
-			interval := cfg.Config["refresh_interval"]
-			if interval == "" || interval == "none" {
-				continue
-			}
+		interval := cfg.Config["refresh_interval"]
+		if interval == "" || interval == "none" {
+			continue
 		}
+		dur, ok := intervalDurations[interval]
+		if !ok {
+			continue
+		}
+
+		lastRefreshedMu.Lock()
+		last, exists := lastRefreshed[cfg.ID]
+		lastRefreshedMu.Unlock()
+
+		if exists && time.Since(last) < dur {
+			continue
+		}
+
 		log.Printf("source-refresh: refreshing %s (%s)", cfg.Name, cfg.Type)
 		if err := RefreshSource(ctx, deps, source.SourceType(cfg.Type), cfg.ID); err != nil {
 			log.Printf("source-refresh: failed %s (%s): %v", cfg.Name, cfg.Type, err)
