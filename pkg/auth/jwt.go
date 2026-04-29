@@ -39,7 +39,7 @@ func NewJWTService(store UserStore, secret string) *JWTService {
 	return &JWTService{
 		store:      store,
 		secret:     []byte(secret),
-		tokenTTL:   15 * time.Minute,
+		tokenTTL:   24 * time.Hour,
 		refreshTTL: 7 * 24 * time.Hour,
 	}
 }
