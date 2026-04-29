@@ -494,10 +494,12 @@ func enrichSeriesResult(result map[string]any, s *tmdbcache.Series) {
 }
 
 var vodYearParen = regexp.MustCompile(`\((\d{4})\)`)
+var vodEditionTag = regexp.MustCompile(`\{edition-[^}]*\}`)
 
 func vodCleanName(name string) (string, string) {
 	year := ""
 	cleaned := name
+	cleaned = vodEditionTag.ReplaceAllString(cleaned, "")
 	if m := vodYearParen.FindStringSubmatch(cleaned); len(m) > 1 {
 		year = m[1]
 		cleaned = vodYearParen.ReplaceAllString(cleaned, "")
