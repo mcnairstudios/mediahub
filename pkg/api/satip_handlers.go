@@ -31,6 +31,7 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 		TransmitterFile string `json:"transmitter_file"`
 		IsEnabled       *bool  `json:"is_enabled"`
 		MaxStreams      int    `json:"max_streams"`
+		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -57,10 +58,11 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 		Name:      req.Name,
 		IsEnabled: enabled,
 		Config: map[string]string{
-			"host":             req.Host,
-			"http_port":        fmt.Sprintf("%d", httpPort),
-			"transmitter_file": req.TransmitterFile,
-			"max_streams":      fmt.Sprintf("%d", req.MaxStreams),
+			"host":              req.Host,
+			"http_port":         fmt.Sprintf("%d", httpPort),
+			"transmitter_file":  req.TransmitterFile,
+			"max_streams":       fmt.Sprintf("%d", req.MaxStreams),
+			"source_profile_id": req.SourceProfileID,
 		},
 	}
 
@@ -96,6 +98,7 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 		TransmitterFile *string `json:"transmitter_file"`
 		IsEnabled       *bool   `json:"is_enabled"`
 		MaxStreams      *int    `json:"max_streams"`
+		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -119,6 +122,9 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 	}
 	if req.MaxStreams != nil {
 		existing.Config["max_streams"] = fmt.Sprintf("%d", *req.MaxStreams)
+	}
+	if req.SourceProfileID != nil {
+		existing.Config["source_profile_id"] = *req.SourceProfileID
 	}
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {

@@ -23,8 +23,9 @@ var (
 
 func (s *Server) handleCreateHDHRSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string `json:"name"`
-		IsEnabled *bool  `json:"is_enabled"`
+		Name            string `json:"name"`
+		IsEnabled       *bool  `json:"is_enabled"`
+		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -45,7 +46,9 @@ func (s *Server) handleCreateHDHRSource(w http.ResponseWriter, r *http.Request) 
 		Type:      "hdhr",
 		Name:      req.Name,
 		IsEnabled: enabled,
-		Config:    map[string]string{},
+		Config: map[string]string{
+			"source_profile_id": req.SourceProfileID,
+		},
 	}
 
 	if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
@@ -74,8 +77,9 @@ func (s *Server) handleUpdateHDHRSource(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Name      *string `json:"name"`
-		IsEnabled *bool   `json:"is_enabled"`
+		Name            *string `json:"name"`
+		IsEnabled       *bool   `json:"is_enabled"`
+		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -87,6 +91,9 @@ func (s *Server) handleUpdateHDHRSource(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.IsEnabled != nil {
 		existing.IsEnabled = *req.IsEnabled
+	}
+	if req.SourceProfileID != nil {
+		existing.Config["source_profile_id"] = *req.SourceProfileID
 	}
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {

@@ -309,6 +309,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		URL             string `json:"url"`
 		EnrollmentToken string `json:"enrollment_token"`
 		UseWireGuard    bool   `json:"use_wireguard"`
+		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -325,9 +326,10 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		Name:      req.Name,
 		IsEnabled: true,
 		Config: map[string]string{
-			"url":              req.URL,
-			"enrollment_token": req.EnrollmentToken,
-			"use_wireguard":    boolStr(req.UseWireGuard),
+			"url":               req.URL,
+			"enrollment_token":  req.EnrollmentToken,
+			"use_wireguard":     boolStr(req.UseWireGuard),
+			"source_profile_id": req.SourceProfileID,
 		},
 	}
 
@@ -371,6 +373,7 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		EnrollmentToken *string `json:"enrollment_token"`
 		IsEnabled       *bool   `json:"is_enabled"`
 		UseWireGuard    *bool   `json:"use_wireguard"`
+		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -391,6 +394,9 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 	}
 	if req.UseWireGuard != nil {
 		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.SourceProfileID != nil {
+		existing.Config["source_profile_id"] = *req.SourceProfileID
 	}
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {
