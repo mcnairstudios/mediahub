@@ -14,6 +14,8 @@ REST API server for mediahub. Thin translation layer: parse HTTP requests, call 
 ### Public
 - `POST /api/auth/login` — authenticate, returns access token
 - `POST /api/auth/refresh` — refresh an expired token
+- `GET /api/auth/google` — initiate Google OAuth flow (returns redirect URL)
+- `GET /api/auth/google/callback` — Google OAuth callback (exchanges code for mediahub JWT)
 
 ### Authenticated
 - `GET /api/streams` — list all streams
@@ -28,6 +30,13 @@ REST API server for mediahub. Thin translation layer: parse HTTP requests, call 
 - `POST /api/play/{streamID}/seek` — seek within session
 - `POST /api/play/{streamID}/record` — start recording on active session
 - `DELETE /api/play/{streamID}/record` — stop recording
+
+### Source Profiles (authenticated / admin)
+- `GET /api/source-profiles` — list all source profiles
+- `GET /api/source-profiles/{id}` — get a source profile by ID
+- `POST /api/source-profiles` — create a source profile (admin)
+- `PUT /api/source-profiles/{id}` — update a source profile (admin)
+- `DELETE /api/source-profiles/{id}` — delete a source profile (admin)
 
 ### Admin only
 - `PUT /api/settings` — update settings
@@ -49,6 +58,7 @@ REST API server for mediahub. Thin translation layer: parse HTTP requests, call 
 - `pkg/source` — source registry
 - `pkg/orchestrator` — playback, recording, refresh orchestration
 - `pkg/recording` — recording store
+- `pkg/sourceprofile` — source profile store
 - `pkg/strategy` — codec strategy resolution
 
 ## Testing

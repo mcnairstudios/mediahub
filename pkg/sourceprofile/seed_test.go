@@ -67,7 +67,7 @@ func TestSeedDefaults_EmptyStore(t *testing.T) {
 		}
 	}
 
-	expected := []string{"Default", "SAT>IP DVB-T", "HDHomeRun", "Remote IPTV"}
+	expected := []string{"Default", "SAT>IP DVB-T", "DVB Satellite", "HDHomeRun", "Remote IPTV", "Local Network"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("missing expected profile %q", name)

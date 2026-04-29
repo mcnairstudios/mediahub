@@ -159,7 +159,8 @@
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
     video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
     audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
-    subtitle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>'
+    subtitle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>',
+    sourceprofiles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>'
   };
 
   var router = {
@@ -258,6 +259,7 @@
     if (isAdmin) {
       items.push({ id: 'activity', label: 'Activity', icon: 'stats' });
       items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
+      items.push({ id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles' });
       items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
       items.push({ id: 'clients', label: 'Clients', icon: 'clients' });
       items.push({ id: 'probe', label: 'Probe', icon: 'probe' });
@@ -337,6 +339,7 @@
     else if (page === 'favorites') renderFavorites(pageEl);
     else if (page === 'activity') renderActivity(pageEl);
     else if (page === 'sources') renderSources(pageEl);
+    else if (page === 'sourceprofiles') renderSourceProfiles(pageEl);
     else if (page === 'epgsources') renderEPGSources(pageEl);
     else if (page === 'wireguard') renderWireGuard(pageEl);
     else if (page === 'settings') renderSettings(pageEl);
@@ -2672,6 +2675,169 @@
     });
   }
 
+  async function renderSourceProfiles(el) {
+    el.innerHTML = '<h1 class="page-title">Source Profiles</h1>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-srcprofile-btn">' + icons.plus + ' Add Source Profile</button></div>' +
+      '<div id="srcprofile-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="srcprofile-form" style="display:none" class="card">' +
+      '<div class="card-title" id="srcprofile-form-title">New Source Profile</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="sp-name" placeholder="SAT>IP DVB-T2"></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="sp-deinterlace"> Deinterlace</label>' +
+      '<div class="field-hint">Apply deinterlace filter for interlaced content (576i/1080i)</div></div>' +
+      '<div class="form-group" id="sp-deinterlace-method-group" style="display:none"><label class="form-label">Deinterlace Method</label>' +
+      '<select class="form-input" id="sp-deinterlace-method"><option value="auto">Auto (best available)</option><option value="bob">Bob (double framerate)</option><option value="weave">Weave (merge fields)</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Preferred Audio Language</label><input class="form-input" id="sp-audio-lang" placeholder="eng">' +
+      '<div class="field-hint">ISO 639 language code. Empty = first available non-AD track.</div></div>' +
+      '<div class="form-group"><label class="form-label">RTSP Protocol</label>' +
+      '<select class="form-input" id="sp-rtsp-proto"><option value="tcp">TCP (recommended)</option><option value="udp">UDP</option></select></div>' +
+      '<div class="form-group"><label class="form-label">RTSP Latency (ms)</label><input class="form-input" id="sp-rtsp-latency" type="number" value="0" min="0" placeholder="0">' +
+      '<div class="field-hint">0 = minimum latency. Higher values add buffer for unstable connections.</div></div>' +
+      '<div class="form-group"><label class="form-label">HTTP Timeout (sec)</label><input class="form-input" id="sp-http-timeout" type="number" value="30" min="1" placeholder="30">' +
+      '<div class="field-hint">10s for local HDHR, 30s for remote IPTV.</div></div>' +
+      '<div class="form-group"><label class="form-label">User Agent Override</label><input class="form-input" id="sp-user-agent" placeholder="Empty = use global default"></div>' +
+      '<div class="form-group"><label class="form-label">Encoder Bitrate Override (kbps)</label><input class="form-input" id="sp-bitrate" type="number" value="0" min="0" placeholder="0 (auto by resolution)">' +
+      '<div class="field-hint">0 = auto-scale by resolution. Override for bandwidth-limited connections.</div></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="save-srcprofile-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-srcprofile-btn">Cancel</button></div></div>';
+
+    var editingId = null;
+
+    document.getElementById('sp-deinterlace').addEventListener('change', function() {
+      document.getElementById('sp-deinterlace-method-group').style.display = this.checked ? 'block' : 'none';
+    });
+
+    document.getElementById('add-srcprofile-btn').addEventListener('click', function() {
+      var f = document.getElementById('srcprofile-form');
+      editingId = null;
+      document.getElementById('srcprofile-form-title').textContent = 'New Source Profile';
+      document.getElementById('save-srcprofile-btn').textContent = 'Create';
+      document.getElementById('sp-name').value = '';
+      document.getElementById('sp-deinterlace').checked = false;
+      document.getElementById('sp-deinterlace-method').value = 'auto';
+      document.getElementById('sp-deinterlace-method-group').style.display = 'none';
+      document.getElementById('sp-audio-lang').value = '';
+      document.getElementById('sp-rtsp-proto').value = 'tcp';
+      document.getElementById('sp-rtsp-latency').value = '0';
+      document.getElementById('sp-http-timeout').value = '30';
+      document.getElementById('sp-user-agent').value = '';
+      document.getElementById('sp-bitrate').value = '0';
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('cancel-srcprofile-btn').addEventListener('click', function() {
+      document.getElementById('srcprofile-form').style.display = 'none';
+      editingId = null;
+    });
+
+    document.getElementById('save-srcprofile-btn').addEventListener('click', async function() {
+      var name = document.getElementById('sp-name').value.trim();
+      if (!name) { toast('Name required', 'error'); return; }
+      var payload = {
+        name: name,
+        deinterlace: document.getElementById('sp-deinterlace').checked,
+        deinterlace_method: document.getElementById('sp-deinterlace-method').value,
+        audio_language: document.getElementById('sp-audio-lang').value.trim(),
+        rtsp_protocols: document.getElementById('sp-rtsp-proto').value,
+        rtsp_latency: parseInt(document.getElementById('sp-rtsp-latency').value) || 0,
+        http_timeout_sec: parseInt(document.getElementById('sp-http-timeout').value) || 30,
+        http_user_agent: document.getElementById('sp-user-agent').value.trim(),
+        encoder_bitrate_kbps: parseInt(document.getElementById('sp-bitrate').value) || 0
+      };
+      try {
+        var r;
+        if (editingId) {
+          r = await api.put('/api/source-profiles/' + editingId, payload);
+        } else {
+          r = await api.post('/api/source-profiles', payload);
+        }
+        if (r.ok) {
+          toast(editingId ? 'Profile updated' : 'Profile created');
+          document.getElementById('srcprofile-form').style.display = 'none';
+          editingId = null;
+          renderSourceProfiles(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save profile', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save profile', 'error');
+      }
+    });
+
+    try {
+      var resp = await api.get('/api/source-profiles');
+      var profiles = await resp.json();
+      if (!Array.isArray(profiles)) profiles = [];
+      var container = document.getElementById('srcprofile-list');
+      if (!container) return;
+
+      if (profiles.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No source profiles configured</p></div>';
+        return;
+      }
+
+      var html = '<table class="list-table"><thead><tr>' +
+        '<th>Name</th><th>Deinterlace</th><th>Audio Language</th><th>RTSP Protocol</th><th>HTTP Timeout</th><th>Actions</th>' +
+        '</tr></thead><tbody>';
+      for (var i = 0; i < profiles.length; i++) {
+        var p = profiles[i];
+        html += '<tr>' +
+          '<td>' + esc(p.name) + '</td>' +
+          '<td>' + (p.deinterlace ? '<span class="badge badge-enabled">Yes</span>' : '') + '</td>' +
+          '<td>' + esc(p.audio_language || '-') + '</td>' +
+          '<td>' + esc(p.rtsp_protocols || 'tcp') + '</td>' +
+          '<td>' + (p.http_timeout_sec ? p.http_timeout_sec + 's' : '30s') + '</td>' +
+          '<td><div class="actions-cell">' +
+          '<button class="btn btn-sm btn-ghost sp-edit-btn" data-id="' + esc(p.id) + '" data-profile=\'' + esc(JSON.stringify(p)) + '\'>' + icons.edit + '</button>' +
+          '<button class="btn btn-sm btn-icon btn-danger sp-del-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + icons.trash + '</button>' +
+          '</div></td></tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+
+      container.querySelectorAll('.sp-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var p = JSON.parse(this.getAttribute('data-profile'));
+          editingId = this.getAttribute('data-id');
+          document.getElementById('srcprofile-form-title').textContent = 'Edit Source Profile';
+          document.getElementById('save-srcprofile-btn').textContent = 'Update';
+          document.getElementById('sp-name').value = p.name || '';
+          document.getElementById('sp-deinterlace').checked = !!p.deinterlace;
+          document.getElementById('sp-deinterlace-method').value = p.deinterlace_method || 'auto';
+          document.getElementById('sp-deinterlace-method-group').style.display = p.deinterlace ? 'block' : 'none';
+          document.getElementById('sp-audio-lang').value = p.audio_language || '';
+          document.getElementById('sp-rtsp-proto').value = p.rtsp_protocols || 'tcp';
+          document.getElementById('sp-rtsp-latency').value = p.rtsp_latency || '0';
+          document.getElementById('sp-http-timeout').value = p.http_timeout_sec || '30';
+          document.getElementById('sp-user-agent').value = p.http_user_agent || '';
+          document.getElementById('sp-bitrate').value = p.encoder_bitrate_kbps || '0';
+          document.getElementById('srcprofile-form').style.display = 'block';
+        });
+      });
+
+      container.querySelectorAll('.sp-del-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var id = this.getAttribute('data-id');
+          var name = this.getAttribute('data-name');
+          if (!confirm('Delete source profile "' + name + '"?')) return;
+          try {
+            var r = await api.del('/api/source-profiles/' + id);
+            if (r.ok || r.status === 204) {
+              toast('Profile deleted');
+              renderSourceProfiles(el);
+            } else {
+              toast('Failed to delete profile', 'error');
+            }
+          } catch (err) {
+            toast('Failed to delete profile', 'error');
+          }
+        });
+      });
+    } catch (e) {
+      document.getElementById('srcprofile-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load source profiles</p></div>';
+    }
+  }
+
   async function renderSources(el) {
     el.innerHTML = '<h1 class="page-title">Sources</h1>' +
       '<div style="margin-bottom:16px;display:flex;gap:8px">' +
@@ -2689,6 +2855,7 @@
       '<div class="form-group"><label class="form-label">URL</label><input class="form-input" id="src-url" placeholder="http://example.com/playlist.m3u"></div>' +
       '<div class="form-group"><label class="form-label">Username (optional)</label><input class="form-input" id="src-username"></div>' +
       '<div class="form-group"><label class="form-label">Password (optional)</label><input class="form-input" id="src-password" type="password"></div>' +
+      '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="src-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="src-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-m3u-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-m3u-btn">Cancel</button></div></div>' +
@@ -2697,6 +2864,7 @@
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="tvp-name" placeholder="My Media Library"></div>' +
       '<div class="form-group"><label class="form-label">URL</label><input class="form-input" id="tvp-url" placeholder="https://streams.example.com/playlist.m3u"></div>' +
       '<div class="form-group"><label class="form-label">Enrollment Token</label><input class="form-input" id="tvp-token" placeholder="One-time enrollment token"></div>' +
+      '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="tvp-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="tvp-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-tvp-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-tvp-btn">Cancel</button></div></div>' +
@@ -2707,12 +2875,14 @@
       '<div class="form-group"><label class="form-label">Username</label><input class="form-input" id="xt-username"></div>' +
       '<div class="form-group"><label class="form-label">Password</label><input class="form-input" id="xt-password" type="password"></div>' +
       '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="xt-maxstreams" type="number" value="0" min="0"></div>' +
+      '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="xt-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="xt-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-xtream-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-xtream-btn">Cancel</button></div></div>' +
       '<div id="add-hdhr-form" style="display:none" class="card">' +
       '<div class="card-title">New HDHomeRun Source</div>' +
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="hdhr-name" placeholder="HDHomeRun" value="HDHomeRun"></div>' +
+      '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="hdhr-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="hdhr-enabled" checked> Enabled</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-hdhr-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-hdhr-btn">Cancel</button></div></div>' +
@@ -2724,6 +2894,7 @@
       '<div class="form-group"><label class="form-label">System</label><select class="form-input" id="satip-system"><option value="">Loading...</option></select></div>' +
       '<div class="form-group"><label class="form-label">Transmitter</label><select class="form-input" id="satip-transmitter" disabled><option value="">-- Select System First --</option></select></div>' +
       '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="satip-maxstreams" type="number" value="0" min="0"></div>' +
+      '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="satip-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="satip-enabled" checked> Enabled</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-satip-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-satip-btn">Cancel</button></div></div>' +
@@ -2738,6 +2909,28 @@
       editingSourceId = null;
       editingSourceType = null;
     }
+
+    var sourceProfileSelectIds = ['src-profile', 'tvp-profile', 'xt-profile', 'hdhr-profile', 'satip-profile'];
+    (async function loadSourceProfiles() {
+      try {
+        var r = await api.get('/api/source-profiles');
+        var profiles = await r.json();
+        if (!Array.isArray(profiles)) profiles = [];
+        sourceProfileSelectIds.forEach(function(selId) {
+          var sel = document.getElementById(selId);
+          if (!sel) return;
+          var current = sel.value;
+          sel.innerHTML = '<option value="">None</option>';
+          profiles.forEach(function(p) {
+            var opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            if (current && p.id === current) opt.selected = true;
+            sel.appendChild(opt);
+          });
+        });
+      } catch (e) {}
+    })();
 
     function resetFormFields(formId) {
       var f = document.getElementById(formId);
@@ -2884,9 +3077,10 @@
     document.getElementById('create-hdhr-btn').addEventListener('click', async function() {
       var name = document.getElementById('hdhr-name').value.trim();
       var enabled = document.getElementById('hdhr-enabled').checked;
+      var hdhrProfileId = document.getElementById('hdhr-profile').value;
       if (!name) { toast('Name required', 'error'); return; }
       try {
-        var payload = { name: name, is_enabled: enabled };
+        var payload = { name: name, is_enabled: enabled, source_profile_id: hdhrProfileId || '' };
         var r;
         if (editingSourceId && editingSourceType === 'hdhr') {
           r = await api.put('/api/sources/hdhr/' + editingSourceId, payload);
@@ -2915,11 +3109,13 @@
       var transmitter = document.getElementById('satip-transmitter').value;
       var maxStreams = parseInt(document.getElementById('satip-maxstreams').value) || 0;
       var enabled = document.getElementById('satip-enabled').checked;
+      var satipProfileId = document.getElementById('satip-profile').value;
       if (!name || !host) { toast('Name and host required', 'error'); return; }
       try {
         var payload = {
           name: name, host: host, http_port: port,
-          transmitter_file: transmitter, max_streams: maxStreams, is_enabled: enabled
+          transmitter_file: transmitter, max_streams: maxStreams, is_enabled: enabled,
+          source_profile_id: satipProfileId || ''
         };
         var r;
         if (editingSourceId && editingSourceType === 'satip') {
@@ -3030,9 +3226,10 @@
       var username = document.getElementById('src-username').value.trim();
       var password = document.getElementById('src-password').value;
       var wg = document.getElementById('src-wireguard').checked;
+      var srcProfileId = document.getElementById('src-profile').value;
       if (!name || !srcUrl) { toast('Name and URL required', 'error'); return; }
       try {
-        var payload = { name: name, url: srcUrl, username: username, use_wireguard: wg };
+        var payload = { name: name, url: srcUrl, username: username, use_wireguard: wg, source_profile_id: srcProfileId || '' };
         if (password) payload.password = password;
         var r;
         if (editingSourceId && editingSourceType === 'm3u') {
@@ -3060,9 +3257,10 @@
       var tvpUrl = document.getElementById('tvp-url').value.trim();
       var token = document.getElementById('tvp-token').value.trim();
       var wg = document.getElementById('tvp-wireguard').checked;
+      var tvpProfileId = document.getElementById('tvp-profile').value;
       if (!name || !tvpUrl) { toast('Name and URL required', 'error'); return; }
       try {
-        var payload = { name: name, url: tvpUrl, enrollment_token: token, use_wireguard: wg };
+        var payload = { name: name, url: tvpUrl, enrollment_token: token, use_wireguard: wg, source_profile_id: tvpProfileId || '' };
         var r;
         if (editingSourceId && editingSourceType === 'tvpstreams') {
           r = await api.put('/api/sources/tvpstreams/' + editingSourceId, payload);
@@ -3091,10 +3289,11 @@
       var password = document.getElementById('xt-password').value;
       var maxStreams = parseInt(document.getElementById('xt-maxstreams').value) || 0;
       var wg = document.getElementById('xt-wireguard').checked;
+      var xtProfileId = document.getElementById('xt-profile').value;
       if (!name || !server || !username) { toast('Name, server, and username required', 'error'); return; }
       if (!editingSourceId && !password) { toast('Password required', 'error'); return; }
       try {
-        var payload = { name: name, server: server, username: username, max_streams: maxStreams, use_wireguard: wg };
+        var payload = { name: name, server: server, username: username, max_streams: maxStreams, use_wireguard: wg, source_profile_id: xtProfileId || '' };
         if (password) payload.password = password;
         var r;
         if (editingSourceId && editingSourceType === 'xtream') {
@@ -3432,6 +3631,7 @@
             document.getElementById('src-username').value = config.username || '';
             document.getElementById('src-password').value = '';
             document.getElementById('src-wireguard').checked = config.use_wireguard === 'true';
+            document.getElementById('src-profile').value = config.source_profile_id || '';
             setFormTitle('add-m3u-form', 'Edit M3U Source');
             setSubmitBtnText('create-m3u-btn', 'Update');
             document.getElementById('add-m3u-form').style.display = 'block';
@@ -3440,6 +3640,7 @@
             document.getElementById('tvp-url').value = config.url || '';
             document.getElementById('tvp-token').value = '';
             document.getElementById('tvp-wireguard').checked = config.use_wireguard === 'true';
+            document.getElementById('tvp-profile').value = config.source_profile_id || '';
             setFormTitle('add-tvp-form', 'Edit TVP Streams Source');
             setSubmitBtnText('create-tvp-btn', 'Update');
             document.getElementById('add-tvp-form').style.display = 'block';
@@ -3450,12 +3651,14 @@
             document.getElementById('xt-password').value = '';
             document.getElementById('xt-maxstreams').value = config.max_streams || '0';
             document.getElementById('xt-wireguard').checked = config.use_wireguard === 'true';
+            document.getElementById('xt-profile').value = config.source_profile_id || '';
             setFormTitle('add-xtream-form', 'Edit Xtream Codes Source');
             setSubmitBtnText('create-xtream-btn', 'Update');
             document.getElementById('add-xtream-form').style.display = 'block';
           } else if (type === 'hdhr') {
             document.getElementById('hdhr-name').value = name || '';
             document.getElementById('hdhr-enabled').checked = entry.is_enabled;
+            document.getElementById('hdhr-profile').value = config.source_profile_id || '';
             setFormTitle('add-hdhr-form', 'Edit HDHomeRun Source');
             setSubmitBtnText('create-hdhr-btn', 'Update');
             document.getElementById('add-hdhr-form').style.display = 'block';
@@ -3471,6 +3674,7 @@
               loadSystems();
             }
             document.getElementById('satip-maxstreams').value = config.max_streams || '0';
+            document.getElementById('satip-profile').value = config.source_profile_id || '';
             document.getElementById('satip-enabled').checked = entry.is_enabled;
             setFormTitle('add-satip-form', 'Edit SAT>IP Source');
             setSubmitBtnText('create-satip-btn', 'Update');
@@ -6528,6 +6732,7 @@
     favorites: renderFavorites,
     activity: renderActivity,
     sources: renderSources,
+    sourceprofiles: renderSourceProfiles,
     epgsources: renderEPGSources,
     wireguard: renderWireGuard,
     settings: renderSettings,

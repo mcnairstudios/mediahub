@@ -2,7 +2,7 @@
 
 Media hub connecting stream sources to playback sinks with intelligent format negotiation. Sources feed into a unified media cloud; outputs deliver to any client. Built in Go with in-process libavformat for all media processing — no subprocess management, no orphaned processes.
 
-**58 packages | 1287 tests | 24K+ impl lines | 25K+ test lines**
+**61 packages | 1205 tests | 28K+ impl lines | 27K+ test lines**
 
 ## Architecture
 
@@ -17,8 +17,8 @@ graph TB
         FUTURE_IN[Future: Cameras, HDMI, Pluto, etc.]
     end
 
-    subgraph "Source Stream Profiles"
-        SSP[Normalize to consistent internal format]
+    subgraph "Source Profiles"
+        SSP[Source Profile<br/>deinterlace / language / transport]
     end
 
     SATIP --> SSP
@@ -134,6 +134,7 @@ graph TD
     session[session]
     strategy[strategy]
     client[client]
+    sourceprofile[sourceprofile]
     channel[channel]
     epg[epg]
     auth[auth]
@@ -195,6 +196,7 @@ graph TD
     api --> channel
     api --> epg
     api --> client
+    api --> sourceprofile
 
     connectivity_wg --> connectivity
 
@@ -235,6 +237,7 @@ graph TD
 
     style strategy fill:#f3e5f5
     style client fill:#f3e5f5
+    style sourceprofile fill:#f3e5f5
 
     style av fill:#fffde7
     style av_probe fill:#fffde7
@@ -321,6 +324,7 @@ graph TD
 |---------|---------|
 | `channel` | Channel management and numbering |
 | `client` | Client detection (User-Agent + port) and profile resolution |
+| `sourceprofile` | Source profile types, store interface, seed defaults (deinterlace, language, transport) |
 | `strategy` | Copy vs transcode decision engine (source + client profile) |
 | `epg` | EPG data management and enrichment |
 | `recording` | Recording lifecycle, scheduling, intent persistence |
@@ -450,12 +454,29 @@ node web/dist/smoke_test.js
 ## Run
 
 ```bash
-TVPROXY_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-TVPROXY_RECORD_DIR=/tmp/recordings \
-TVPROXY_VOD_OUTPUT_DIR=/tmp/recordings \
-TVPROXY_BASE_URL=http://192.168.0.111 \
+MEDIAHUB_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+MEDIAHUB_RECORD_DIR=/tmp/recordings \
+MEDIAHUB_VOD_OUTPUT_DIR=/tmp/recordings \
+MEDIAHUB_BASE_URL=http://192.168.0.111 \
 ./mediahub
 ```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MEDIAHUB_BASE_URL` | | Base URL for external access (required for HDHR/DLNA/OAuth callbacks) |
+| `MEDIAHUB_LISTEN_ADDR` | `:8080` | HTTP listen address |
+| `MEDIAHUB_DATA_DIR` | `/config` | Data directory for JSON stores, caches, logos |
+| `MEDIAHUB_RECORD_DIR` | `/record` | Recording output directory |
+| `MEDIAHUB_VOD_OUTPUT_DIR` | `$RECORD_DIR` | VOD output directory (defaults to record dir) |
+| `MEDIAHUB_USER_AGENT` | `MediaHub` | User-Agent header for upstream HTTP requests |
+| `MEDIAHUB_JELLYFIN_PORT` | `8096` | Jellyfin emulation listen port |
+| `MEDIAHUB_DLNA_ENABLED` | `true` | Enable DLNA MediaServer (set `false` or `0` to disable) |
+| `MEDIAHUB_DLNA_PORT` | `0` | DLNA listen port (0 = auto) |
+| `MEDIAHUB_BYPASS_HEADER` | | Header name for auth bypass (e.g. reverse proxy pre-auth) |
+| `MEDIAHUB_BYPASS_SECRET` | | Expected value for bypass header |
+| `MEDIAHUB_DVB_TABLES_DIR` | `/usr/share/dvb` | DVB scan tables directory for SAT>IP scanning |
 
 | Port | Service |
 |------|---------|
@@ -472,7 +493,7 @@ docker run -d \
   -p 8096:8096 \
   -v /path/to/config:/config \
   -v /path/to/recordings:/recordings \
-  -e TVPROXY_BASE_URL=http://your-ip \
+  -e MEDIAHUB_BASE_URL=http://your-ip \
   gavinmcnair/mediahub:latest
 ```
 

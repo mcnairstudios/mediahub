@@ -38,13 +38,15 @@ type OrchestratorDeps struct {
     FavoriteStore     favorite.Store
     LogoCache         *logocache.Cache
     Activity          *activity.Service
-    TMDBClient        *tmdb.Client
-    TMDBImages        *tmdb.ImageCache
-    Config            *config.Config
-    StaticFS          fs.FS
-    UserAgent         string
-    BypassHeader      string
-    BypassSecret      string
+    TMDBClient         *tmdb.Client
+    TMDBCache          *tmdbcache.Cache
+    TMDBImages         *tmdb.ImageCache
+    SourceProfileStore sourceprofile.Store
+    Config             *config.Config
+    StaticFS           fs.FS
+    UserAgent          string
+    BypassHeader       string
+    BypassSecret       string
 }
 ```
 
@@ -63,6 +65,8 @@ Handlers are methods on Server for access to deps. They contain ZERO business lo
 |--------|------|------|---------|
 | POST | /api/auth/login | Public | handleLogin |
 | POST | /api/auth/refresh | Public | handleRefreshToken |
+| GET | /api/auth/google | Public | handleGoogleAuth |
+| GET | /api/auth/google/callback | Public | handleGoogleCallback |
 | GET | /api/streams | Auth | handleListStreams |
 | GET | /api/streams/{id}/detail | Auth | handleStreamDetail |
 | GET | /api/channels | Auth | handleListChannels |
@@ -156,6 +160,11 @@ Handlers are methods on Server for access to deps. They contain ZERO business lo
 | POST | /api/clients | Admin | handleCreateClient |
 | PUT | /api/clients/{id} | Admin | handleUpdateClient |
 | DELETE | /api/clients/{id} | Admin | handleDeleteClient |
+| GET | /api/source-profiles | Auth | handleListSourceProfiles |
+| GET | /api/source-profiles/{id} | Auth | handleGetSourceProfile |
+| POST | /api/source-profiles | Admin | handleCreateSourceProfile |
+| PUT | /api/source-profiles/{id} | Admin | handleUpdateSourceProfile |
+| DELETE | /api/source-profiles/{id} | Admin | handleDeleteSourceProfile |
 | GET | /api/capabilities | Auth | handleCapabilities |
 | GET | /api/activity | Admin | handleListActivity |
 | GET | /api/output/playlist.m3u | Public | handleOutputM3U |

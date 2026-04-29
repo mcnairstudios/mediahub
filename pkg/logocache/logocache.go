@@ -3,6 +3,7 @@ package logocache
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"time"
 )
+
+var errUpstream = errors.New("upstream error")
 
 const Placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='20' fill='%23374151'/%3E%3Ctext x='100' y='115' font-family='sans-serif' font-size='80' fill='%239CA3AF' text-anchor='middle'%3ETV%3C/text%3E%3C/svg%3E`
 
@@ -103,8 +106,12 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 	}
 
-	filename = c.fetch(r.Context(), logoURL, hash)
+	filename, fetchErr := c.fetch(r.Context(), logoURL, hash)
 	if filename == "" {
+		if fetchErr == errUpstream {
+			http.Error(w, "upstream error", http.StatusBadGateway)
+			return
+		}
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="20" fill="#374151"/><text x="100" y="115" font-family="sans-serif" font-size="80" fill="#9CA3AF" text-anchor="middle">TV</text></svg>`))
@@ -115,25 +122,25 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(c.dir, filename))
 }
 
-func (c *Cache) fetch(ctx context.Context, logoURL, hash string) string {
+func (c *Cache) fetch(ctx context.Context, logoURL, hash string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, logoURL, nil)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return "", errUpstream
 	}
 
 	ct := resp.Header.Get("Content-Type")
 	if ct != "" && !strings.HasPrefix(ct, "image/") {
-		return ""
+		return "", nil
 	}
 
 	ext := detectExtension(ct, logoURL)
@@ -142,12 +149,12 @@ func (c *Cache) fetch(ctx context.Context, logoURL, hash string) string {
 
 	f, err := os.Create(path)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
 		os.Remove(path)
-		return ""
+		return "", nil
 	}
 	f.Close()
 
@@ -155,7 +162,7 @@ func (c *Cache) fetch(ctx context.Context, logoURL, hash string) string {
 	c.index[hash] = filename
 	c.mu.Unlock()
 
-	return filename
+	return filename, nil
 }
 
 func hashURL(u string) string {

@@ -91,16 +91,16 @@ func TestResolve_BitDepthWithinMax(t *testing.T) {
 	}
 }
 
-func TestResolve_AudioCopy(t *testing.T) {
+func TestResolve_AudioTranscode_AACToAAC(t *testing.T) {
 	d := Resolve(
 		Input{VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080},
 		Output{VideoCodec: "copy", AudioCodec: "aac", Container: "mp4"},
 	)
-	if d.NeedsAudioTranscode {
-		t.Error("expected audio copy when source and output are both aac")
+	if !d.NeedsAudioTranscode {
+		t.Error("expected audio transcode when output specifies aac (not copy)")
 	}
-	if d.AudioCodec != media.AudioCopy {
-		t.Errorf("expected audio copy, got %s", d.AudioCodec)
+	if d.AudioCodec != media.AudioAAC {
+		t.Errorf("expected aac, got %s", d.AudioCodec)
 	}
 }
 
@@ -122,11 +122,11 @@ func TestResolve_AudioTranscode_LATMToAAC(t *testing.T) {
 		Input{VideoCodec: "h264", AudioCodec: "aac_latm", Width: 1920, Height: 1080},
 		Output{VideoCodec: "copy", AudioCodec: "aac", Container: "mp4"},
 	)
-	if d.NeedsAudioTranscode {
-		t.Error("expected audio copy for aac_latm->aac (same base codec)")
+	if !d.NeedsAudioTranscode {
+		t.Error("expected audio transcode for aac_latm when output specifies aac")
 	}
-	if d.AudioCodec != media.AudioCopy {
-		t.Errorf("expected audio copy, got %s", d.AudioCodec)
+	if d.AudioCodec != media.AudioAAC {
+		t.Errorf("expected aac, got %s", d.AudioCodec)
 	}
 }
 
@@ -203,16 +203,16 @@ func TestResolve_AudioCopyOutput(t *testing.T) {
 	}
 }
 
-func TestResolve_DefaultAudioMatchesSource(t *testing.T) {
+func TestResolve_DefaultAudioTranscodesToAAC(t *testing.T) {
 	d := Resolve(
 		Input{VideoCodec: "h264", AudioCodec: "ac3", Width: 1920, Height: 1080},
 		Output{VideoCodec: "copy", AudioCodec: "default", Container: "mpegts"},
 	)
-	if d.NeedsAudioTranscode {
-		t.Error("expected audio copy when output is default")
+	if !d.NeedsAudioTranscode {
+		t.Error("expected audio transcode when output is default")
 	}
-	if d.AudioCodec != media.AudioCopy {
-		t.Errorf("expected audio copy, got %s", d.AudioCodec)
+	if d.AudioCodec != media.AudioAAC {
+		t.Errorf("expected aac, got %s", d.AudioCodec)
 	}
 }
 

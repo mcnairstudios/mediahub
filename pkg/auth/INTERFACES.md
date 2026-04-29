@@ -40,6 +40,7 @@ Persistence layer for user records and password hashes.
 type UserStore interface {
     Get(ctx context.Context, id string) (*User, error)
     GetByUsername(ctx context.Context, username string) (*User, error)
+    GetByEmail(ctx context.Context, email string) (*User, error)
     List(ctx context.Context) ([]*User, error)
     Create(ctx context.Context, user *User) error
     Update(ctx context.Context, user *User) error
@@ -52,9 +53,10 @@ type UserStore interface {
 |--------|-------------|
 | `Get` | Retrieve a user by ID |
 | `GetByUsername` | Retrieve a user by username |
+| `GetByEmail` | Retrieve a user by email (case-insensitive, for Google OAuth lookup) |
 | `List` | Return all users |
 | `Create` | Persist a new user |
-| `Update` | Update a user's fields (username, role) |
+| `Update` | Update a user's fields (username, role, email) |
 | `Delete` | Remove a user by ID |
 | `UpdatePassword` | Update the stored password hash for a user |
 

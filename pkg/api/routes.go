@@ -110,7 +110,7 @@ func (s *Server) registerRoutes() {
 
 	s.mux.Handle("GET /api/streams/{id}/detail", s.authenticated(s.handleStreamDetail))
 	s.mux.Handle("GET /api/vod/library", s.authenticated(s.handleVODLibrary))
-	s.mux.HandleFunc("GET /api/tmdb/image", s.handleTMDBImage)
+	s.mux.Handle("GET /api/tmdb/image", s.authenticated(s.handleTMDBImage))
 	s.mux.Handle("GET /api/tmdb/sync", s.authenticated(s.handleTMDBSyncStatus))
 
 	s.mux.Handle("GET /api/clients", s.authenticated(s.handleListClients))

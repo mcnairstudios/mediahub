@@ -71,8 +71,9 @@ func (c *Cache) Set(_ context.Context, key string, value any) error {
 func (c *Cache) Delete(_ context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.movies, key)
-	delete(c.series, key)
+	sk := sanitizeKey(key)
+	delete(c.movies, sk)
+	delete(c.series, sk)
 	if c.dir != "" {
 		os.Remove(filepath.Join(c.dir, sanitizeKey(key)+".json"))
 	}
