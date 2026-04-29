@@ -26,9 +26,11 @@ type Config struct {
 	UserAgent    string
 	BypassHeader string
 	BypassSecret string
+	InitialETag  string
 	StreamStore  store.StreamStore
 	HTTPClient   *http.Client
 	WGClient     *http.Client
+	OnETagChanged func(sourceID, etag string)
 }
 
 type Source struct {
@@ -44,7 +46,11 @@ func New(cfg Config) *Source {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	return &Source{cfg: cfg}
+	s := &Source{cfg: cfg}
+	if cfg.InitialETag != "" {
+		s.etag = cfg.InitialETag
+	}
+	return s
 }
 
 func (s *Source) Type() source.SourceType {
@@ -171,6 +177,13 @@ func (s *Source) Refresh(ctx context.Context) error {
 	now := time.Now()
 	s.lastRefreshed = &now
 	s.lastError = ""
+	s.mu.Unlock()
+
+	if result.ETag != "" && s.cfg.OnETagChanged != nil {
+		s.cfg.OnETagChanged(s.cfg.ID, result.ETag)
+	}
+
+	s.mu.Lock()
 	s.mu.Unlock()
 
 	return nil

@@ -61,6 +61,13 @@ func main() {
 		cfg.DLNAPort = extractPort(cfg.ListenAddr)
 	}
 
+	logLevel := zerolog.InfoLevel
+	if v := os.Getenv("MEDIAHUB_LOG_LEVEL"); v != "" {
+		if l, err := zerolog.ParseLevel(v); err == nil {
+			logLevel = l
+		}
+	}
+	zerolog.SetGlobalLevel(logLevel)
 	zlog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
 		With().Timestamp().Logger()
 
@@ -139,7 +146,16 @@ func main() {
 			UserAgent:    cfg.UserAgent,
 			BypassHeader: cfg.BypassHeader,
 			BypassSecret: cfg.BypassSecret,
+			InitialETag:  sc.Config["etag"],
 			StreamStore:  streamStore,
+			OnETagChanged: func(sourceID, etag string) {
+				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
+				if err != nil || scUpd == nil {
+					return
+				}
+				scUpd.Config["etag"] = etag
+				sourceConfigStore.Update(ctx, scUpd)
+			},
 		}
 		if m3uCfg.UseWireGuard && wgService != nil {
 			if p := wgService.ActivePlugin(); p != nil {
@@ -170,6 +186,15 @@ func main() {
 			BypassSecret:    cfg.BypassSecret,
 			StreamStore:     streamStore,
 			TMDBCache:       tmdbCache,
+			InitialETag:     sc.Config["etag"],
+			OnETagChanged: func(sourceID, etag string) {
+				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
+				if err != nil || scUpd == nil {
+					return
+				}
+				scUpd.Config["etag"] = etag
+				sourceConfigStore.Update(ctx, scUpd)
+			},
 			OnEnrolled: func(sourceID string) error {
 				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
 				if err != nil || scUpd == nil {
