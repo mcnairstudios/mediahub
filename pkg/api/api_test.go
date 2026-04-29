@@ -2467,13 +2467,13 @@ func TestRefreshSourceNotFound(t *testing.T) {
 	}
 }
 
-func TestTMDBImageRequiresAuth(t *testing.T) {
+func TestTMDBImagePublic(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.close()
 
 	resp := env.request("GET", "/api/tmdb/image?size=w500&path=/test.jpg", nil, "")
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Fatalf("expected public access, got 401")
 	}
 }
 

@@ -104,7 +104,7 @@ func TestRefreshAll(t *testing.T) {
 	m3u := &mockSource{info: source.SourceInfo{ID: "src-1", Type: "m3u"}}
 	hdhr := &mockSource{info: source.SourceInfo{ID: "src-2", Type: "hdhr"}}
 	configs := []sourceconfig.SourceConfig{
-		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true},
+		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
 		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true},
 	}
 	deps := newTestRefreshDeps(map[source.SourceType]*mockSource{
@@ -117,10 +117,10 @@ func TestRefreshAll(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
 	if !m3u.refreshed {
-		t.Error("expected m3u source to be refreshed")
+		t.Error("expected m3u source to be refreshed (has refresh_interval=daily)")
 	}
 	if !hdhr.refreshed {
-		t.Error("expected hdhr source to be refreshed")
+		t.Error("expected hdhr source to be refreshed (always auto-refresh)")
 	}
 }
 
@@ -128,7 +128,7 @@ func TestRefreshAll_PartialFailure(t *testing.T) {
 	m3u := &mockSource{info: source.SourceInfo{ID: "src-1", Type: "m3u"}, refreshErr: errors.New("network error")}
 	hdhr := &mockSource{info: source.SourceInfo{ID: "src-2", Type: "hdhr"}}
 	configs := []sourceconfig.SourceConfig{
-		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true},
+		{ID: "src-1", Type: "m3u", Name: "test-m3u", IsEnabled: true, Config: map[string]string{"refresh_interval": "daily"}},
 		{ID: "src-2", Type: "hdhr", Name: "test-hdhr", IsEnabled: true},
 	}
 	deps := newTestRefreshDeps(map[source.SourceType]*mockSource{

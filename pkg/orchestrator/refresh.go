@@ -33,10 +33,22 @@ func RefreshAll(ctx context.Context, deps RefreshDeps) []error {
 	if err != nil {
 		return []error{fmt.Errorf("listing source configs: %w", err)}
 	}
+	alwaysAutoRefresh := map[string]bool{
+		"tvpstreams": true,
+		"hdhr":       true,
+		"satip":      true,
+	}
+
 	var errs []error
 	for _, cfg := range configs {
 		if !cfg.IsEnabled {
 			continue
+		}
+		if !alwaysAutoRefresh[cfg.Type] {
+			interval := cfg.Config["refresh_interval"]
+			if interval == "" || interval == "none" {
+				continue
+			}
 		}
 		log.Printf("source-refresh: refreshing %s (%s)", cfg.Name, cfg.Type)
 		if err := RefreshSource(ctx, deps, source.SourceType(cfg.Type), cfg.ID); err != nil {

@@ -88,7 +88,7 @@ func (s *Session) Stop() {
 }
 
 func (s *Session) waitFinished() {
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(2 * time.Second)
 	for {
 		s.mu.Lock()
 		done := s.finished
@@ -98,6 +98,9 @@ func (s *Session) waitFinished() {
 		}
 		select {
 		case <-deadline:
+			return
+		case <-s.ctx.Done():
+			time.Sleep(100 * time.Millisecond)
 			return
 		case <-time.After(50 * time.Millisecond):
 		}
