@@ -56,11 +56,13 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name         string `json:"name"`
-		URL          string `json:"url"`
-		Username     string `json:"username"`
-		Password     string `json:"password"`
-		UseWireGuard bool   `json:"use_wireguard"`
+		Name            string `json:"name"`
+		URL             string `json:"url"`
+		Username        string `json:"username"`
+		Password        string `json:"password"`
+		UseWireGuard    bool   `json:"use_wireguard"`
+		RefreshInterval string `json:"refresh_interval"`
+		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -77,10 +79,12 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 		Name:      req.Name,
 		IsEnabled: true,
 		Config: map[string]string{
-			"url":           req.URL,
-			"username":      req.Username,
-			"password":      req.Password,
-			"use_wireguard": boolStr(req.UseWireGuard),
+			"url":               req.URL,
+			"username":          req.Username,
+			"password":          req.Password,
+			"use_wireguard":     boolStr(req.UseWireGuard),
+			"refresh_interval":  req.RefreshInterval,
+			"source_profile_id": req.SourceProfileID,
 		},
 	}
 
@@ -119,12 +123,14 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name         *string `json:"name"`
-		URL          *string `json:"url"`
-		Username     *string `json:"username"`
-		Password     *string `json:"password"`
-		IsEnabled    *bool   `json:"is_enabled"`
-		UseWireGuard *bool   `json:"use_wireguard"`
+		Name            *string `json:"name"`
+		URL             *string `json:"url"`
+		Username        *string `json:"username"`
+		Password        *string `json:"password"`
+		IsEnabled       *bool   `json:"is_enabled"`
+		UseWireGuard    *bool   `json:"use_wireguard"`
+		RefreshInterval *string `json:"refresh_interval"`
+		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -148,6 +154,12 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.UseWireGuard != nil {
 		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.RefreshInterval != nil {
+		existing.Config["refresh_interval"] = *req.RefreshInterval
+	}
+	if req.SourceProfileID != nil {
+		existing.Config["source_profile_id"] = *req.SourceProfileID
 	}
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {

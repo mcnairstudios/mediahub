@@ -2856,6 +2856,7 @@
       '<div class="form-group"><label class="form-label">Username (optional)</label><input class="form-input" id="src-username"></div>' +
       '<div class="form-group"><label class="form-label">Password (optional)</label><input class="form-input" id="src-password" type="password"></div>' +
       '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="src-profile"><option value="">None</option></select></div>' +
+      '<div class="form-group"><label class="form-label">Auto Refresh</label><select class="form-input" id="src-refresh"><option value="none">None (manual only)</option><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="src-wireguard"> Route through WireGuard</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-m3u-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-m3u-btn">Cancel</button></div></div>' +
@@ -3227,9 +3228,10 @@
       var password = document.getElementById('src-password').value;
       var wg = document.getElementById('src-wireguard').checked;
       var srcProfileId = document.getElementById('src-profile').value;
+      var refreshInterval = document.getElementById('src-refresh').value;
       if (!name || !srcUrl) { toast('Name and URL required', 'error'); return; }
       try {
-        var payload = { name: name, url: srcUrl, username: username, use_wireguard: wg, source_profile_id: srcProfileId || '' };
+        var payload = { name: name, url: srcUrl, username: username, use_wireguard: wg, source_profile_id: srcProfileId || '', refresh_interval: refreshInterval || 'none' };
         if (password) payload.password = password;
         var r;
         if (editingSourceId && editingSourceType === 'm3u') {
@@ -3632,6 +3634,7 @@
             document.getElementById('src-password').value = '';
             document.getElementById('src-wireguard').checked = config.use_wireguard === 'true';
             document.getElementById('src-profile').value = config.source_profile_id || '';
+            document.getElementById('src-refresh').value = config.refresh_interval || 'none';
             setFormTitle('add-m3u-form', 'Edit M3U Source');
             setSubmitBtnText('create-m3u-btn', 'Update');
             document.getElementById('add-m3u-form').style.display = 'block';
