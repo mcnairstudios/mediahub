@@ -6786,11 +6786,13 @@
         });
         var payload = {
           name: document.getElementById('cp-name').value.trim(),
-          delivery: document.getElementById('cp-delivery').value,
-          video_codec: document.getElementById('cp-video').value,
-          audio_codec: document.getElementById('cp-audio').value,
-          container: document.getElementById('cp-container').value,
-          output_height: parseInt(document.getElementById('cp-height').value) || 0,
+          profile: {
+            delivery: document.getElementById('cp-delivery').value,
+            video_codec: document.getElementById('cp-video').value,
+            audio_codec: document.getElementById('cp-audio').value,
+            container: document.getElementById('cp-container').value,
+            output_height: parseInt(document.getElementById('cp-height').value) || 0
+          },
           match_rules: matchRules
         };
         if (!payload.name) { toast('Name required', 'error'); return; }
