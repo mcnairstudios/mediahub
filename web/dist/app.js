@@ -5452,10 +5452,9 @@
         var html = '';
         if (sy && sy.syncing) {
           var pct = t > 0 ? Math.round(c / t * 100) : 0;
-          var remaining = sy.total - sy.completed;
           html = '<div style="padding:10px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
-            '<span style="font-size:13px;color:var(--text-dim)">' + label + ': ' + c + '/' + t + ' enriched (' + pct + '%)' + (remaining > 0 ? ' — syncing ' + remaining + ' remaining' : '') + '</span></div>' +
+            '<span style="font-size:13px;color:var(--text-dim)">' + label + ': ' + c + '/' + t + ' enriched (' + pct + '%) — TMDB sync active</span></div>' +
             '<div style="width:100%;height:4px;background:var(--border);border-radius:2px;overflow:hidden">' +
             '<div style="width:' + pct + '%;height:100%;background:var(--accent);border-radius:2px;transition:width 0.5s"></div></div></div>';
         } else if (t > 0 && c < t) {
