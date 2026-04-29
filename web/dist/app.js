@@ -4043,14 +4043,7 @@
           { value: 'mse', label: 'MSE (browser)' },
           { value: 'hls', label: 'HLS (Jellyfin / Apple TV)' },
           { value: 'stream', label: 'Stream (direct)' }
-        ], getSetting(settings, 'default_delivery') || 'mse') +
-      '</div>' +
-      '<div class="settings-field">' +
-        '<label>Container</label>' +
-        makeSelect('setting-container', [
-          { value: 'mp4', label: 'MP4' },
-          { value: 'mpegts', label: 'MPEG-TS' }
-        ], getSetting(settings, 'default_container') || 'mp4') +
+        ], getSetting(settings, 'delivery') || 'mse') +
       '</div>' +
       '<div class="settings-field">' +
         '<label>Video Codec</label>' +
@@ -4061,31 +4054,6 @@
           { value: 'av1', label: 'AV1' }
         ], getSetting(settings, 'default_video_codec') || 'copy') +
       '</div>' +
-      '<div class="settings-field">' +
-        '<label>Audio Codec</label>' +
-        makeSelect('setting-audio-codec', [
-          { value: 'aac', label: 'AAC' },
-          { value: 'copy', label: 'Passthrough (copy)' },
-          { value: 'mp3', label: 'MP3' },
-          { value: 'opus', label: 'Opus' },
-          { value: 'ac3', label: 'AC3' }
-        ], getSetting(settings, 'default_audio_codec') || 'aac') +
-      '</div>' +
-      '</div></div>';
-
-    html += '<div class="settings-section">' +
-      '<div class="settings-section-header">Recording Settings</div>' +
-      '<div class="settings-section-body">' +
-      '<div class="settings-section-desc">Default codec for scheduled recordings. Container is always MP4.</div>' +
-      '<div class="settings-field">' +
-        '<label>Recording Codec</label>' +
-        makeSelect('setting-rec-codec', [
-          { value: 'copy', label: 'Passthrough (copy)' },
-          { value: 'h264', label: 'H.264' },
-          { value: 'h265', label: 'H.265 / HEVC' },
-          { value: 'av1', label: 'AV1' }
-        ], getSetting(settings, 'recording_video_codec') || 'copy') +
-      '</div>' +
       '</div></div>';
 
     html += '<div class="settings-section">' +
@@ -4094,10 +4062,6 @@
       '<div class="settings-field">' +
         '<label>Base URL</label>' +
         '<input type="text" id="setting-base-url" value="' + esc(getSetting(settings, 'base_url')) + '" placeholder="http://192.168.1.100:8080">' +
-      '</div>' +
-      '<div class="settings-field">' +
-        '<label>User Agent</label>' +
-        '<input type="text" id="setting-user-agent" value="' + esc(getSetting(settings, 'user_agent')) + '" placeholder="MediaHub">' +
       '</div>' +
       '<div class="settings-field">' +
         '<label>DLNA Enabled</label>' +
@@ -4151,14 +4115,10 @@
       }
     }
 
-    bindAutoSave(container, 'setting-delivery', 'default_delivery');
-    bindAutoSave(container, 'setting-container', 'default_container');
+    bindAutoSave(container, 'setting-delivery', 'delivery');
     bindAutoSave(container, 'setting-video-codec', 'default_video_codec');
-    bindAutoSave(container, 'setting-audio-codec', 'default_audio_codec');
-    bindAutoSave(container, 'setting-rec-codec', 'recording_video_codec');
 
     bindTextSave(container, 'setting-base-url', 'base_url');
-    bindTextSave(container, 'setting-user-agent', 'user_agent');
     bindToggle(container, 'setting-dlna', 'dlna_enabled');
     bindTextSave(container, 'setting-tmdb-key', 'tmdb_api_key');
     bindTextSave(container, 'setting-google-client-id', 'google_client_id');
@@ -6329,6 +6289,16 @@
         var resp = await api.get('/api/clients');
         var profiles = await resp.json();
         if (!Array.isArray(profiles)) profiles = [];
+        for (var fi = 0; fi < profiles.length; fi++) {
+          var prof = profiles[fi].profile;
+          if (prof) {
+            if (!profiles[fi].delivery) profiles[fi].delivery = prof.delivery || '';
+            if (!profiles[fi].video_codec) profiles[fi].video_codec = prof.video_codec || '';
+            if (!profiles[fi].audio_codec) profiles[fi].audio_codec = prof.audio_codec || '';
+            if (!profiles[fi].container) profiles[fi].container = prof.container || '';
+            if (profiles[fi].output_height == null) profiles[fi].output_height = prof.output_height || 0;
+          }
+        }
         var container = document.getElementById('client-list');
         if (!container) return;
 
