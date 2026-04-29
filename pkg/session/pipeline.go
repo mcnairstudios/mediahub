@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/av"
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
@@ -86,9 +85,6 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	}
 	if cfg.ProbeDurationSec > 0 {
 		opts.AnalyzeDuration = cfg.ProbeDurationSec * 1_000_000
-	}
-	if strings.HasPrefix(cfg.StreamURL, "rtsp://") && opts.FormatHint == "" {
-		opts.FormatHint = "rtsp"
 	}
 
 	d, err := demux.NewDemuxer(cfg.StreamURL, opts)
