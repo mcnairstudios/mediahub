@@ -94,6 +94,7 @@ func main() {
 	favoriteStore := db.FavoriteStore()
 	clientStore := db.ClientStore()
 	sourceProfileStore := db.SourceProfileStore()
+	probeCache := db.ProbeCacheStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
 
@@ -441,6 +442,7 @@ func main() {
 		TMDBCache:         tmdbCache,
 		TMDBImages:        tmdbImages,
 		SourceProfileStore: sourceProfileStore,
+		ProbeCache:         probeCache,
 		Config:            cfg,
 		StaticFS:          staticFS,
 		UserAgent:         cfg.UserAgent,

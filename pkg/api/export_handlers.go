@@ -16,17 +16,17 @@ import (
 )
 
 type ExportData struct {
-	Version        int                       `json:"version"`
-	Scope          string                    `json:"scope"`
-	ExportedAt     time.Time                 `json:"exported_at"`
-	ChannelGroups  []channel.Group           `json:"channel_groups,omitempty"`
-	Channels       []ExportChannel           `json:"channels,omitempty"`
-	Clients        []client.Client           `json:"clients,omitempty"`
-	SourceProfiles []sourceprofile.Profile   `json:"source_profiles,omitempty"`
+	Version        int                         `json:"version"`
+	Scope          string                      `json:"scope"`
+	ExportedAt     time.Time                   `json:"exported_at"`
+	ChannelGroups  []channel.Group             `json:"channel_groups,omitempty"`
+	Channels       []ExportChannel             `json:"channels,omitempty"`
+	Clients        []client.Client             `json:"clients,omitempty"`
+	SourceProfiles []sourceprofile.Profile     `json:"source_profiles,omitempty"`
 	SourceConfigs  []sourceconfig.SourceConfig `json:"source_configs,omitempty"`
-	EPGSources     []epg.Source              `json:"epg_sources,omitempty"`
-	Settings       map[string]string         `json:"settings,omitempty"`
-	Users          []ExportUser              `json:"users,omitempty"`
+	EPGSources     []epg.Source                `json:"epg_sources,omitempty"`
+	Settings       map[string]string           `json:"settings,omitempty"`
+	Users          []ExportUser                `json:"users,omitempty"`
 }
 
 type ExportChannel struct {
@@ -158,7 +158,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if data.Version != 1 {
-		httputil.RespondError(w, http.StatusBadRequest, fmt.Sprintf("unsupported export version: %d", data.Version))
+		httputil.RespondError(w, http.StatusBadRequest, "unsupported export version")
 		return
 	}
 
