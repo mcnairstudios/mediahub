@@ -275,6 +275,9 @@ func (m *FragmentedMuxer) WriteAudioPacket(pkt *astiav.Packet) error {
 	pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
 	m.audio.ensureMonotonicDTS(pkt)
 	dur := pktDurationUs(pkt, m.audio.stream)
+	if dur <= 0 {
+		dur = 21333
+	}
 	if err := m.audio.fc.WriteFrame(pkt); err != nil {
 		return fmt.Errorf("avmux: write audio frame: %w", err)
 	}

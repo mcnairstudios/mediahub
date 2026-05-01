@@ -33,13 +33,13 @@ func TestSelectAudio(t *testing.T) {
 			want:  2,
 		},
 		{
-			name: "first track wins over codec priority",
+			name: "prefer stereo over multichannel",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "ac3", Language: "en", Channels: 6},
 				{Index: 2, Codec: "aac", Language: "en", Channels: 2},
 			},
 			prefs: AudioPrefs{Language: "en"},
-			want:  1,
+			want:  2,
 		},
 		{
 			name: "skip AD tracks",
@@ -57,15 +57,15 @@ func TestSelectAudio(t *testing.T) {
 			want: 1,
 		},
 		{
-			name: "all AD multiple - pick first",
+			name: "all AD multiple - prefer stereo",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "ac3", IsAD: true, Channels: 6},
 				{Index: 2, Codec: "aac", IsAD: true, Channels: 2},
 			},
-			want: 1,
+			want: 2,
 		},
 		{
-			name: "first track wins same codec different channels",
+			name: "same channels - first wins",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "aac", Language: "en", Channels: 2},
 				{Index: 2, Codec: "aac", Language: "en", Channels: 6},
@@ -74,13 +74,13 @@ func TestSelectAudio(t *testing.T) {
 			want:  1,
 		},
 		{
-			name: "no language match - first track wins",
+			name: "no language match - prefer stereo",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "ac3", Language: "de", Channels: 6},
 				{Index: 2, Codec: "aac", Language: "de", Channels: 2},
 			},
 			prefs: AudioPrefs{Language: "en"},
-			want:  1,
+			want:  2,
 		},
 		{
 			name: "AD skipped even if first",
@@ -93,7 +93,7 @@ func TestSelectAudio(t *testing.T) {
 			want:  2,
 		},
 		{
-			name: "language filter then first track",
+			name: "language filter then prefer stereo",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "aac", Language: "fr", Channels: 6},
 				{Index: 2, Codec: "ac3", Language: "en", Channels: 6},
@@ -101,18 +101,18 @@ func TestSelectAudio(t *testing.T) {
 				{Index: 4, Codec: "aac", Language: "en", Channels: 6},
 			},
 			prefs: AudioPrefs{Language: "en"},
-			want:  2,
+			want:  3,
 		},
 		{
-			name: "no prefs - first track wins",
+			name: "no prefs - prefer stereo",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "ac3", Language: "en", Channels: 6},
 				{Index: 2, Codec: "aac", Language: "fr", Channels: 2},
 			},
-			want: 1,
+			want: 2,
 		},
 		{
-			name: "DTS primary over AC3 secondary MKV pattern",
+			name: "all multichannel - first wins",
 			tracks: []media.AudioTrack{
 				{Index: 1, Codec: "dts", Language: "en", Channels: 8},
 				{Index: 2, Codec: "ac3", Language: "en", Channels: 6},
