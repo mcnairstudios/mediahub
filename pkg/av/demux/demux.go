@@ -125,7 +125,7 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 	}
 	if analyzeDur <= 0 {
 		if isLive {
-			analyzeDur = 0
+			analyzeDur = 5000000
 		} else {
 			analyzeDur = 5000000
 		}
@@ -133,8 +133,9 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 	d.Set("probesize", fmt.Sprintf("%d", probeSize), 0)
 	d.Set("analyzeduration", fmt.Sprintf("%d", analyzeDur), 0)
 	if isLive {
-		d.Set("fflags", "nobuffer+igndts+flush_packets", 0)
+		d.Set("fflags", "nobuffer+flush_packets", 0)
 		d.Set("flags", "low_delay", 0)
+		d.Set("rtsp_flags", "prefer_tcp", 0)
 	}
 
 	var inputFmt *astiav.InputFormat

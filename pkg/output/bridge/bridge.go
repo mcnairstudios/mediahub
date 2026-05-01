@@ -59,6 +59,7 @@ type Bridge struct {
 	videoTB              astiav.Rational
 	audioTB              astiav.Rational
 	audioLatched         bool
+	audioErrorCount      int
 	stopped              bool
 	videoEncoderExtradata []byte
 	extractedExtradata   bool
@@ -616,9 +617,13 @@ func (b *Bridge) closeBSFExtractor() {
 }
 
 func (b *Bridge) latchAudioError(err error) {
+	b.audioErrorCount++
+	if b.audioErrorCount <= 10 {
+		return
+	}
 	if !b.audioLatched {
 		b.audioLatched = true
-		b.log.Error().Err(err).Msg("bridge: audio error latched — video continues")
+		b.log.Error().Err(err).Int("errors", b.audioErrorCount).Msg("bridge: audio error latched — video continues")
 	}
 }
 
