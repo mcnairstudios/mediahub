@@ -248,6 +248,7 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	}
 
 	pkt.SetStreamIndex(m.video.stream.Index())
+	pkt.RescaleTs(m.video.timeBase, m.video.stream.TimeBase())
 	m.video.ensureMonotonicDTS(pkt)
 	if err := m.video.fc.WriteFrame(pkt); err != nil {
 		return fmt.Errorf("avmux: write video frame: %w", err)
@@ -273,6 +274,7 @@ func (m *FragmentedMuxer) WriteAudioPacket(pkt *astiav.Packet) error {
 
 	pkt.SetStreamIndex(m.audio.stream.Index())
 	pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
+	pkt.RescaleTs(m.audio.timeBase, m.audio.stream.TimeBase())
 	m.audio.ensureMonotonicDTS(pkt)
 	dur := pktDurationUs(pkt, m.audio.stream)
 	if dur <= 0 {

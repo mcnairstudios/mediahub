@@ -418,7 +418,13 @@ func (e *Encoder) Flush() ([]*astiav.Packet, error) {
 		pkt := astiav.AllocPacket()
 		if err := e.codecCtx.ReceivePacket(pkt); err != nil {
 			pkt.Free()
-			break
+			if errors.Is(err, astiav.ErrEof) {
+				break
+			}
+			if errors.Is(err, astiav.ErrEagain) {
+				continue
+			}
+			return pkts, fmt.Errorf("encode: flush receive packet: %w", err)
 		}
 		pkts = append(pkts, pkt)
 	}

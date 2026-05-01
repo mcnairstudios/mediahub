@@ -14,6 +14,7 @@ type ptsEntry struct {
 type AudioFIFO struct {
 	encoder            *Encoder
 	fifo               *astiav.AudioFifo
+	outFrame           *astiav.Frame
 	frameSize          int
 	channels           int
 	sampleFmt          astiav.SampleFormat
@@ -29,7 +30,7 @@ func NewAudioFIFOFromEncoder(encoder *Encoder, channels int, layout astiav.Chann
 	if fs <= 0 {
 		fs = 1024
 	}
-	return &AudioFIFO{
+	f := &AudioFIFO{
 		encoder:   encoder,
 		frameSize: fs,
 		channels:  channels,
@@ -37,10 +38,12 @@ func NewAudioFIFOFromEncoder(encoder *Encoder, channels int, layout astiav.Chann
 		layout:    layout,
 		rate:      rate,
 	}
+	f.allocOutFrame()
+	return f
 }
 
 func NewAudioFIFO(encoder *Encoder, frameSize, channels int, sampleFmt astiav.SampleFormat, layout astiav.ChannelLayout, rate int) *AudioFIFO {
-	return &AudioFIFO{
+	f := &AudioFIFO{
 		encoder:   encoder,
 		frameSize: frameSize,
 		channels:  channels,
@@ -48,6 +51,24 @@ func NewAudioFIFO(encoder *Encoder, frameSize, channels int, sampleFmt astiav.Sa
 		layout:    layout,
 		rate:      rate,
 	}
+	f.allocOutFrame()
+	return f
+}
+
+func (f *AudioFIFO) allocOutFrame() {
+	frame := astiav.AllocFrame()
+	if frame == nil {
+		return
+	}
+	frame.SetNbSamples(f.frameSize)
+	frame.SetSampleFormat(f.sampleFmt)
+	frame.SetChannelLayout(f.layout)
+	frame.SetSampleRate(f.rate)
+	if err := frame.AllocBuffer(0); err != nil {
+		frame.Free()
+		return
+	}
+	f.outFrame = frame
 }
 
 func (f *AudioFIFO) Write(frame *astiav.Frame) ([]*astiav.Packet, error) {
@@ -66,24 +87,45 @@ func (f *AudioFIFO) Write(frame *astiav.Frame) ([]*astiav.Packet, error) {
 		return nil, fmt.Errorf("audiofifo: write: %w", err)
 	}
 
+	return f.drainFullFrames(false)
+}
+
+func (f *AudioFIFO) Flush() ([]*astiav.Packet, error) {
+	if f.fifo == nil || f.fifo.Size() <= 0 {
+		return nil, nil
+	}
+	return f.drainFullFrames(true)
+}
+
+func (f *AudioFIFO) drainFullFrames(flush bool) ([]*astiav.Packet, error) {
+	if f.outFrame == nil {
+		return nil, fmt.Errorf("audiofifo: output frame not allocated")
+	}
+
 	var allPkts []*astiav.Packet
-	for f.fifo.Size() >= f.frameSize {
-		outFrame := astiav.AllocFrame()
-		if outFrame == nil {
-			return allPkts, fmt.Errorf("audiofifo: alloc frame")
+	for {
+		if flush {
+			if f.fifo.Size() <= 0 {
+				break
+			}
+		} else {
+			if f.fifo.Size() < f.frameSize {
+				break
+			}
 		}
-		outFrame.SetNbSamples(f.frameSize)
-		outFrame.SetSampleFormat(f.sampleFmt)
-		outFrame.SetChannelLayout(f.layout)
-		outFrame.SetSampleRate(f.rate)
-		if err := outFrame.AllocBuffer(0); err != nil {
-			outFrame.Free()
-			return allPkts, fmt.Errorf("audiofifo: alloc buffer: %w", err)
+
+		readSize := f.frameSize
+		if flush && f.fifo.Size() < f.frameSize {
+			readSize = f.fifo.Size()
 		}
-		if _, err := f.fifo.Read(outFrame); err != nil {
-			outFrame.Free()
+		f.outFrame.SetNbSamples(readSize)
+
+		n, err := f.fifo.Read(f.outFrame)
+		if err != nil {
 			return allPkts, fmt.Errorf("audiofifo: read: %w", err)
 		}
+		f.outFrame.SetNbSamples(n)
+
 		useIdx := 0
 		for i := 1; i < len(f.ptsQueue); i++ {
 			if f.ptsQueue[i].sampleOffset <= f.totalOutputSamples {
@@ -93,15 +135,14 @@ func (f *AudioFIFO) Write(frame *astiav.Frame) ([]*astiav.Packet, error) {
 			}
 		}
 		entry := f.ptsQueue[useIdx]
-		outFrame.SetPts(entry.pts + (f.totalOutputSamples - entry.sampleOffset))
-		f.totalOutputSamples += int64(f.frameSize)
+		f.outFrame.SetPts(entry.pts + (f.totalOutputSamples - entry.sampleOffset))
+		f.totalOutputSamples += int64(n)
 
 		if useIdx > 0 {
 			f.ptsQueue = f.ptsQueue[useIdx:]
 		}
 
-		pkts, err := f.encoder.Encode(outFrame)
-		outFrame.Free()
+		pkts, err := f.encoder.Encode(f.outFrame)
 		if err != nil {
 			return allPkts, err
 		}
@@ -125,5 +166,9 @@ func (f *AudioFIFO) Close() {
 	if f.fifo != nil {
 		f.fifo.Free()
 		f.fifo = nil
+	}
+	if f.outFrame != nil {
+		f.outFrame.Free()
+		f.outFrame = nil
 	}
 }

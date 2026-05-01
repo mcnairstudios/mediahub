@@ -391,6 +391,9 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 				b.latchAudioError(err)
 				return nil
 			}
+			if outFrame == nil {
+				continue
+			}
 		}
 		encPkts, err := b.audioFifo.Write(outFrame)
 		outFrame.Free()
@@ -444,19 +447,47 @@ func (b *Bridge) EndOfStream() {
 	}
 
 	if b.audioEnc != nil && !b.audioLatched {
-		if pkts, err := b.audioEnc.Flush(); err == nil {
-			for _, encPkt := range pkts {
-				encData := make([]byte, encPkt.Size())
-				copy(encData, encPkt.Data())
-				encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
-				encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
-				encPkt.Free()
-				b.downstream.PushAudio(encData, encPTS, encDTS) //nolint:errcheck
+		if b.audioResample != nil {
+			flushed, err := b.audioResample.Flush()
+			if err == nil {
+				for _, frame := range flushed {
+					if b.audioFifo != nil {
+						pkts, fifoErr := b.audioFifo.Write(frame)
+						frame.Free()
+						if fifoErr != nil {
+							break
+						}
+						b.pushAudioPackets(pkts)
+					} else {
+						frame.Free()
+					}
+				}
 			}
+		}
+
+		if b.audioFifo != nil {
+			if pkts, err := b.audioFifo.Flush(); err == nil {
+				b.pushAudioPackets(pkts)
+			}
+		}
+
+		if pkts, err := b.audioEnc.Flush(); err == nil {
+			b.pushAudioPackets(pkts)
 		}
 	}
 
 	b.downstream.EndOfStream()
+}
+
+func (b *Bridge) pushAudioPackets(pkts []*astiav.Packet) {
+	for _, encPkt := range pkts {
+		encData := make([]byte, encPkt.Size())
+		copy(encData, encPkt.Data())
+		encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
+		encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
+		encPkt.Free()
+		b.downstream.PushAudio(encData, encPTS, encDTS) //nolint:errcheck
+	}
 }
 
 type seekResetter interface {

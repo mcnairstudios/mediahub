@@ -370,7 +370,13 @@ func (d *Decoder) Flush() ([]*astiav.Frame, error) {
 		f := astiav.AllocFrame()
 		if err := d.codecCtx.ReceiveFrame(f); err != nil {
 			f.Free()
-			break
+			if errors.Is(err, astiav.ErrEof) {
+				break
+			}
+			if errors.Is(err, astiav.ErrEagain) {
+				continue
+			}
+			return frames, fmt.Errorf("decode: flush receive frame: %w", err)
 		}
 		frames = append(frames, f)
 	}

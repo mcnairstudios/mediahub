@@ -399,6 +399,9 @@ func (p *Plugin) pushAudioDecode(data []byte, pts, dts int64) error {
 				p.audioLatched = true
 				return nil
 			}
+			if outFrame == nil {
+				continue
+			}
 		}
 		encPkts, err := p.audioFifo.Write(outFrame)
 		outFrame.Free()
