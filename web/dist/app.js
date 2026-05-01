@@ -5882,10 +5882,54 @@
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
-    if (seasonKeys.length > 0) renderSeason(seasonKeys[0]);
-
     var ep0 = show.episodes[0];
-    if (ep0 && ep0.id) {
+    var tmdbId = show.tmdb_id || (ep0 && ep0.tmdb_id);
+
+    function enrichAndRender() {
+      if (seasonKeys.length > 0) renderSeason(seasonKeys[0]);
+    }
+
+    if (tmdbId) {
+      api.get('/api/tmdb/detail/' + encodeURIComponent(tmdbId)).then(function(resp) {
+        return resp.ok ? resp.json() : null;
+      }).then(function(data) {
+        if (data && data.seasons) {
+          data.seasons.forEach(function(sn) {
+            if (sn.season_number === 0) return;
+            var seasonEps = show.seasons[sn.season_number];
+            if (seasonEps && sn.episodes) {
+              sn.episodes.forEach(function(tmdbEp) {
+                var matchEp = seasonEps.find(function(e) { return e.episode === tmdbEp.episode_number; });
+                if (matchEp) {
+                  if (tmdbEp.name) matchEp.episode_name = tmdbEp.name;
+                  if (tmdbEp.overview) matchEp.episode_overview = tmdbEp.overview;
+                }
+              });
+            }
+          });
+          if (data.overview && !show.overview) {
+            var d = document.createElement('p');
+            d.style.cssText = 'color:#b0b8c8;font-size:14px;line-height:1.6;margin:0 0 16px 0;';
+            d.textContent = data.overview;
+            body.insertBefore(d, tabBar);
+          }
+          if (data.rating > 0) {
+            var dsc = data.rating >= 7 ? '#22c55e' : data.rating >= 5 ? '#eab308' : '#ef4444';
+            tmdbMeta.innerHTML = '<span style="background:' + dsc + '20;color:' + dsc + ';padding:3px 10px;border-radius:6px;font-weight:700;font-size:13px">\u2605 ' + data.rating.toFixed(1) + '</span>';
+          }
+          if (data.backdrop_url) {
+            backdrop.style.backgroundImage = 'url(' + data.backdrop_url + ')';
+            backdrop.style.backgroundSize = 'cover';
+            backdrop.style.backgroundPosition = 'center 20%';
+          } else if (tmdbId) {
+            var bgImg = new Image();
+            bgImg.onload = function() { backdrop.style.backgroundImage = 'url(' + bgImg.src + ')'; backdrop.style.backgroundSize = 'cover'; backdrop.style.backgroundPosition = 'center 20%'; };
+            bgImg.src = '/api/tmdb/i/' + tmdbId + '/backdrop.jpg';
+          }
+        }
+        enrichAndRender();
+      }).catch(function() { enrichAndRender(); });
+    } else if (ep0 && ep0.id) {
       api.get('/api/streams/' + encodeURIComponent(ep0.id) + '/detail').then(function(resp) {
         return resp.json();
       }).then(function(data) {
@@ -5931,10 +5975,11 @@
               }
             }
           });
-          var currentTab = tabBar.querySelector('button[style*="#3b82f6"]');
-          if (currentTab) renderSeason(currentTab.dataset.season);
+          enrichAndRender();
         }
-      }).catch(function() {});
+      }).catch(function() { enrichAndRender(); });
+    } else {
+      enrichAndRender();
     }
   }
 
