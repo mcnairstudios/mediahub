@@ -365,6 +365,179 @@ func TestExtractAction(t *testing.T) {
 	assert.Equal(t, "GetProtocolInfo", extractAction("GetProtocolInfo"))
 }
 
+type mockAuth struct {
+	users map[string]*DLNAUser
+}
+
+func (m *mockAuth) AuthenticateBasic(_ context.Context, username, password string) (*DLNAUser, error) {
+	u, ok := m.users[username]
+	if !ok || password != "pass" {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	return u, nil
+}
+
+func newTestServerWithAuth(channels []ChannelItem, groups []GroupItem, auth BasicAuthenticator) *Server {
+	log := zerolog.Nop()
+	s := NewServer(
+		&mockChannelLister{channels: channels, groups: groups},
+		&mockSettings{enabled: true},
+		"http://192.168.1.100",
+		8080,
+		log,
+	)
+	s.SetAuthenticator(auth)
+	return s
+}
+
+func doSOAPBrowseWithAuth(t *testing.T, s *Server, objectID, browseFlag, username, password string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := soapBrowseBody(objectID, browseFlag)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/dlna/control/ContentDirectory", strings.NewReader(body))
+	req.Header.Set("SOAPAction", `"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"`)
+	if username != "" {
+		req.SetBasicAuth(username, password)
+	}
+	s.ContentDirectoryControl(rec, req)
+	return rec
+}
+
+func TestBrowseNoAuthShowsAllChannels(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+	}
+	groups := []GroupItem{
+		{ID: "g1", Name: "BBC"},
+		{ID: "g2", Name: "ITV"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{}}
+	s := newTestServerWithAuth(channels, groups, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "0", "BrowseDirectChildren", "", "")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BBC")
+	assert.Contains(t, body, "ITV")
+}
+
+func TestBrowseAdminShowsAllChannels(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+	}
+	groups := []GroupItem{
+		{ID: "g1", Name: "BBC"},
+		{ID: "g2", Name: "ITV"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{
+		"admin": {IsAdmin: true},
+	}}
+	s := newTestServerWithAuth(channels, groups, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "0", "BrowseDirectChildren", "admin", "pass")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BBC")
+	assert.Contains(t, body, "ITV")
+}
+
+func TestBrowseFilteredUserSeesOnlyAllowedGroups(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+		{ID: "ch3", Name: "Channel 4", GroupID: "g3"},
+	}
+	groups := []GroupItem{
+		{ID: "g1", Name: "BBC"},
+		{ID: "g2", Name: "ITV"},
+		{ID: "g3", Name: "C4"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{
+		"bob": {IsAdmin: false, ChannelGroupIDs: []string{"g1"}},
+	}}
+	s := newTestServerWithAuth(channels, groups, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "0", "BrowseDirectChildren", "bob", "pass")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BBC")
+	assert.NotContains(t, body, "ITV")
+	assert.NotContains(t, body, "C4")
+}
+
+func TestBrowseGroupFilteredUserDenied(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+	}
+	groups := []GroupItem{
+		{ID: "g1", Name: "BBC"},
+		{ID: "g2", Name: "ITV"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{
+		"bob": {IsAdmin: false, ChannelGroupIDs: []string{"g1"}},
+	}}
+	s := newTestServerWithAuth(channels, groups, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "grp-g2", "BrowseDirectChildren", "bob", "pass")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.NotContains(t, body, "ITV")
+	assert.Contains(t, body, "NumberReturned")
+}
+
+func TestBrowseChannelFilteredUserDenied(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{
+		"bob": {IsAdmin: false, ChannelGroupIDs: []string{"g1"}},
+	}}
+	s := newTestServerWithAuth(channels, nil, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "ch-ch2", "BrowseMetadata", "bob", "pass")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.NotContains(t, body, "ITV")
+}
+
+func TestBrowseChannelFilteredUserAllowed(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{
+		"bob": {IsAdmin: false, ChannelGroupIDs: []string{"g1"}},
+	}}
+	s := newTestServerWithAuth(channels, nil, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "ch-ch1", "BrowseMetadata", "bob", "pass")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BBC One")
+}
+
+func TestBrowseInvalidAuthShowsAllChannels(t *testing.T) {
+	channels := []ChannelItem{
+		{ID: "ch1", Name: "BBC One", GroupID: "g1"},
+		{ID: "ch2", Name: "ITV", GroupID: "g2"},
+	}
+	groups := []GroupItem{
+		{ID: "g1", Name: "BBC"},
+		{ID: "g2", Name: "ITV"},
+	}
+	auth := &mockAuth{users: map[string]*DLNAUser{}}
+	s := newTestServerWithAuth(channels, groups, auth)
+	rec := doSOAPBrowseWithAuth(t, s, "0", "BrowseDirectChildren", "unknown", "wrong")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BBC")
+	assert.Contains(t, body, "ITV")
+}
+
 func TestExtractHost(t *testing.T) {
 	assert.Equal(t, "192.168.1.100", extractHost("http://192.168.1.100:8080"))
 	assert.Equal(t, "192.168.1.100", extractHost("http://192.168.1.100"))

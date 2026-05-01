@@ -1,6 +1,9 @@
 package dlna
 
-import "encoding/xml"
+import (
+	"context"
+	"encoding/xml"
+)
 
 type SoapEnvelope struct {
 	XMLName xml.Name `xml:"Envelope"`
@@ -31,3 +34,16 @@ type GroupItem struct {
 	ID   string
 	Name string
 }
+
+type DLNAUser struct {
+	IsAdmin         bool
+	ChannelGroupIDs []string
+}
+
+type BasicAuthenticator interface {
+	AuthenticateBasic(ctx context.Context, username, password string) (*DLNAUser, error)
+}
+
+type contextKey int
+
+const allowedGroupsKey contextKey = iota

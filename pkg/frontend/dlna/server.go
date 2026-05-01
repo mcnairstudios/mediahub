@@ -32,6 +32,7 @@ type SettingsChecker interface {
 type Server struct {
 	channels ChannelLister
 	settings SettingsChecker
+	auth     BasicAuthenticator
 	baseURL  string
 	port     int
 	log      zerolog.Logger
@@ -45,6 +46,10 @@ func NewServer(channels ChannelLister, settings SettingsChecker, baseURL string,
 		port:     port,
 		log:      log.With().Str("frontend", "dlna").Logger(),
 	}
+}
+
+func (s *Server) SetAuthenticator(auth BasicAuthenticator) {
+	s.auth = auth
 }
 
 func (s *Server) UDN() string {
@@ -96,15 +101,40 @@ func (s *Server) ContentDirectoryControl(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+
+	ctx := r.Context()
+	if s.auth != nil {
+		ctx = s.resolveUserContext(ctx, r)
+	}
+
 	soapAction := r.Header.Get("SOAPAction")
 	omitArt := isQuestUA(r.Header.Get("User-Agent"))
-	result, err := s.handleContentDirectoryAction(r.Context(), soapAction, body, omitArt)
+	result, err := s.handleContentDirectoryAction(ctx, soapAction, body, omitArt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", `text/xml; charset="utf-8"`)
 	w.Write([]byte(result))
+}
+
+func (s *Server) resolveUserContext(ctx context.Context, r *http.Request) context.Context {
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		return ctx
+	}
+
+	user, err := s.auth.AuthenticateBasic(ctx, username, password)
+	if err != nil {
+		s.log.Debug().Str("username", username).Msg("DLNA basic auth failed, serving all channels")
+		return ctx
+	}
+
+	if user.IsAdmin {
+		return ctx
+	}
+
+	return context.WithValue(ctx, allowedGroupsKey, user.ChannelGroupIDs)
 }
 
 func (s *Server) ConnectionManagerControl(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +273,57 @@ const connectionManagerXML = `<?xml version="1.0" encoding="UTF-8"?>
   </serviceStateTable>
 </scpd>`
 
+func allowedGroups(ctx context.Context) []string {
+	v, _ := ctx.Value(allowedGroupsKey).([]string)
+	return v
+}
+
+func isGroupAllowed(allowedIDs []string, groupID string) bool {
+	if len(allowedIDs) == 0 {
+		return true
+	}
+	for _, id := range allowedIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+func filterChannels(channels []ChannelItem, allowedIDs []string) []ChannelItem {
+	if len(allowedIDs) == 0 {
+		return channels
+	}
+	allowed := make(map[string]bool, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowed[id] = true
+	}
+	var filtered []ChannelItem
+	for _, ch := range channels {
+		if allowed[ch.GroupID] {
+			filtered = append(filtered, ch)
+		}
+	}
+	return filtered
+}
+
+func filterGroups(groups []GroupItem, allowedIDs []string) []GroupItem {
+	if len(allowedIDs) == 0 {
+		return groups
+	}
+	allowed := make(map[string]bool, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowed[id] = true
+	}
+	var filtered []GroupItem
+	for _, g := range groups {
+		if allowed[g.ID] {
+			filtered = append(filtered, g)
+		}
+	}
+	return filtered
+}
+
 func isQuestUA(ua string) bool {
 	return strings.Contains(ua, "Dalvik/2.1.0") && strings.Contains(ua, "Quest")
 }
@@ -316,6 +397,10 @@ func (s *Server) browseRoot(ctx context.Context, browseFlag string) (string, err
 		return "", fmt.Errorf("listing groups: %w", err)
 	}
 
+	allowed := allowedGroups(ctx)
+	channels = filterChannels(channels, allowed)
+	groups = filterGroups(groups, allowed)
+
 	groupCounts := make(map[string]int)
 	ungrouped := 0
 	for _, ch := range channels {
@@ -366,10 +451,16 @@ func (s *Server) browseRoot(ctx context.Context, browseFlag string) (string, err
 func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, startIdx, reqCount int, omitArt bool) (string, error) {
 	groupID := strings.TrimPrefix(objectID, "grp-")
 
+	allowed := allowedGroups(ctx)
+	if !isGroupAllowed(allowed, groupID) {
+		return soapBrowseResponse(xmlEscape(emptyDIDL), 0, 0), nil
+	}
+
 	channels, err := s.channels.ListChannels(ctx)
 	if err != nil {
 		return "", fmt.Errorf("listing channels: %w", err)
 	}
+	channels = filterChannels(channels, allowed)
 
 	var matched []ChannelItem
 	for _, ch := range channels {
@@ -440,6 +531,11 @@ func (s *Server) browseChannelItem(ctx context.Context, objectID, browseFlag str
 	channelID := strings.TrimPrefix(objectID, "ch-")
 	ch, err := s.channels.GetChannel(ctx, channelID)
 	if err != nil || ch == nil {
+		return soapBrowseResponse(xmlEscape(emptyDIDL), 0, 0), nil
+	}
+
+	allowed := allowedGroups(ctx)
+	if !isGroupAllowed(allowed, ch.GroupID) {
 		return soapBrowseResponse(xmlEscape(emptyDIDL), 0, 0), nil
 	}
 

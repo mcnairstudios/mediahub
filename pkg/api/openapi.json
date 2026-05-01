@@ -1,0 +1,2081 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MediaHub API",
+    "description": "Media hub connecting stream sources to playback sinks with intelligent format negotiation.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current server"
+    }
+  ],
+  "security": [
+    { "bearerAuth": [] },
+    { "apiKeyAuth": [] }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": { "type": "string" },
+          "password": { "type": "string" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string" },
+          "refresh_token": { "type": "string" }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["token"],
+        "properties": {
+          "token": { "type": "string" }
+        }
+      },
+      "Channel": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "number": { "type": "integer" },
+          "group": { "type": "string" },
+          "logo_url": { "type": "string" },
+          "stream_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Stream": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "url": { "type": "string" },
+          "group": { "type": "string" },
+          "logo_url": { "type": "string" },
+          "source_id": { "type": "string" },
+          "source_type": { "type": "string" }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["m3u", "tvpstreams", "xtream", "hdhr", "satip"] },
+          "enabled": { "type": "boolean" },
+          "stream_count": { "type": "integer" },
+          "last_refresh": { "type": "string", "format": "date-time" }
+        }
+      },
+      "M3USource": {
+        "type": "object",
+        "required": ["name", "url"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": "string" },
+          "epg_url": { "type": "string" },
+          "use_wireguard": { "type": "boolean" }
+        }
+      },
+      "TVPStreamsSource": {
+        "type": "object",
+        "required": ["name", "url"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": "string" }
+        }
+      },
+      "XtreamSource": {
+        "type": "object",
+        "required": ["name", "server_url", "username", "password"],
+        "properties": {
+          "name": { "type": "string" },
+          "server_url": { "type": "string" },
+          "username": { "type": "string" },
+          "password": { "type": "string" }
+        }
+      },
+      "HDHRSource": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "SatIPSource": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "dvb_system": { "type": "string" },
+          "transmitter": { "type": "string" }
+        }
+      },
+      "EPGSource": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "url": { "type": "string" },
+          "type": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "Recording": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "stream_id": { "type": "string" },
+          "channel_id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "stopped_at": { "type": "string", "format": "date-time" },
+          "file_path": { "type": "string" },
+          "file_size": { "type": "integer" }
+        }
+      },
+      "ScheduledRecording": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "channel_id": { "type": "string" },
+          "program_id": { "type": "string" },
+          "start_at": { "type": "string", "format": "date-time" },
+          "stop_at": { "type": "string", "format": "date-time" },
+          "status": { "type": "string" }
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Key-value settings map"
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "username": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "standard", "jellyfin"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "WGProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "config": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "Client": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "output_video_codec": { "type": "string" },
+          "output_audio_codec": { "type": "string" },
+          "output_container": { "type": "string" },
+          "delivery_mode": { "type": "string", "enum": ["stream", "mse", "hls"] }
+        }
+      },
+      "SourceProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "source_type": { "type": "string" }
+        }
+      },
+      "HDHRDevice": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "device_id": { "type": "string" },
+          "tuner_count": { "type": "integer" }
+        }
+      },
+      "Favorite": {
+        "type": "object",
+        "properties": {
+          "stream_id": { "type": "string" }
+        }
+      },
+      "ChannelGroup": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" }
+        }
+      },
+      "PlaybackResponse": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "hls_url": { "type": "string" },
+          "mse_url": { "type": "string" }
+        }
+      },
+      "SeekRequest": {
+        "type": "object",
+        "properties": {
+          "position": { "type": "number", "description": "Seek position in seconds" }
+        }
+      },
+      "DashboardStats": {
+        "type": "object",
+        "properties": {
+          "total_streams": { "type": "integer" },
+          "total_channels": { "type": "integer" },
+          "active_sessions": { "type": "integer" },
+          "total_recordings": { "type": "integer" }
+        }
+      },
+      "Invite": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "role": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "APIKey": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "key_prefix": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Logo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "channel_id": { "type": "string" },
+          "url": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login with credentials",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh access token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token refreshed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/google": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Initiate Google OAuth login",
+        "security": [],
+        "responses": {
+          "302": { "description": "Redirect to Google OAuth" }
+        }
+      }
+    },
+    "/api/auth/google/callback": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Google OAuth callback",
+        "security": [],
+        "responses": {
+          "302": { "description": "Redirect with token" }
+        }
+      }
+    },
+    "/api/auth/apikey": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Create a new API key",
+        "responses": {
+          "201": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/APIKey" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/apikeys": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "List API keys",
+        "responses": {
+          "200": {
+            "description": "List of API keys",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/APIKey" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/apikey/{id}": {
+      "delete": {
+        "tags": ["Auth"],
+        "summary": "Revoke an API key",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "API key revoked" }
+        }
+      }
+    },
+    "/api/invites": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Create an invite (admin only)",
+        "responses": {
+          "201": {
+            "description": "Invite created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invite" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Auth"],
+        "summary": "List invites (admin only)",
+        "responses": {
+          "200": {
+            "description": "List of invites",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Invite" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/accept": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Accept an invite",
+        "security": [],
+        "responses": {
+          "200": { "description": "Invite accepted" }
+        }
+      }
+    },
+    "/api/invites/{token}": {
+      "delete": {
+        "tags": ["Auth"],
+        "summary": "Delete an invite (admin only)",
+        "parameters": [
+          { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Invite deleted" }
+        }
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "List all sources",
+        "responses": {
+          "200": {
+            "description": "List of sources",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Source" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/m3u": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Create M3U source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/M3USource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "M3U source created" }
+        }
+      }
+    },
+    "/api/sources/m3u/{id}": {
+      "put": {
+        "tags": ["Sources"],
+        "summary": "Update M3U source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/M3USource" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "M3U source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Delete M3U source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "M3U source deleted" }
+        }
+      }
+    },
+    "/api/sources/m3u/{id}/upload": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Upload M3U file (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "M3U file uploaded" }
+        }
+      }
+    },
+    "/api/sources/tvpstreams": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Create tvproxy-streams source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TVPStreamsSource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "TVP Streams source created" }
+        }
+      }
+    },
+    "/api/sources/tvpstreams/{id}": {
+      "put": {
+        "tags": ["Sources"],
+        "summary": "Update tvproxy-streams source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Delete tvproxy-streams source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Source deleted" }
+        }
+      }
+    },
+    "/api/sources/tvpstreams/{id}/tls": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "Get TLS status for tvproxy-streams source",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "TLS status" }
+        }
+      }
+    },
+    "/api/sources/xtream": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Create Xtream Codes source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/XtreamSource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Xtream source created" }
+        }
+      }
+    },
+    "/api/sources/xtream/{id}": {
+      "put": {
+        "tags": ["Sources"],
+        "summary": "Update Xtream source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Delete Xtream source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Source deleted" }
+        }
+      }
+    },
+    "/api/sources/xtream/{id}/info": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "Get Xtream account info (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Account info" }
+        }
+      }
+    },
+    "/api/sources/hdhr": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Create HDHomeRun source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HDHRSource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "HDHR source created" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}": {
+      "put": {
+        "tags": ["Sources"],
+        "summary": "Update HDHomeRun source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Delete HDHomeRun source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Source deleted" }
+        }
+      }
+    },
+    "/api/sources/hdhr/discover": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Discover HDHomeRun devices on network (admin only)",
+        "responses": {
+          "200": { "description": "Discovered devices" }
+        }
+      }
+    },
+    "/api/sources/hdhr/add-device": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Add discovered HDHomeRun device (admin only)",
+        "responses": {
+          "201": { "description": "Device added" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}/devices": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "List devices for HDHR source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Device list" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}/scan": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Scan HDHR source for channels (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "202": { "description": "Scan started" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}/retune": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Retune HDHR source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "202": { "description": "Retune started" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}/status": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "Get HDHR retune status",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Retune status" }
+        }
+      }
+    },
+    "/api/sources/hdhr/{id}/clear": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Clear HDHR source streams (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Streams cleared" }
+        }
+      }
+    },
+    "/api/sources/satip": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Create SAT>IP source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SatIPSource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "SAT>IP source created" }
+        }
+      }
+    },
+    "/api/sources/satip/{id}": {
+      "put": {
+        "tags": ["Sources"],
+        "summary": "Update SAT>IP source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Delete SAT>IP source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Source deleted" }
+        }
+      }
+    },
+    "/api/sources/satip/{id}/scan": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Scan SAT>IP source for channels (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "202": { "description": "Scan started" }
+        }
+      }
+    },
+    "/api/sources/satip/{id}/status": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "Get SAT>IP scan status",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Scan status" }
+        }
+      }
+    },
+    "/api/sources/satip/{id}/clear": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Clear SAT>IP source streams (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Streams cleared" }
+        }
+      }
+    },
+    "/api/sources/{sourceID}/refresh": {
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Refresh source streams (admin only)",
+        "parameters": [
+          { "name": "sourceID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "202": { "description": "Refresh started" }
+        }
+      }
+    },
+    "/api/sources/{sourceID}/status": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "Get source refresh status",
+        "parameters": [
+          { "name": "sourceID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source status" }
+        }
+      }
+    },
+    "/api/satip/systems": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "List DVB systems",
+        "responses": {
+          "200": { "description": "DVB systems list" }
+        }
+      }
+    },
+    "/api/satip/transmitters": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "List DVB transmitters",
+        "responses": {
+          "200": { "description": "Transmitter list" }
+        }
+      }
+    },
+    "/api/channels": {
+      "get": {
+        "tags": ["Channels"],
+        "summary": "List all channels",
+        "responses": {
+          "200": {
+            "description": "Channel list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Channel" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Channels"],
+        "summary": "Create channel (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Channel" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Channel created" },
+          "409": { "description": "Channel number conflict" }
+        }
+      }
+    },
+    "/api/channels/{id}": {
+      "put": {
+        "tags": ["Channels"],
+        "summary": "Update channel (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Channel" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Channel updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Channels"],
+        "summary": "Delete channel (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Channel deleted" }
+        }
+      }
+    },
+    "/api/channels/{id}/streams": {
+      "post": {
+        "tags": ["Channels"],
+        "summary": "Assign streams to channel (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stream_ids": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Streams assigned" }
+        }
+      }
+    },
+    "/api/channel-groups": {
+      "get": {
+        "tags": ["Channels"],
+        "summary": "List channel groups",
+        "responses": {
+          "200": {
+            "description": "Group list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ChannelGroup" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Channels"],
+        "summary": "Create channel group (admin only)",
+        "responses": {
+          "201": { "description": "Group created" }
+        }
+      }
+    },
+    "/api/channel-groups/{id}": {
+      "delete": {
+        "tags": ["Channels"],
+        "summary": "Delete channel group (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Group deleted" }
+        }
+      }
+    },
+    "/api/streams": {
+      "get": {
+        "tags": ["Streams"],
+        "summary": "List all streams",
+        "responses": {
+          "200": {
+            "description": "Stream list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Stream" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/streams/{id}/detail": {
+      "get": {
+        "tags": ["Streams"],
+        "summary": "Get stream detail with probe data",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Stream detail" }
+        }
+      }
+    },
+    "/api/play/{streamID}": {
+      "post": {
+        "tags": ["Playback"],
+        "summary": "Start playback session",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Playback started",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PlaybackResponse" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Playback"],
+        "summary": "Stop playback session",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Playback stopped" }
+        }
+      }
+    },
+    "/api/play/{streamID}/seek": {
+      "post": {
+        "tags": ["Playback"],
+        "summary": "Seek in playback session",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SeekRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Seek completed" }
+        }
+      }
+    },
+    "/api/play/{streamID}/record": {
+      "post": {
+        "tags": ["Playback"],
+        "summary": "Start recording current playback",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Recording started" }
+        }
+      },
+      "delete": {
+        "tags": ["Playback"],
+        "summary": "Stop recording current playback",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Recording stopped" }
+        }
+      }
+    },
+    "/api/play/{streamID}/subtitles": {
+      "get": {
+        "tags": ["Playback"],
+        "summary": "Get subtitles for playback session",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Subtitle data" }
+        }
+      }
+    },
+    "/api/play/{streamID}/hls/{path}": {
+      "get": {
+        "tags": ["Playback"],
+        "summary": "Serve HLS segment/playlist",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "HLS content" }
+        }
+      }
+    },
+    "/api/play/{streamID}/mse/{path}": {
+      "get": {
+        "tags": ["Playback"],
+        "summary": "Serve MSE segment",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "MSE segment data" }
+        }
+      }
+    },
+    "/api/recordings": {
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "List all recordings",
+        "responses": {
+          "200": {
+            "description": "Recording list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Recording" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}": {
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "Get recording details",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recording detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Recording" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Recordings"],
+        "summary": "Delete recording (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Recording deleted" }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}/play": {
+      "post": {
+        "tags": ["Recordings"],
+        "summary": "Start recording playback",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Playback started" }
+        }
+      },
+      "delete": {
+        "tags": ["Recordings"],
+        "summary": "Stop recording playback",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Playback stopped" }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}/seek": {
+      "post": {
+        "tags": ["Recordings"],
+        "summary": "Seek in recording playback",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SeekRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Seek completed" }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}/stream": {
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "Stream recording file directly",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Recording stream" }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}/play/hls/{path}": {
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "Serve recording HLS content",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "HLS content" }
+        }
+      }
+    },
+    "/api/recordings/completed/{id}/play/mse/{path}": {
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "Serve recording MSE content",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "MSE content" }
+        }
+      }
+    },
+    "/api/recordings/schedule": {
+      "post": {
+        "tags": ["Recordings"],
+        "summary": "Schedule a recording",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ScheduledRecording" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Recording scheduled" }
+        }
+      },
+      "get": {
+        "tags": ["Recordings"],
+        "summary": "List scheduled recordings",
+        "responses": {
+          "200": {
+            "description": "Scheduled recordings",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduledRecording" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/schedule/{id}": {
+      "delete": {
+        "tags": ["Recordings"],
+        "summary": "Cancel scheduled recording",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Recording cancelled" }
+        }
+      }
+    },
+    "/api/epg/sources": {
+      "get": {
+        "tags": ["EPG"],
+        "summary": "List EPG sources",
+        "responses": {
+          "200": {
+            "description": "EPG source list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/EPGSource" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["EPG"],
+        "summary": "Create EPG source (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EPGSource" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "EPG source created" }
+        }
+      }
+    },
+    "/api/epg/sources/{id}": {
+      "put": {
+        "tags": ["EPG"],
+        "summary": "Update EPG source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "EPG source updated" }
+        }
+      },
+      "delete": {
+        "tags": ["EPG"],
+        "summary": "Delete EPG source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "EPG source deleted" }
+        }
+      }
+    },
+    "/api/epg/sources/{id}/refresh": {
+      "post": {
+        "tags": ["EPG"],
+        "summary": "Refresh EPG source (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "202": { "description": "Refresh started" }
+        }
+      }
+    },
+    "/api/epg/guide": {
+      "get": {
+        "tags": ["EPG"],
+        "summary": "Get EPG guide data",
+        "responses": {
+          "200": { "description": "EPG guide data" }
+        }
+      }
+    },
+    "/api/epg/now": {
+      "get": {
+        "tags": ["EPG"],
+        "summary": "Get currently airing programs",
+        "responses": {
+          "200": { "description": "Current programs" }
+        }
+      }
+    },
+    "/api/epg/programs": {
+      "get": {
+        "tags": ["EPG"],
+        "summary": "Get EPG programs",
+        "responses": {
+          "200": { "description": "Program list" }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get all settings",
+        "responses": {
+          "200": {
+            "description": "Settings map",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Settings" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Settings"],
+        "summary": "Update settings (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Settings" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Settings updated" }
+        }
+      }
+    },
+    "/api/settings/export": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Export all settings (admin only)",
+        "responses": {
+          "200": { "description": "Settings export data" }
+        }
+      }
+    },
+    "/api/settings/import": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Import settings (admin only)",
+        "responses": {
+          "200": { "description": "Settings imported" }
+        }
+      }
+    },
+    "/api/settings/soft-reset": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Soft reset settings (admin only)",
+        "responses": {
+          "200": { "description": "Settings soft reset" }
+        }
+      }
+    },
+    "/api/settings/hard-reset": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Hard reset all data (admin only)",
+        "responses": {
+          "200": { "description": "Hard reset completed" }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "List users (admin only)",
+        "responses": {
+          "200": {
+            "description": "User list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/User" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Users"],
+        "summary": "Create user (admin only)",
+        "responses": {
+          "201": { "description": "User created" }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "put": {
+        "tags": ["Users"],
+        "summary": "Update user (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "User updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Users"],
+        "summary": "Delete user (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "User deleted" }
+        }
+      }
+    },
+    "/api/users/{id}/password": {
+      "put": {
+        "tags": ["Users"],
+        "summary": "Change user password",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Password changed" }
+        }
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "List client profiles",
+        "responses": {
+          "200": {
+            "description": "Client list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Client" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Create client profile (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Client" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Client created" }
+        }
+      }
+    },
+    "/api/clients/{id}": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "Get client profile",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Client" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Clients"],
+        "summary": "Update client profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Client updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Clients"],
+        "summary": "Delete client profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Client deleted" }
+        }
+      }
+    },
+    "/api/source-profiles": {
+      "get": {
+        "tags": ["Source Profiles"],
+        "summary": "List source profiles",
+        "responses": {
+          "200": {
+            "description": "Source profile list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/SourceProfile" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Source Profiles"],
+        "summary": "Create source profile (admin only)",
+        "responses": {
+          "201": { "description": "Source profile created" }
+        }
+      }
+    },
+    "/api/source-profiles/{id}": {
+      "get": {
+        "tags": ["Source Profiles"],
+        "summary": "Get source profile",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source profile detail" }
+        }
+      },
+      "put": {
+        "tags": ["Source Profiles"],
+        "summary": "Update source profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Source profile updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Source Profiles"],
+        "summary": "Delete source profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Source profile deleted" }
+        }
+      }
+    },
+    "/api/wireguard/profiles": {
+      "get": {
+        "tags": ["WireGuard"],
+        "summary": "List WireGuard profiles (admin only)",
+        "responses": {
+          "200": {
+            "description": "WireGuard profile list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/WGProfile" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["WireGuard"],
+        "summary": "Create WireGuard profile (admin only)",
+        "responses": {
+          "201": { "description": "Profile created" }
+        }
+      }
+    },
+    "/api/wireguard/profiles/{id}": {
+      "put": {
+        "tags": ["WireGuard"],
+        "summary": "Update WireGuard profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Profile updated" }
+        }
+      },
+      "delete": {
+        "tags": ["WireGuard"],
+        "summary": "Delete WireGuard profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Profile deleted" }
+        }
+      }
+    },
+    "/api/wireguard/profiles/{id}/activate": {
+      "post": {
+        "tags": ["WireGuard"],
+        "summary": "Activate WireGuard profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Profile activated" }
+        }
+      }
+    },
+    "/api/wireguard/profiles/{id}/test": {
+      "post": {
+        "tags": ["WireGuard"],
+        "summary": "Test WireGuard profile (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Test result" }
+        }
+      }
+    },
+    "/api/wireguard/status": {
+      "get": {
+        "tags": ["WireGuard"],
+        "summary": "Get WireGuard status (admin only)",
+        "responses": {
+          "200": { "description": "WireGuard status" }
+        }
+      }
+    },
+    "/api/wireguard/reconnect": {
+      "post": {
+        "tags": ["WireGuard"],
+        "summary": "Reconnect WireGuard (admin only)",
+        "responses": {
+          "200": { "description": "Reconnected" }
+        }
+      }
+    },
+    "/api/favorites": {
+      "get": {
+        "tags": ["Favorites"],
+        "summary": "List favorites",
+        "responses": {
+          "200": {
+            "description": "Favorite list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Favorite" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Favorites"],
+        "summary": "Add favorite",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Favorite" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Favorite added" }
+        }
+      }
+    },
+    "/api/favorites/{streamID}": {
+      "delete": {
+        "tags": ["Favorites"],
+        "summary": "Remove favorite",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Favorite removed" }
+        }
+      }
+    },
+    "/api/favorites/check/{streamID}": {
+      "get": {
+        "tags": ["Favorites"],
+        "summary": "Check if stream is favorited",
+        "parameters": [
+          { "name": "streamID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Favorite status" }
+        }
+      }
+    },
+    "/api/vod/library": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get VOD library",
+        "responses": {
+          "200": { "description": "VOD library data" }
+        }
+      }
+    },
+    "/api/vod/categories": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get VOD categories",
+        "responses": {
+          "200": { "description": "VOD categories" }
+        }
+      }
+    },
+    "/api/tmdb/image": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Proxy TMDB image",
+        "security": [],
+        "parameters": [
+          { "name": "url", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Image data" }
+        }
+      }
+    },
+    "/api/tmdb/detail/{tmdbID}": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get TMDB detail",
+        "parameters": [
+          { "name": "tmdbID", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "TMDB detail" }
+        }
+      }
+    },
+    "/api/tmdb/queue": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get TMDB sync queue status",
+        "responses": {
+          "200": { "description": "Queue status" }
+        }
+      }
+    },
+    "/api/tmdb/sync": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get TMDB sync status",
+        "responses": {
+          "200": { "description": "Sync status" }
+        }
+      }
+    },
+    "/api/tmdb/resync": {
+      "post": {
+        "tags": ["TMDB"],
+        "summary": "Trigger TMDB resync (admin only)",
+        "responses": {
+          "202": { "description": "Resync started" }
+        }
+      }
+    },
+    "/api/tmdb/recent": {
+      "get": {
+        "tags": ["TMDB"],
+        "summary": "Get recently synced TMDB items",
+        "responses": {
+          "200": { "description": "Recent items" }
+        }
+      }
+    },
+    "/api/logos": {
+      "get": {
+        "tags": ["Logos"],
+        "summary": "List channel logos",
+        "responses": {
+          "200": {
+            "description": "Logo list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Logo" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logos/refresh-from-epg": {
+      "post": {
+        "tags": ["Logos"],
+        "summary": "Refresh logos from EPG data (admin only)",
+        "responses": {
+          "200": { "description": "Logos refreshed" }
+        }
+      }
+    },
+    "/api/logos/{id}": {
+      "put": {
+        "tags": ["Logos"],
+        "summary": "Update channel logo (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Logo updated" }
+        }
+      }
+    },
+    "/api/hdhr/devices": {
+      "get": {
+        "tags": ["HDHR"],
+        "summary": "List HDHR emulated devices",
+        "responses": {
+          "200": {
+            "description": "Device list",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/HDHRDevice" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["HDHR"],
+        "summary": "Create HDHR emulated device (admin only)",
+        "responses": {
+          "201": { "description": "Device created" }
+        }
+      }
+    },
+    "/api/hdhr/devices/{id}": {
+      "get": {
+        "tags": ["HDHR"],
+        "summary": "Get HDHR device",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Device detail" }
+        }
+      },
+      "put": {
+        "tags": ["HDHR"],
+        "summary": "Update HDHR device (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Device updated" }
+        }
+      },
+      "delete": {
+        "tags": ["HDHR"],
+        "summary": "Delete HDHR device (admin only)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Device deleted" }
+        }
+      }
+    },
+    "/api/hdhr/devices/auto-split": {
+      "post": {
+        "tags": ["HDHR"],
+        "summary": "Auto-split channels across HDHR devices (admin only)",
+        "responses": {
+          "200": { "description": "Channels auto-split" }
+        }
+      }
+    },
+    "/api/capabilities": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get system capabilities",
+        "responses": {
+          "200": { "description": "Capabilities data" }
+        }
+      }
+    },
+    "/api/activity": {
+      "get": {
+        "tags": ["System"],
+        "summary": "List active sessions (admin only)",
+        "responses": {
+          "200": { "description": "Active sessions" }
+        }
+      }
+    },
+    "/api/dashboard/stats": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get dashboard statistics",
+        "responses": {
+          "200": {
+            "description": "Dashboard stats",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DashboardStats" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/probe": {
+      "post": {
+        "tags": ["System"],
+        "summary": "Probe a stream URL (admin only)",
+        "responses": {
+          "200": { "description": "Probe result" }
+        }
+      }
+    },
+    "/api/output/playlist.m3u": {
+      "get": {
+        "tags": ["Output"],
+        "summary": "Get M3U playlist output",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "M3U playlist",
+            "content": {
+              "audio/x-mpegurl": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/output/epg.xml": {
+      "get": {
+        "tags": ["Output"],
+        "summary": "Get XMLTV EPG output",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "XMLTV EPG data",
+            "content": {
+              "application/xml": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channel/{id}": {
+      "get": {
+        "tags": ["Output"],
+        "summary": "Stream channel directly",
+        "security": [],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Channel stream" }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "Auth", "description": "Authentication and authorization" },
+    { "name": "Sources", "description": "Stream source management (M3U, Xtream, HDHR, SAT>IP, tvproxy-streams)" },
+    { "name": "Channels", "description": "Channel management and grouping" },
+    { "name": "Streams", "description": "Stream listing and details" },
+    { "name": "Playback", "description": "Live and VOD playback sessions" },
+    { "name": "Recordings", "description": "Recording management and playback" },
+    { "name": "EPG", "description": "Electronic Program Guide" },
+    { "name": "Settings", "description": "Application settings" },
+    { "name": "Users", "description": "User management" },
+    { "name": "Clients", "description": "Client stream profiles" },
+    { "name": "Source Profiles", "description": "Source input profiles" },
+    { "name": "WireGuard", "description": "WireGuard VPN profiles" },
+    { "name": "Favorites", "description": "Per-user favorites" },
+    { "name": "TMDB", "description": "TMDB metadata and VOD library" },
+    { "name": "Logos", "description": "Channel logo management" },
+    { "name": "HDHR", "description": "HDHomeRun device emulation" },
+    { "name": "System", "description": "System capabilities, activity, dashboard" },
+    { "name": "Output", "description": "M3U/XMLTV output and channel streaming" }
+  ]
+}

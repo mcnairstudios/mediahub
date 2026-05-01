@@ -547,6 +547,7 @@ func main() {
 	dlnaChannels := &dlnaChannelAdapter{channels: channelStore, groups: groupStore}
 	dlnaSettings := &dlnaSettingsAdapter{settings: settingsStore, enabled: cfg.DLNAEnabled}
 	dlnaServer := dlna.NewServer(dlnaChannels, dlnaSettings, cfg.BaseURL, cfg.DLNAPort, zlog)
+	dlnaServer.SetAuthenticator(&dlnaAuthAdapter{auth: authService})
 	dlnaServer.RegisterRoutes(mainMux)
 
 	scheduler.Start(ctx)
@@ -830,5 +831,24 @@ func (a *dlnaSettingsAdapter) IsEnabled(ctx context.Context) bool {
 		return true
 	}
 	return val != "false" && val != "0"
+}
+
+type dlnaAuthAdapter struct {
+	auth *auth.JWTService
+}
+
+func (a *dlnaAuthAdapter) AuthenticateBasic(ctx context.Context, username, password string) (*dlna.DLNAUser, error) {
+	token, err := a.auth.Login(ctx, username, password)
+	if err != nil {
+		return nil, err
+	}
+	user, err := a.auth.ValidateToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return &dlna.DLNAUser{
+		IsAdmin:         user.IsAdmin,
+		ChannelGroupIDs: user.ChannelGroupIDs,
+	}, nil
 }
 
