@@ -45,7 +45,11 @@ func (s *Server) handleStreamDetail(w http.ResponseWriter, r *http.Request) {
 	if s.deps.TMDBStore != nil && stream.TMDBID != "" {
 		tmdbID, err := strconv.Atoi(stream.TMDBID)
 		if err == nil && tmdbID > 0 {
-			blob, err := s.deps.TMDBStore.GetBlob(tmdbID)
+			mt := "movie"
+			if stream.VODType == "series" || stream.VODType == "episode" || stream.Season > 0 {
+				mt = "series"
+			}
+			blob, err := s.deps.TMDBStore.GetBlobTyped(mt, tmdbID)
 			if err == nil && blob != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -71,7 +75,11 @@ func (s *Server) handleTMDBDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	blob, err := s.deps.TMDBStore.GetBlob(tmdbID)
+	mt := r.URL.Query().Get("type")
+	if mt == "" {
+		mt = "movie"
+	}
+	blob, err := s.deps.TMDBStore.GetBlobTyped(mt, tmdbID)
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "store error")
 		return

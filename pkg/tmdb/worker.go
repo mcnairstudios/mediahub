@@ -98,7 +98,7 @@ func (w *MetadataWorker) ResolveStreams(ctx context.Context, streams []StreamToR
 			if normalized != "" {
 				w.store.SetName(normalized, tmdbID, mediaType)
 			}
-			if has, _ := w.store.HasBlob(tmdbID); !has {
+			if has, _ := w.store.HasBlobTyped(mediaType, tmdbID); !has {
 				w.store.EnqueueMetadata(QueueEntry{
 					TMDBID:    tmdbID,
 					MediaType: mediaType,
@@ -296,7 +296,7 @@ func (w *MetadataWorker) processMovie(ctx context.Context, apiKey string, entry 
 		return
 	}
 
-	if err := w.store.WriteBlob(entry.TMDBID, data); err != nil {
+	if err := w.store.WriteBlobTyped(entry.MediaType, entry.TMDBID, data); err != nil {
 		log.Printf("tmdb worker: movie %d write blob: %v", entry.TMDBID, err)
 		return
 	}
@@ -400,7 +400,7 @@ func (w *MetadataWorker) processSeries(ctx context.Context, apiKey string, entry
 		return
 	}
 
-	if err := w.store.WriteBlob(entry.TMDBID, data); err != nil {
+	if err := w.store.WriteBlobTyped(entry.MediaType, entry.TMDBID, data); err != nil {
 		log.Printf("tmdb worker: series %d write blob: %v", entry.TMDBID, err)
 		return
 	}

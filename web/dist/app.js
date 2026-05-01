@@ -5890,7 +5890,7 @@
     }
 
     if (tmdbId) {
-      api.get('/api/tmdb/detail/' + encodeURIComponent(tmdbId)).then(function(resp) {
+      api.get('/api/tmdb/detail/' + encodeURIComponent(tmdbId) + '?type=series').then(function(resp) {
         return resp.ok ? resp.json() : null;
       }).then(function(data) {
         if (data && data.seasons) {

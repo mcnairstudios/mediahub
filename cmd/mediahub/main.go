@@ -613,7 +613,7 @@ func main() {
 				if lookupName != "" {
 					tmdbStore.SetName(lookupName, tmdbID, mediaType)
 				}
-				if has, _ := tmdbStore.HasBlob(tmdbID); has {
+				if has, _ := tmdbStore.HasBlobTyped(mediaType, tmdbID); has {
 					continue
 				}
 				if err := tmdbStore.EnqueueMetadata(tmdb.QueueEntry{

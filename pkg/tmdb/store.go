@@ -42,6 +42,17 @@ func tmdbKey(id int) []byte {
 	return buf
 }
 
+func tmdbKeyTyped(mediaType string, id int) []byte {
+	prefix := byte('m')
+	if mediaType == "series" {
+		prefix = byte('s')
+	}
+	buf := make([]byte, 9)
+	buf[0] = prefix
+	binary.BigEndian.PutUint64(buf[1:], uint64(id))
+	return buf
+}
+
 func (s *Store) EnqueueMetadata(entry QueueEntry) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		data, err := json.Marshal(entry)
@@ -95,15 +106,26 @@ func (s *Store) QueueCount() (int, error) {
 }
 
 func (s *Store) WriteBlob(tmdbID int, data []byte) error {
+	return s.WriteBlobTyped("movie", tmdbID, data)
+}
+
+func (s *Store) WriteBlobTyped(mediaType string, tmdbID int, data []byte) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		return b(tx, bucketTMDBBlobs).Put(tmdbKey(tmdbID), data)
+		return b(tx, bucketTMDBBlobs).Put(tmdbKeyTyped(mediaType, tmdbID), data)
 	})
 }
 
 func (s *Store) GetBlob(tmdbID int) ([]byte, error) {
+	return s.GetBlobTyped("movie", tmdbID)
+}
+
+func (s *Store) GetBlobTyped(mediaType string, tmdbID int) ([]byte, error) {
 	var data []byte
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		v := b(tx, bucketTMDBBlobs).Get(tmdbKey(tmdbID))
+		v := b(tx, bucketTMDBBlobs).Get(tmdbKeyTyped(mediaType, tmdbID))
+		if v == nil {
+			v = b(tx, bucketTMDBBlobs).Get(tmdbKey(tmdbID))
+		}
 		if v != nil {
 			data = make([]byte, len(v))
 			copy(data, v)
@@ -114,9 +136,16 @@ func (s *Store) GetBlob(tmdbID int) ([]byte, error) {
 }
 
 func (s *Store) HasBlob(tmdbID int) (bool, error) {
+	return s.HasBlobTyped("movie", tmdbID)
+}
+
+func (s *Store) HasBlobTyped(mediaType string, tmdbID int) (bool, error) {
 	var exists bool
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		exists = b(tx, bucketTMDBBlobs).Get(tmdbKey(tmdbID)) != nil
+		exists = b(tx, bucketTMDBBlobs).Get(tmdbKeyTyped(mediaType, tmdbID)) != nil
+		if !exists {
+			exists = b(tx, bucketTMDBBlobs).Get(tmdbKey(tmdbID)) != nil
+		}
 		return nil
 	})
 	return exists, err
@@ -124,7 +153,10 @@ func (s *Store) HasBlob(tmdbID int) (bool, error) {
 
 func (s *Store) DeleteBlob(tmdbID int) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		return b(tx, bucketTMDBBlobs).Delete(tmdbKey(tmdbID))
+		b(tx, bucketTMDBBlobs).Delete(tmdbKey(tmdbID))
+		b(tx, bucketTMDBBlobs).Delete(tmdbKeyTyped("movie", tmdbID))
+		b(tx, bucketTMDBBlobs).Delete(tmdbKeyTyped("series", tmdbID))
+		return nil
 	})
 }
 
