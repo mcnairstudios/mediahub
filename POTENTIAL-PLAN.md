@@ -694,7 +694,7 @@ Endpoints mediahub has that tvproxy does NOT:
 14. OpenAPI spec endpoint
 15. ~~pprof debug endpoint~~ — DONE (debug_enabled setting + pprof routes)
 16. Per-user DLNA filtering
-17. Network/VOD/worker/server tuning settings
+~~17. Network/VOD/worker/server tuning settings~~ — DROPPED (hardcoded defaults are fine, nobody changes these)
 18. ~~TMDB sync status pages~~ — DONE (admin page with queue/recent/resync)
 19. ~~Debug flag toggle~~ — DONE (settings handler toggles log level)
 20. ~~API key authentication~~ — DONE (X-API-Key middleware + CRUD)

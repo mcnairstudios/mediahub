@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
+	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/output/hls"
@@ -27,6 +29,7 @@ type PlaybackDeps struct {
 	SourceConfigStore  sourceconfig.Store
 	SourceProfileStore sourceprofile.Store
 	ConnRegistry       *connectivity.Registry
+	WGService          *wg.Service
 	SessionMgr         *session.Manager
 	Detector           *client.Detector
 	ClientStore        client.Store
@@ -136,11 +139,19 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 	pipelineURL := stream.URL
 
-	if deps.SourceConfigStore != nil && deps.ConnRegistry != nil && stream.SourceID != "" {
+	if deps.SourceConfigStore != nil && stream.SourceID != "" {
 		sc, _ := deps.SourceConfigStore.Get(ctx, stream.SourceID)
 		if sc != nil && sc.Config["use_wireguard"] == "true" {
-			if active := deps.ConnRegistry.Active(); active != nil {
-				pipelineURL = active.ProxyURL(stream.URL)
+			wgProfileID := sc.Config["wg_profile_id"]
+			if wgProfileID != "" && deps.WGService != nil {
+				_ = deps.WGService.EnsureProfileProxy(wgProfileID)
+				pipelineURL = deps.WGService.ProxyURLForProfile(wgProfileID, stream.URL)
+			} else if deps.WGService != nil {
+				pipelineURL = deps.WGService.BestProxyURL(stream.URL)
+			} else if deps.ConnRegistry != nil {
+				if active := deps.ConnRegistry.Active(); active != nil {
+					pipelineURL = active.ProxyURL(stream.URL)
+				}
 			}
 		}
 	}
@@ -182,6 +193,10 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 	}
 
+	if !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && needsSubprocessFallback(pipeCfg.OutputCodec) {
+		pipeCfg.UseSubprocess = true
+	}
+
 	runner := deps.PipelineRunner
 	if runner == nil {
 		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
@@ -191,6 +206,19 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
+	if err != nil && !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && session.IsEncoderInitError(err) {
+		deps.SessionMgr.Stop(stream.ID)
+		sess, _, err = deps.SessionMgr.GetOrCreate(ctx, stream.ID, stream.URL, stream.Name)
+		if err != nil {
+			return nil, fmt.Errorf("get or create session for subprocess fallback: %w", err)
+		}
+		pipeCfg.UseSubprocess = true
+		fallbackRunner := deps.PipelineRunner
+		if fallbackRunner == nil {
+			fallbackRunner = deps.SessionMgr.RunSubprocessPipelineMethod
+		}
+		pipelineResult, err = fallbackRunner(sess, pipeCfg)
+	}
 	if err != nil {
 		if deps.ProbeCache != nil && cachedProbe != nil {
 			_ = deps.ProbeCache.Delete(stream.URL)
@@ -407,6 +435,10 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		}
 	}
 
+	if !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && needsSubprocessFallback(pipeCfg.OutputCodec) {
+		pipeCfg.UseSubprocess = true
+	}
+
 	runner := deps.PipelineRunner
 	if runner == nil {
 		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
@@ -416,6 +448,19 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		}
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
+	if err != nil && !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && session.IsEncoderInitError(err) {
+		deps.SessionMgr.Stop(sessionKey)
+		sess, _, err = deps.SessionMgr.GetOrCreate(ctx, sessionKey, filePath, title)
+		if err != nil {
+			return nil, fmt.Errorf("get or create session for subprocess fallback: %w", err)
+		}
+		pipeCfg.UseSubprocess = true
+		fallbackRunner := deps.PipelineRunner
+		if fallbackRunner == nil {
+			fallbackRunner = deps.SessionMgr.RunSubprocessPipelineMethod
+		}
+		pipelineResult, err = fallbackRunner(sess, pipeCfg)
+	}
 	if err != nil {
 		deps.SessionMgr.Stop(sessionKey)
 		return nil, fmt.Errorf("pipeline failed for recording %q (%s): %w", title, filePath, err)
@@ -580,4 +625,12 @@ func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 
 func createSubprocessHLSPlugin(outputDir string) (output.OutputPlugin, error) {
 	return hls.NewSubprocessPlugin(outputDir)
+}
+
+func needsSubprocessFallback(outputCodec string) bool {
+	if runtime.GOARCH != "arm64" {
+		return false
+	}
+	codec := strings.ToLower(outputCodec)
+	return codec == "h265" || codec == "hevc"
 }

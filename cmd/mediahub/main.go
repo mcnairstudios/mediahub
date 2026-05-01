@@ -170,6 +170,7 @@ func main() {
 			URL:          sc.Config["url"],
 			IsEnabled:    sc.IsEnabled,
 			UseWireGuard: sc.Config["use_wireguard"] == "true",
+			WGProfileID:  sc.Config["wg_profile_id"],
 			UserAgent:    cfg.UserAgent,
 			BypassHeader: cfg.BypassHeader,
 			BypassSecret: cfg.BypassSecret,
@@ -187,11 +188,13 @@ func main() {
 			},
 		}
 		if m3uCfg.UseWireGuard && wgService != nil {
-			if p := wgService.ActivePlugin(); p != nil {
+			if m3uCfg.WGProfileID != "" {
+				m3uCfg.WGClient = wgService.HTTPClientForProfile(m3uCfg.WGProfileID)
+			} else if p := wgService.ActivePlugin(); p != nil {
 				m3uCfg.WGClient = p.HTTPClient()
 			}
 		}
-		log.Printf("m3u factory: source=%s wg=%v wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGClient != nil)
+		log.Printf("m3u factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGProfileID, m3uCfg.WGClient != nil)
 		return m3usource.New(m3uCfg), nil
 	})
 	sourceReg.Register("tvpstreams", func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -236,12 +239,15 @@ func main() {
 				return sourceConfigStore.Update(ctx, scUpd)
 			},
 		}
+		wgProfileID := sc.Config["wg_profile_id"]
 		if tvpCfg.UseWireGuard && wgService != nil {
-			if p := wgService.ActivePlugin(); p != nil {
+			if wgProfileID != "" {
+				tvpCfg.WGClient = wgService.HTTPClientForProfile(wgProfileID)
+			} else if p := wgService.ActivePlugin(); p != nil {
 				tvpCfg.WGClient = p.HTTPClient()
 			}
 		}
-		log.Printf("tvpstreams factory: source=%s wg=%v wgClient=%v", sc.Name, tvpCfg.UseWireGuard, tvpCfg.WGClient != nil)
+		log.Printf("tvpstreams factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, tvpCfg.UseWireGuard, wgProfileID, tvpCfg.WGClient != nil)
 		return tvpstreamssource.New(tvpCfg), nil
 	})
 	sourceReg.Register("xtream", func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -269,8 +275,11 @@ func main() {
 			MaxStreams:   maxStreams,
 			StreamStore:  streamStore,
 		}
+		xtWGProfileID := sc.Config["wg_profile_id"]
 		if xtCfg.UseWireGuard && wgService != nil {
-			if p := wgService.ActivePlugin(); p != nil {
+			if xtWGProfileID != "" {
+				xtCfg.WGClient = wgService.HTTPClientForProfile(xtWGProfileID)
+			} else if p := wgService.ActivePlugin(); p != nil {
 				xtCfg.WGClient = p.HTTPClient()
 			}
 		}

@@ -250,6 +250,7 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		SettingsStore:     s.deps.SettingsStore,
 		SourceConfigStore: s.deps.SourceConfigStore,
 		ConnRegistry:      s.deps.ConnRegistry,
+		WGService:         s.deps.WGService,
 		SessionMgr:        s.deps.SessionMgr,
 		Detector:          s.deps.Detector,
 		ClientStore:       s.deps.ClientStore,

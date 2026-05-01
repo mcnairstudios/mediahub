@@ -66,6 +66,7 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 		Username        string `json:"username"`
 		Password        string `json:"password"`
 		UseWireGuard    bool   `json:"use_wireguard"`
+		WGProfileID     string `json:"wg_profile_id"`
 		RefreshInterval string `json:"refresh_interval"`
 		SourceProfileID string `json:"source_profile_id"`
 	}
@@ -88,6 +89,7 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 			"username":          req.Username,
 			"password":          req.Password,
 			"use_wireguard":     boolStr(req.UseWireGuard),
+			"wg_profile_id":     req.WGProfileID,
 			"refresh_interval":  req.RefreshInterval,
 			"source_profile_id": req.SourceProfileID,
 		},
@@ -134,6 +136,7 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 		Password        *string `json:"password"`
 		IsEnabled       *bool   `json:"is_enabled"`
 		UseWireGuard    *bool   `json:"use_wireguard"`
+		WGProfileID     *string `json:"wg_profile_id"`
 		RefreshInterval *string `json:"refresh_interval"`
 		SourceProfileID *string `json:"source_profile_id"`
 	}
@@ -159,6 +162,9 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.UseWireGuard != nil {
 		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.WGProfileID != nil {
+		existing.Config["wg_profile_id"] = *req.WGProfileID
 	}
 	if req.RefreshInterval != nil {
 		existing.Config["refresh_interval"] = *req.RefreshInterval
@@ -314,6 +320,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		URL             string `json:"url"`
 		EnrollmentToken string `json:"enrollment_token"`
 		UseWireGuard    bool   `json:"use_wireguard"`
+		WGProfileID     string `json:"wg_profile_id"`
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
@@ -334,6 +341,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 			"url":               req.URL,
 			"enrollment_token":  req.EnrollmentToken,
 			"use_wireguard":     boolStr(req.UseWireGuard),
+			"wg_profile_id":     req.WGProfileID,
 			"source_profile_id": req.SourceProfileID,
 		},
 	}
@@ -378,6 +386,7 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		EnrollmentToken *string `json:"enrollment_token"`
 		IsEnabled       *bool   `json:"is_enabled"`
 		UseWireGuard    *bool   `json:"use_wireguard"`
+		WGProfileID     *string `json:"wg_profile_id"`
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
@@ -399,6 +408,9 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 	}
 	if req.UseWireGuard != nil {
 		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.WGProfileID != nil {
+		existing.Config["wg_profile_id"] = *req.WGProfileID
 	}
 	if req.SourceProfileID != nil {
 		existing.Config["source_profile_id"] = *req.SourceProfileID
@@ -460,6 +472,7 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 		Username        string `json:"username"`
 		Password        string `json:"password"`
 		UseWireGuard    bool   `json:"use_wireguard"`
+		WGProfileID     string `json:"wg_profile_id"`
 		MaxStreams      int    `json:"max_streams"`
 		RefreshInterval string `json:"refresh_interval"`
 		SourceProfileID string `json:"source_profile_id"`
@@ -483,6 +496,7 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 			"username":          req.Username,
 			"password":          req.Password,
 			"use_wireguard":     boolStr(req.UseWireGuard),
+			"wg_profile_id":     req.WGProfileID,
 			"max_streams":       fmt.Sprintf("%d", req.MaxStreams),
 			"refresh_interval":  req.RefreshInterval,
 			"source_profile_id": req.SourceProfileID,
@@ -530,6 +544,7 @@ func (s *Server) handleUpdateXtreamSource(w http.ResponseWriter, r *http.Request
 		Password        *string `json:"password"`
 		IsEnabled       *bool   `json:"is_enabled"`
 		UseWireGuard    *bool   `json:"use_wireguard"`
+		WGProfileID     *string `json:"wg_profile_id"`
 		MaxStreams      *int    `json:"max_streams"`
 		RefreshInterval *string `json:"refresh_interval"`
 		SourceProfileID *string `json:"source_profile_id"`
@@ -556,6 +571,9 @@ func (s *Server) handleUpdateXtreamSource(w http.ResponseWriter, r *http.Request
 	}
 	if req.UseWireGuard != nil {
 		existing.Config["use_wireguard"] = boolStr(*req.UseWireGuard)
+	}
+	if req.WGProfileID != nil {
+		existing.Config["wg_profile_id"] = *req.WGProfileID
 	}
 	if req.MaxStreams != nil {
 		existing.Config["max_streams"] = fmt.Sprintf("%d", *req.MaxStreams)

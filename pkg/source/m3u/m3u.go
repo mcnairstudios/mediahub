@@ -23,6 +23,7 @@ type Config struct {
 	URL          string
 	IsEnabled    bool
 	UseWireGuard bool
+	WGProfileID  string
 	MaxStreams   int
 	UserAgent    string
 	BypassHeader string

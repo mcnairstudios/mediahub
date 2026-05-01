@@ -165,6 +165,27 @@ func TestSession_MarkDoneAndIsFinished(t *testing.T) {
 	}
 }
 
+func TestIsEncoderInitError_Sentinel(t *testing.T) {
+	err := fmt.Errorf("pipeline: create transcode bridge: video encoder: %w", ErrEncoderInit)
+	if !IsEncoderInitError(err) {
+		t.Error("expected IsEncoderInitError to return true for wrapped ErrEncoderInit")
+	}
+}
+
+func TestIsEncoderInitError_StringMatch(t *testing.T) {
+	err := fmt.Errorf("pipeline: create transcode bridge: some codec failure")
+	if !IsEncoderInitError(err) {
+		t.Error("expected IsEncoderInitError to return true for error containing 'transcode bridge'")
+	}
+}
+
+func TestIsEncoderInitError_Unrelated(t *testing.T) {
+	err := fmt.Errorf("pipeline: open stream: connection refused")
+	if IsEncoderInitError(err) {
+		t.Error("expected IsEncoderInitError to return false for unrelated error")
+	}
+}
+
 func TestSession_SetAndGetError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

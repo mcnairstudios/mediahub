@@ -50,11 +50,52 @@ func (s *Server) handleStreamDetail(w http.ResponseWriter, r *http.Request) {
 		tmdbID, err := strconv.Atoi(stream.TMDBID)
 		if err == nil && tmdbID > 0 {
 			mt := "movie"
-			if stream.VODType == "series" || stream.VODType == "episode" || stream.Season > 0 {
+			isSeries := stream.VODType == "series" || stream.VODType == "episode" || stream.Season > 0
+			if isSeries {
 				mt = "series"
 			}
 			blob, err := s.deps.TMDBStore.GetBlobTyped(mt, tmdbID)
 			if err == nil && blob != nil {
+				if isSeries && stream.Season > 0 && stream.Episode > 0 {
+					var sb tmdb.SeriesBlob
+					if json.Unmarshal(blob, &sb) == nil {
+						result["series_name"] = sb.Name
+						result["series_overview"] = sb.Overview
+						result["series_rating"] = sb.Rating
+						result["series_year"] = sb.Year
+						result["series_genres"] = sb.Genres
+						result["series_poster_url"] = fmt.Sprintf("/api/tmdb/i/%d/poster.jpg", tmdbID)
+						result["series_backdrop_url"] = fmt.Sprintf("/api/tmdb/i/%d/backdrop.jpg", tmdbID)
+						for _, sn := range sb.Seasons {
+							if sn.SeasonNumber != stream.Season {
+								continue
+							}
+							result["season_name"] = sn.Name
+							for _, ep := range sn.Episodes {
+								if ep.EpisodeNumber != stream.Episode {
+									continue
+								}
+								if ep.Name != "" {
+									result["episode_name"] = ep.Name
+								}
+								if ep.Overview != "" {
+									result["episode_overview"] = ep.Overview
+								}
+								if ep.AirDate != "" {
+									result["episode_air_date"] = ep.AirDate
+								}
+								if ep.Runtime > 0 {
+									result["episode_runtime"] = ep.Runtime
+								}
+								result["still_url"] = fmt.Sprintf("/api/tmdb/i/%s/s%de%d.jpg", stream.TMDBID, stream.Season, stream.Episode)
+								break
+							}
+							break
+						}
+						httputil.RespondJSON(w, http.StatusOK, result)
+						return
+					}
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				w.Write(blob)
@@ -232,27 +273,29 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type vodItem struct {
-		ID             string   `json:"id"`
-		Name           string   `json:"name"`
-		TMDBID         string   `json:"tmdb_id,omitempty"`
-		PosterURL      string   `json:"poster_url,omitempty"`
-		Rating         float64  `json:"rating,omitempty"`
-		Year           string   `json:"year,omitempty"`
-		Genres         []string `json:"genres,omitempty"`
-		Certification  string   `json:"certification,omitempty"`
-		VODType        string   `json:"vod_type"`
-		Group          string   `json:"group,omitempty"`
-		Series         string   `json:"series,omitempty"`
-		CollectionName string   `json:"collection_name,omitempty"`
-		CollectionID   int      `json:"collection_id,omitempty"`
-		Season         int      `json:"season,omitempty"`
-		SeasonName     string   `json:"vod_season_name,omitempty"`
-		Episode        int      `json:"episode,omitempty"`
-		EpisodeName    string   `json:"episode_name,omitempty"`
-		SourceID       string   `json:"source_id,omitempty"`
-		SourceType     string   `json:"source_type,omitempty"`
-		Tags           []string `json:"tags,omitempty"`
-		Alternates     []vodAlt `json:"alternates,omitempty"`
+		ID              string   `json:"id"`
+		Name            string   `json:"name"`
+		TMDBID          string   `json:"tmdb_id,omitempty"`
+		PosterURL       string   `json:"poster_url,omitempty"`
+		Rating          float64  `json:"rating,omitempty"`
+		Year            string   `json:"year,omitempty"`
+		Genres          []string `json:"genres,omitempty"`
+		Certification   string   `json:"certification,omitempty"`
+		VODType         string   `json:"vod_type"`
+		Group           string   `json:"group,omitempty"`
+		Series          string   `json:"series,omitempty"`
+		CollectionName  string   `json:"collection_name,omitempty"`
+		CollectionID    int      `json:"collection_id,omitempty"`
+		Season          int      `json:"season,omitempty"`
+		SeasonName      string   `json:"vod_season_name,omitempty"`
+		Episode         int      `json:"episode,omitempty"`
+		EpisodeName     string   `json:"episode_name,omitempty"`
+		EpisodeOverview string   `json:"episode_overview,omitempty"`
+		StillURL        string   `json:"still_url,omitempty"`
+		SourceID        string   `json:"source_id,omitempty"`
+		SourceType      string   `json:"source_type,omitempty"`
+		Tags            []string `json:"tags,omitempty"`
+		Alternates      []vodAlt `json:"alternates,omitempty"`
 	}
 
 	fields := r.URL.Query().Get("fields")
@@ -380,6 +423,31 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tmdbSeriesCache := make(map[string]*tmdb.SeriesBlob)
+	if s.deps.TMDBStore != nil {
+		for _, st := range filtered {
+			if st.TMDBID == "" || (st.VODType != "series" && st.Season == 0) {
+				continue
+			}
+			tmdbID, err := strconv.Atoi(st.TMDBID)
+			if err != nil || tmdbID <= 0 {
+				continue
+			}
+			key := st.TMDBID
+			if _, exists := tmdbSeriesCache[key]; exists {
+				continue
+			}
+			blob, err := s.deps.TMDBStore.GetBlobTyped("series", tmdbID)
+			if err != nil || blob == nil {
+				continue
+			}
+			var sb tmdb.SeriesBlob
+			if json.Unmarshal(blob, &sb) == nil {
+				tmdbSeriesCache[key] = &sb
+			}
+		}
+	}
+
 	var items []vodItem
 	for _, st := range filtered {
 		item := vodItem{
@@ -411,6 +479,30 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 			tmdbID, err := strconv.Atoi(st.TMDBID)
 			if err == nil && tmdbID > 0 {
 				item.PosterURL = fmt.Sprintf("/api/tmdb/i/%d/poster.jpg", tmdbID)
+			}
+		}
+
+		if sb, ok := tmdbSeriesCache[st.TMDBID]; ok && st.Season > 0 && st.Episode > 0 {
+			for _, sn := range sb.Seasons {
+				if sn.SeasonNumber != st.Season {
+					continue
+				}
+				for _, ep := range sn.Episodes {
+					if ep.EpisodeNumber != st.Episode {
+						continue
+					}
+					if ep.Name != "" {
+						item.EpisodeName = ep.Name
+					}
+					if ep.Overview != "" {
+						item.EpisodeOverview = ep.Overview
+					}
+					if st.TMDBID != "" {
+						item.StillURL = fmt.Sprintf("/api/tmdb/i/%s/s%de%d.jpg", st.TMDBID, st.Season, st.Episode)
+					}
+					break
+				}
+				break
 			}
 		}
 

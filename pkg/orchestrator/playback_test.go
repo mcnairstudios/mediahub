@@ -632,6 +632,119 @@ func TestPlayRecording_PipelineFailure(t *testing.T) {
 	}
 }
 
+func TestStartPlayback_SubprocessFallbackOnEncoderError(t *testing.T) {
+	streams := []media.Stream{
+		{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "mpeg2video", AudioCodec: "ac3", Width: 1920, Height: 1080},
+	}
+
+	callCount := 0
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		callCount++
+		if !cfg.UseSubprocess {
+			return nil, fmt.Errorf("pipeline: create transcode bridge: video encoder: %w", session.ErrEncoderInit)
+		}
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDeps(streams)
+	deps.PipelineRunner = runner
+	deps.Strategy = func(in strategy.Input, out strategy.Output) strategy.Decision {
+		return strategy.Decision{
+			NeedsTranscode:      true,
+			NeedsAudioTranscode: true,
+			VideoCodec:          "h264",
+			AudioCodec:          "aac",
+		}
+	}
+	defer deps.SessionMgr.StopAll()
+
+	result, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("expected subprocess fallback to succeed, got: %v", err)
+	}
+	if result.Session == nil {
+		t.Fatal("expected session")
+	}
+	if callCount < 2 {
+		t.Errorf("expected at least 2 pipeline calls (original + fallback), got %d", callCount)
+	}
+}
+
+func TestStartPlayback_SubprocessSettingOverride(t *testing.T) {
+	streams := []media.Stream{
+		{ID: "stream-1", Name: "Test", URL: "http://example.com/stream"},
+	}
+
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(streams, map[string]string{
+		"subprocess_transcode": "true",
+	})
+	deps.PipelineRunner = runner
+	deps.Strategy = func(in strategy.Input, out strategy.Output) strategy.Decision {
+		return strategy.Decision{
+			NeedsTranscode: true,
+			VideoCodec:     "h264",
+			AudioCodec:     "aac",
+		}
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !capturedCfg.UseSubprocess {
+		t.Error("expected UseSubprocess=true from settings override")
+	}
+}
+
+func TestNeedsSubprocessFallback(t *testing.T) {
+	got := needsSubprocessFallback("h264")
+	if got {
+		t.Error("h264 should not need subprocess fallback on any arch")
+	}
+}
+
+func TestPlayRecording_SubprocessFallbackOnEncoderError(t *testing.T) {
+	callCount := 0
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		callCount++
+		if !cfg.UseSubprocess {
+			return nil, fmt.Errorf("pipeline: create transcode bridge: video encoder: %w", session.ErrEncoderInit)
+		}
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDeps(nil)
+	deps.PipelineRunner = runner
+	deps.Strategy = func(in strategy.Input, out strategy.Output) strategy.Decision {
+		return strategy.Decision{
+			NeedsTranscode:      true,
+			NeedsAudioTranscode: true,
+			VideoCodec:          "h264",
+			AudioCodec:          "aac",
+		}
+	}
+	defer deps.SessionMgr.StopAll()
+
+	result, err := PlayRecording(context.Background(), deps, "rec-1", "/tmp/test.mp4", "Test", 0, nil)
+	if err != nil {
+		t.Fatalf("expected subprocess fallback to succeed, got: %v", err)
+	}
+	if result.Session == nil {
+		t.Fatal("expected session")
+	}
+	if callCount < 2 {
+		t.Errorf("expected at least 2 pipeline calls (original + fallback), got %d", callCount)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
 }

@@ -1,9 +1,11 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/av"
@@ -15,6 +17,16 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/bridge"
 	"github.com/rs/zerolog"
 )
+
+var ErrEncoderInit = errors.New("encoder initialization failed")
+
+func IsEncoderInitError(err error) bool {
+	if errors.Is(err, ErrEncoderInit) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "video encoder") || strings.Contains(msg, "transcode bridge")
+}
 
 const (
 	maxLiveRetries    = 3
@@ -220,7 +232,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		})
 		if err != nil {
 			d.Close()
-			return nil, fmt.Errorf("pipeline: create transcode bridge: %w", err)
+			return nil, fmt.Errorf("pipeline: create transcode bridge: %w: %w", err, ErrEncoderInit)
 		}
 		sess.AddCloser(bridgeCloser{b: b})
 		sink = b

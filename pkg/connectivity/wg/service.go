@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,11 +47,19 @@ type TestResult struct {
 	Error     string  `json:"error,omitempty"`
 }
 
+type proxyEntry struct {
+	profileID  string
+	tunnel     *Tunnel
+	plugin     *Plugin
+	failCount  atomic.Int64
+}
+
 type Service struct {
 	settings  store.SettingsStore
 	pluginCfg PluginConfig
 	tunnel    *Tunnel
 	plugin    *Plugin
+	proxyPool map[string]*proxyEntry
 	mu        sync.RWMutex
 }
 
@@ -57,6 +67,7 @@ func NewService(settings store.SettingsStore, pluginCfg PluginConfig) *Service {
 	return &Service{
 		settings:  settings,
 		pluginCfg: pluginCfg,
+		proxyPool: make(map[string]*proxyEntry),
 	}
 }
 
@@ -195,6 +206,8 @@ func (s *Service) DeleteProfile(ctx context.Context, id string) error {
 
 	if isActive {
 		s.Deactivate()
+	} else {
+		s.stopProfileProxy(id)
 	}
 
 	existing, err := s.getConfig(ctx, id)
@@ -244,6 +257,11 @@ func (s *Service) Activate(ctx context.Context, id string) error {
 	s.mu.Lock()
 	s.tunnel = tunnel
 	s.plugin = plugin
+	s.proxyPool[id] = &proxyEntry{
+		profileID: id,
+		tunnel:    tunnel,
+		plugin:    plugin,
+	}
 	s.mu.Unlock()
 
 	s.setActive(ctx, id, true)
@@ -254,6 +272,10 @@ func (s *Service) Activate(ctx context.Context, id string) error {
 func (s *Service) Deactivate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.tunnel != nil {
+		delete(s.proxyPool, s.tunnel.config.ID)
+	}
 
 	if s.plugin != nil {
 		s.plugin.Close()
@@ -345,6 +367,171 @@ func (s *Service) ActivePlugin() *Plugin {
 	return s.plugin
 }
 
+func (s *Service) ProxyURL(streamURL string) string {
+	return s.BestProxyURL(streamURL)
+}
+
+func (s *Service) EnsureProfileProxy(profileID string) error {
+	return s.ensureProxyForProfile(profileID)
+}
+
+func (s *Service) ProxyURLForProfile(profileID, streamURL string) string {
+	s.mu.RLock()
+	entry, ok := s.proxyPool[profileID]
+	s.mu.RUnlock()
+
+	if ok && entry.plugin != nil {
+		return fmt.Sprintf("http://127.0.0.1:%d/?url=%s", entry.plugin.Port(), url.QueryEscape(streamURL))
+	}
+
+	if s.plugin != nil {
+		s.mu.RLock()
+		p := s.plugin
+		s.mu.RUnlock()
+		if p != nil {
+			return p.ProxyURL(streamURL)
+		}
+	}
+
+	return streamURL
+}
+
+func (s *Service) BestProxyURL(streamURL string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var best *proxyEntry
+	var bestFails int64 = -1
+
+	for _, entry := range s.proxyPool {
+		if entry.plugin == nil || !entry.plugin.IsConnected() {
+			continue
+		}
+		fails := entry.failCount.Load()
+		if bestFails == -1 || fails < bestFails {
+			best = entry
+			bestFails = fails
+		}
+	}
+
+	if best != nil {
+		return fmt.Sprintf("http://127.0.0.1:%d/?url=%s", best.plugin.Port(), url.QueryEscape(streamURL))
+	}
+
+	if s.plugin != nil {
+		return s.plugin.ProxyURL(streamURL)
+	}
+
+	return streamURL
+}
+
+func (s *Service) HTTPClientForProfile(profileID string) *http.Client {
+	s.mu.RLock()
+	entry, ok := s.proxyPool[profileID]
+	s.mu.RUnlock()
+
+	if ok && entry.plugin != nil {
+		return entry.plugin.HTTPClient()
+	}
+
+	s.mu.RLock()
+	p := s.plugin
+	s.mu.RUnlock()
+	if p != nil {
+		return p.HTTPClient()
+	}
+
+	return http.DefaultClient
+}
+
+func (s *Service) RecordFailure(profileID string) {
+	s.mu.RLock()
+	entry, ok := s.proxyPool[profileID]
+	s.mu.RUnlock()
+
+	if ok {
+		entry.failCount.Add(1)
+	}
+}
+
+func (s *Service) ResetFailures(profileID string) {
+	s.mu.RLock()
+	entry, ok := s.proxyPool[profileID]
+	s.mu.RUnlock()
+
+	if ok {
+		entry.failCount.Store(0)
+	}
+}
+
+func (s *Service) ensureProxyForProfile(profileID string) error {
+	s.mu.RLock()
+	_, exists := s.proxyPool[profileID]
+	s.mu.RUnlock()
+	if exists {
+		return nil
+	}
+
+	cfg, err := s.getConfig(context.Background(), profileID)
+	if err != nil || cfg == nil {
+		return fmt.Errorf("profile %s not found: %w", profileID, err)
+	}
+
+	tunnel, err := NewTunnel(*cfg)
+	if err != nil {
+		return fmt.Errorf("creating tunnel for profile %s: %w", profileID, err)
+	}
+
+	plugin, err := New(tunnel.Transport(), tunnel, s.pluginCfg)
+	if err != nil {
+		tunnel.Close()
+		return fmt.Errorf("creating proxy for profile %s: %w", profileID, err)
+	}
+
+	entry := &proxyEntry{
+		profileID: profileID,
+		tunnel:    tunnel,
+		plugin:    plugin,
+	}
+
+	s.mu.Lock()
+	s.proxyPool[profileID] = entry
+	s.mu.Unlock()
+
+	return nil
+}
+
+func (s *Service) stopProfileProxy(profileID string) {
+	s.mu.Lock()
+	entry, ok := s.proxyPool[profileID]
+	if ok {
+		delete(s.proxyPool, profileID)
+	}
+	s.mu.Unlock()
+
+	if ok && entry != nil {
+		if entry.plugin != nil {
+			entry.plugin.Close()
+		}
+		if entry.tunnel != nil {
+			entry.tunnel.Close()
+		}
+	}
+}
+
+func (s *Service) PoolStatus() map[string]int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]int, len(s.proxyPool))
+	for id, entry := range s.proxyPool {
+		if entry.plugin != nil {
+			result[id] = entry.plugin.Port()
+		}
+	}
+	return result
+}
+
 func (s *Service) HealthCheck(ctx context.Context) error {
 	s.mu.RLock()
 	tunnel := s.tunnel
@@ -406,6 +593,17 @@ func (s *Service) Failover(ctx context.Context) (string, error) {
 }
 
 func (s *Service) Close() {
+	s.mu.Lock()
+	poolIDs := make([]string, 0, len(s.proxyPool))
+	for id := range s.proxyPool {
+		poolIDs = append(poolIDs, id)
+	}
+	s.mu.Unlock()
+
+	for _, id := range poolIDs {
+		s.stopProfileProxy(id)
+	}
+
 	s.Deactivate()
 }
 
