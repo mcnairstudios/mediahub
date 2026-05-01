@@ -16,10 +16,11 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
+	"github.com/mcnairstudios/mediahub/pkg/av/bsf"
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
-	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/decode"
 	"github.com/mcnairstudios/mediahub/pkg/av/encode"
+	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/mux"
 	"github.com/mcnairstudios/mediahub/pkg/av/resample"
 	"github.com/mcnairstudios/mediahub/pkg/output"
@@ -250,10 +251,33 @@ func (p *Plugin) initDeferredMuxer(keyframeData []byte) error {
 		codecName = "h264"
 	}
 
-	converted, err := extradata.ToCodecData(codecName, keyframeData)
-	if err != nil {
-		return fmt.Errorf("extract extradata from keyframe: %w", err)
+	var converted []byte
+	ext, bsfErr := bsf.NewExtraDataExtractor(opts.VideoCodecID, p.videoTB)
+	if bsfErr == nil {
+		defer ext.Close()
+		pkt := astiav.AllocPacket()
+		if pkt != nil {
+			defer pkt.Free()
+			if err := pkt.FromData(keyframeData); err == nil {
+				pkt.SetPts(0)
+				pkt.SetDts(0)
+				pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
+				annexB, err := ext.ProcessPacket(pkt)
+				if err == nil && len(annexB) > 0 {
+					converted, _ = extradata.ToCodecData(codecName, annexB)
+				}
+			}
+		}
 	}
+
+	if len(converted) == 0 {
+		var err error
+		converted, err = extradata.ToCodecData(codecName, keyframeData)
+		if err != nil {
+			return fmt.Errorf("extract extradata from keyframe: %w", err)
+		}
+	}
+
 	if len(converted) == 0 {
 		return fmt.Errorf("no extradata found in first %s keyframe", codecName)
 	}

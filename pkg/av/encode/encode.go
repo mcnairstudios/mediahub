@@ -168,13 +168,15 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 		cc.SetBitRate(int64(opts.Bitrate) * 1000)
 	}
 
-	if opts.KeyframeInterval > 0 {
-		cc.SetGopSize(opts.KeyframeInterval)
-	}
-
 	fps := opts.Framerate
 	if fps <= 0 {
 		fps = 25
+	}
+
+	if opts.KeyframeInterval > 0 {
+		cc.SetGopSize(opts.KeyframeInterval)
+	} else {
+		cc.SetGopSize(fps * 2)
 	}
 	cc.SetTimeBase(astiav.NewRational(1, fps))
 	cc.SetFramerate(astiav.NewRational(fps, 1))

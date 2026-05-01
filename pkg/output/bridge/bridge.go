@@ -7,6 +7,7 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
+	"github.com/mcnairstudios/mediahub/pkg/av/bsf"
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
 	"github.com/mcnairstudios/mediahub/pkg/av/decode"
 	"github.com/mcnairstudios/mediahub/pkg/av/encode"
@@ -61,6 +62,7 @@ type Bridge struct {
 	stopped              bool
 	videoEncoderExtradata []byte
 	extractedExtradata   bool
+	bsfExtractor         *bsf.ExtraDataExtractor
 	mu                   sync.Mutex
 	log                  zerolog.Logger
 }
@@ -163,6 +165,28 @@ func New(cfg Config) (*Bridge, error) {
 		if err != nil {
 			b.closeAll()
 			return nil, fmt.Errorf("bridge: video encoder: %w", err)
+		}
+
+		if ed := b.videoEnc.Extradata(); len(ed) > 0 {
+			codecName := "h264"
+			if b.videoEnc.CodecID() == astiav.CodecIDHevc {
+				codecName = "hevc"
+			}
+			if converted, cerr := extradata.ToCodecData(codecName, ed); cerr == nil && len(converted) > 0 {
+				b.videoEncoderExtradata = converted
+				b.extractedExtradata = true
+				cfg.Log.Info().Str("codec", codecName).Int("raw", len(ed)).Int("converted", len(converted)).Msg("bridge: converted encoder extradata at init")
+			}
+		}
+
+		if !b.extractedExtradata {
+			encCodecID := b.videoEnc.CodecID()
+			if encCodecID == astiav.CodecIDH264 || encCodecID == astiav.CodecIDHevc {
+				b.bsfExtractor, err = bsf.NewExtraDataExtractor(encCodecID, b.videoTB)
+				if err != nil {
+					cfg.Log.Warn().Err(err).Msg("bridge: BSF extractor init failed, will fall back to manual extraction")
+				}
+			}
 		}
 	}
 
@@ -316,11 +340,11 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
 			encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
 			isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
-			encPkt.Free()
 
-			if !b.extractedExtradata && isKey && b.videoEnc != nil {
-				b.extractVideoExtradata(encData)
+			if !b.extractedExtradata && b.videoEnc != nil {
+				b.extractVideoExtradata(encPkt, encData)
 			}
+			encPkt.Free()
 
 			if err := b.downstream.PushVideo(encData, encPTS, encDTS, isKey); err != nil {
 				for _, f := range frames[i+1:] {
@@ -471,6 +495,7 @@ func (b *Bridge) Stop() {
 }
 
 func (b *Bridge) closeAll() {
+	b.closeBSFExtractor()
 	if b.audioFifo != nil {
 		b.audioFifo.Close()
 	}
@@ -497,17 +522,19 @@ func (b *Bridge) closeAll() {
 	}
 }
 
-func (b *Bridge) extractVideoExtradata(packetData []byte) {
-	b.extractedExtradata = true
-
+func (b *Bridge) extractVideoExtradata(encPkt *astiav.Packet, packetData []byte) {
 	if ed := b.videoEnc.Extradata(); len(ed) > 0 {
+		b.extractedExtradata = true
 		b.videoEncoderExtradata = make([]byte, len(ed))
 		copy(b.videoEncoderExtradata, ed)
+		b.closeBSFExtractor()
 		return
 	}
 
 	codecID := b.videoEnc.CodecID()
 	if codecID != astiav.CodecIDHevc && codecID != astiav.CodecIDH264 {
+		b.extractedExtradata = true
+		b.closeBSFExtractor()
 		return
 	}
 
@@ -516,14 +543,42 @@ func (b *Bridge) extractVideoExtradata(packetData []byte) {
 		codecName = "hevc"
 	}
 
+	if b.bsfExtractor != nil {
+		annexB, err := b.bsfExtractor.ProcessPacket(encPkt)
+		if err != nil {
+			b.log.Warn().Err(err).Str("codec", codecName).Msg("bridge: BSF extraction failed, trying manual fallback")
+		} else if len(annexB) > 0 {
+			converted, cerr := extradata.ToCodecData(codecName, annexB)
+			if cerr == nil && len(converted) > 0 {
+				b.extractedExtradata = true
+				b.videoEncoderExtradata = converted
+				b.log.Info().Str("codec", codecName).Int("bytes", len(converted)).Msg("bridge: extracted encoder extradata via BSF")
+				b.closeBSFExtractor()
+				return
+			}
+			if cerr != nil {
+				b.log.Warn().Err(cerr).Str("codec", codecName).Msg("bridge: BSF extradata conversion failed, trying manual fallback")
+			}
+		}
+	}
+
 	converted, err := extradata.ToCodecData(codecName, packetData)
 	if err != nil {
 		b.log.Warn().Err(err).Str("codec", codecName).Msg("bridge: failed to extract extradata from first keyframe")
 		return
 	}
 	if len(converted) > 0 {
+		b.extractedExtradata = true
 		b.videoEncoderExtradata = converted
 		b.log.Info().Str("codec", codecName).Int("bytes", len(converted)).Msg("bridge: extracted encoder extradata from first keyframe")
+		b.closeBSFExtractor()
+	}
+}
+
+func (b *Bridge) closeBSFExtractor() {
+	if b.bsfExtractor != nil {
+		b.bsfExtractor.Close()
+		b.bsfExtractor = nil
 	}
 }
 

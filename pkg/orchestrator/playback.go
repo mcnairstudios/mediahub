@@ -119,6 +119,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	decision := deps.Strategy(in, out)
+	log.Printf("strategy: stream=%s in_video=%s in_audio=%s out_video=%s out_audio=%s transcode=%v audio_transcode=%v hwaccel=%s",
+		stream.Name, in.VideoCodec, in.AudioCodec, decision.VideoCodec, decision.AudioCodec,
+		decision.NeedsTranscode, decision.NeedsAudioTranscode, decision.HWAccel)
 
 	sess, isNew, err := deps.SessionMgr.GetOrCreate(ctx, stream.ID, stream.URL, stream.Name)
 	if err != nil {
@@ -223,7 +226,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 	if len(pipelineResult.VideoExtradata) > 0 {
 		pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
-	} else if info != nil && info.Video != nil && len(info.Video.Extradata) > 0 {
+	} else if !decision.NeedsTranscode && info != nil && info.Video != nil && len(info.Video.Extradata) > 0 {
 		pluginCfg.VideoExtradata = info.Video.Extradata
 	}
 	if len(pipelineResult.AudioExtradata) > 0 {
@@ -233,6 +236,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		v := *info.Video
 		if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
 			v.Codec = string(decision.VideoCodec)
+			v.Extradata = nil
 		}
 		pluginCfg.Video = &v
 	}
