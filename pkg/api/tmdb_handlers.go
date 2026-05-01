@@ -1,11 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
+	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
@@ -205,15 +208,19 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type slimItem struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		TMDBID  string `json:"tmdb_id,omitempty"`
-		VODType string `json:"vod_type"`
-		Group   string `json:"group,omitempty"`
-		Series  string `json:"series,omitempty"`
-		Season  int    `json:"season,omitempty"`
-		Episode int    `json:"episode,omitempty"`
-		Year    string `json:"year,omitempty"`
+		ID             string   `json:"id"`
+		Name           string   `json:"name"`
+		TMDBID         string   `json:"tmdb_id,omitempty"`
+		VODType        string   `json:"vod_type"`
+		Group          string   `json:"group,omitempty"`
+		Series         string   `json:"series,omitempty"`
+		Season         int      `json:"season,omitempty"`
+		Episode        int      `json:"episode,omitempty"`
+		Year           string   `json:"year,omitempty"`
+		Tags           []string `json:"tags,omitempty"`
+		Genres         []string `json:"genres,omitempty"`
+		Certification  string   `json:"certification,omitempty"`
+		CollectionName string   `json:"collection_name,omitempty"`
 	}
 
 	type vodAlt struct {
@@ -250,8 +257,35 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	fields := r.URL.Query().Get("fields")
 	if fields == "slim" {
 		var slim []slimItem
-		genres := make(map[string]bool)
-		decades := make(map[string]bool)
+		genreSet := make(map[string]bool)
+		decadeSet := make(map[string]bool)
+		certSet := make(map[string]bool)
+		tagSet := make(map[string]bool)
+
+		tmdbCache := make(map[string][]byte)
+		if s.deps.TMDBStore != nil {
+			for _, st := range filtered {
+				if st.TMDBID == "" {
+					continue
+				}
+				tmdbID, err := strconv.Atoi(st.TMDBID)
+				if err != nil || tmdbID <= 0 {
+					continue
+				}
+				mt := "movie"
+				if st.VODType == "series" || st.VODType == "episode" || st.Season > 0 {
+					mt = "series"
+				}
+				key := mt + ":" + st.TMDBID
+				if _, exists := tmdbCache[key]; !exists {
+					blob, err := s.deps.TMDBStore.GetBlobTyped(mt, tmdbID)
+					if err == nil && blob != nil {
+						tmdbCache[key] = blob
+					}
+				}
+			}
+		}
+
 		for _, st := range filtered {
 			si := slimItem{
 				ID:      st.ID,
@@ -263,28 +297,84 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 				Season:  st.Season,
 				Episode: st.Episode,
 				Year:    st.Year,
+				Tags:    st.Tags,
 			}
-			slim = append(slim, si)
+
+			if st.CollectionName != "" {
+				si.CollectionName = st.CollectionName
+			}
+
+			if st.TMDBID != "" {
+				mt := "movie"
+				if st.VODType == "series" || st.VODType == "episode" || st.Season > 0 {
+					mt = "series"
+				}
+				key := mt + ":" + st.TMDBID
+				if blob, ok := tmdbCache[key]; ok {
+					if mt == "movie" {
+						var movie tmdbcache.Movie
+						if json.Unmarshal(blob, &movie) == nil {
+							si.Genres = movie.Genres
+							si.Certification = movie.Certification
+							if movie.CollectionName != "" && si.CollectionName == "" {
+								si.CollectionName = movie.CollectionName
+							}
+						}
+					} else {
+						var series tmdbcache.Series
+						if json.Unmarshal(blob, &series) == nil {
+							si.Genres = series.Genres
+						}
+					}
+				}
+			}
+
+			for _, g := range si.Genres {
+				genreSet[g] = true
+			}
+			if si.Certification != "" {
+				certSet[si.Certification] = true
+			}
+			for _, t := range si.Tags {
+				tagSet[t] = true
+			}
 			if st.Year != "" && len(st.Year) == 4 {
-				decades[st.Year[:3]+"0s"] = true
+				decadeSet[st.Year[:3]+"0s"] = true
 			}
+
+			slim = append(slim, si)
 		}
 		if slim == nil {
 			slim = []slimItem{}
 		}
-		decadeList := make([]string, 0, len(decades))
-		for d := range decades {
+		decadeList := make([]string, 0, len(decadeSet))
+		for d := range decadeSet {
 			decadeList = append(decadeList, d)
 		}
-		genreList := make([]string, 0, len(genres))
-		for g := range genres {
+		sort.Sort(sort.Reverse(sort.StringSlice(decadeList)))
+		genreList := make([]string, 0, len(genreSet))
+		for g := range genreSet {
 			genreList = append(genreList, g)
 		}
+		sort.Strings(genreList)
+		certList := make([]string, 0, len(certSet))
+		for c := range certSet {
+			certList = append(certList, c)
+		}
+		sort.Strings(certList)
+		tagList := make([]string, 0, len(tagSet))
+		for t := range tagSet {
+			tagList = append(tagList, t)
+		}
+		sort.Strings(tagList)
+
 		httputil.RespondJSON(w, http.StatusOK, map[string]any{
-			"items":   slim,
-			"total":   len(slim),
-			"decades": decadeList,
-			"genres":  genreList,
+			"items":          slim,
+			"total":          len(slim),
+			"decades":        decadeList,
+			"genres":         genreList,
+			"certifications": certList,
+			"tags":           tagList,
 		})
 		return
 	}

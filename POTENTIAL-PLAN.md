@@ -689,18 +689,27 @@ Endpoints mediahub has that tvproxy does NOT:
 11. TMDB collection poster/backdrop fetching
 
 ### LOW (polish)
-12. Xtream account info endpoint
-13. Xtream API response cache
-14. Tee for raw byte capture
-15. M3U8 output variant
-16. OpenAPI spec endpoint
-17. pprof debug endpoint
-18. Quest DLNA workaround
-19. Per-user DLNA filtering
-20. Network/VOD/worker/server tuning settings
-21. TMDB sync status pages
-22. Debug flag toggle
-23. API key authentication
-24. Proto-based probe serialization
-25. Virtual scroll for large poster grids (localStorage caching done, virtual scroll not yet)
-26. Sprite sheets for episode thumbnails (design done, not implemented)
+12. Quest DLNA workaround (omit albumArtURI — Quest is a primary target)
+13. Xtream account info endpoint
+14. OpenAPI spec endpoint
+15. pprof debug endpoint
+16. Per-user DLNA filtering
+17. Network/VOD/worker/server tuning settings
+18. TMDB sync status pages
+19. Debug flag toggle
+20. API key authentication
+21. Virtual scroll for large poster grids (localStorage caching done, virtual scroll not yet)
+
+### NOT NEEDED (architectural differences make these unnecessary)
+- Proto-based probe serialization — JSON is fine, probe data is small
+- Probe.pb watcher pattern — mediahub returns probe info in API response directly
+- TailFile reader — output plugins write to HTTP response directly
+- FileServer package — standard http.ServeFile suffices
+- Separate Movies/TV Series pages — combined Library with tabs is better UX
+- Dedicated Xtream cache package — stream store + TMDB blob store covers this
+- Port-based detection passthrough (_port param) — ListenPort matching handles this
+- Canonical Jellyfin path normalization — Go mux with path variables handles this
+- M3U8 output variant — M3U is sufficient, any M3U8 client reads M3U
+- Auto-profile creation/cleanup on client lifecycle — clean separation of client/source profiles
+- Tee for raw byte capture — debug tool, not production feature
+- Sprite sheets — nice optimisation but individual files with browser caching is simpler and works for Jellyfin too

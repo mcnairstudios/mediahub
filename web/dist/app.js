@@ -5246,13 +5246,13 @@
       var cached = loadCache(ck);
       if (cached && cached.items) {
         api.get('/api/vod/library?type=' + vodType + '&fields=slim' + sfx).then(function(r) { return r.json(); }).then(function(fresh) { if (fresh && fresh.items) saveCache(ck, fresh); }).catch(function(){});
-        return cached.items;
+        return cached;
       }
       var resp = await api.get('/api/vod/library?type=' + vodType + '&fields=slim' + sfx);
       var data = await resp.json();
-      var items = (data && data.items) || [];
+      if (!data || !data.items) data = { items: [], genres: [], decades: [], certifications: [], tags: [] };
       saveCache(ck, data);
-      return items;
+      return data;
     }
 
     return { getCategories: getCategories, getItems: getItems };
