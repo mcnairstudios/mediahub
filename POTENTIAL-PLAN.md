@@ -690,15 +690,15 @@ Endpoints mediahub has that tvproxy does NOT:
 
 ### LOW (polish)
 12. ~~Quest DLNA workaround~~ — DONE (isQuestUA + albumArtURI skip)
-13. Xtream account info endpoint
-14. OpenAPI spec endpoint
+13. ~~Xtream account info endpoint~~ — DONE (already implemented: GET /api/sources/xtream/{id}/info)
+14. ~~OpenAPI spec endpoint~~ — DONE (Swagger UI at /api/docs, full OpenAPI 3.0 spec)
 15. ~~pprof debug endpoint~~ — DONE (debug_enabled setting + pprof routes)
-16. Per-user DLNA filtering
+16. ~~Per-user DLNA filtering~~ — DONE (Basic Auth, non-admin filtered by channel group IDs)
 ~~17. Network/VOD/worker/server tuning settings~~ — DROPPED (hardcoded defaults are fine, nobody changes these)
 18. ~~TMDB sync status pages~~ — DONE (admin page with queue/recent/resync)
 19. ~~Debug flag toggle~~ — DONE (settings handler toggles log level)
 20. ~~API key authentication~~ — DONE (X-API-Key middleware + CRUD)
-21. Virtual scroll for large poster grids (localStorage caching done, virtual scroll not yet)
+~~21. Virtual scroll for large poster grids~~ — DROPPED (not needed with per-source category drill-in)
 
 ### NOT NEEDED (architectural differences make these unnecessary)
 - Proto-based probe serialization — JSON is fine, probe data is small

@@ -232,7 +232,10 @@
     subtitle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>',
     sourceprofiles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>',
     logos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-    tmdb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>'
+    tmdb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>',
+    hdhr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 11h4M14 11h4M6 14h4"/></svg>',
+    invite: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
+    apikey: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>'
   };
 
   var router = {
@@ -334,13 +337,16 @@
       items.push({ id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles' });
       items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
       items.push({ id: 'clients', label: 'Clients', icon: 'clients' });
+      items.push({ id: 'hdhrdevices', label: 'HDHR Devices', icon: 'hdhr' });
       items.push({ id: 'logos', label: 'Logos', icon: 'logos' });
       items.push({ id: 'tmdb', label: 'TMDB', icon: 'tmdb' });
       items.push({ id: 'probe', label: 'Probe', icon: 'probe' });
       items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
       items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
       items.push({ id: 'users', label: 'Users', icon: 'users' });
+      items.push({ id: 'invites', label: 'Invites', icon: 'invite' });
     }
+    items.push({ id: 'apikeys', label: 'API Keys', icon: 'apikey' });
     return items;
   }
 
@@ -424,6 +430,9 @@
     else if (page === 'logos') renderLogos(pageEl);
     else if (page === 'tmdb') renderTMDBPage(pageEl);
     else if (page === 'probe') renderProbe(pageEl);
+    else if (page === 'hdhrdevices') renderHDHRDevices(pageEl);
+    else if (page === 'invites') renderInvites(pageEl);
+    else if (page === 'apikeys') renderAPIKeys(pageEl);
     else renderDashboard(pageEl);
   }
 
@@ -4266,7 +4275,7 @@
           var blob = await resp.blob();
           var a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = 'mediahub-channels.json';
+          a.download = 'mediahub-channels-' + new Date().toISOString().slice(0, 10) + '.json';
           a.click();
           URL.revokeObjectURL(a.href);
         } catch (err) { toast(err.message, 'error'); }
@@ -4283,7 +4292,7 @@
           var blob = await resp.blob();
           var a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = 'mediahub-full.json';
+          a.download = 'mediahub-full-' + new Date().toISOString().slice(0, 10) + '.json';
           a.click();
           URL.revokeObjectURL(a.href);
         } catch (err) { toast(err.message, 'error'); }
@@ -4339,7 +4348,8 @@
     if (hardResetBtn) {
       hardResetBtn.addEventListener('click', async function() {
         if (!confirm('Hard Reset will delete ALL data and restore factory defaults. You will be logged out.\n\nAre you sure?')) return;
-        if (!confirm('This cannot be undone. All users, sources, channels, and settings will be permanently deleted.\n\nProceed with hard reset?')) return;
+        var resetConfirm = prompt('This will delete ALL data. Type RESET to confirm:');
+        if (resetConfirm !== 'RESET') { toast('Hard reset cancelled', 'error'); return; }
         hardResetBtn.disabled = true;
         try {
           await api.post('/api/settings/hard-reset');
@@ -4761,6 +4771,10 @@
             '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Proxy</div>' +
             '<div style="color:#e2e8f0;font-size:13px;font-weight:600;font-family:monospace">127.0.0.1:' + status.proxy_port + '</div>' +
             '</div>' +
+            (status.exit_ip ? '<div style="text-align:center">' +
+            '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">Exit IP</div>' +
+            '<div style="color:#e2e8f0;font-size:13px;font-weight:600;font-family:monospace">' + esc(status.exit_ip) + '</div>' +
+            '</div>' : '') +
             '<div style="text-align:center">' +
             '<div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.5px">TX / RX</div>' +
             '<div style="color:#e2e8f0;font-size:13px;font-weight:600">' + formatBytes(status.tx_bytes || 0) + ' / ' + formatBytes(status.rx_bytes || 0) + '</div>' +
@@ -7405,6 +7419,472 @@
     }
   }
 
+  async function renderHDHRDevices(el) {
+    el.innerHTML = '<h1 class="page-title">HDHR Devices</h1>' +
+      '<div style="margin-bottom:16px;display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="add-hdhr-btn">' + icons.plus + ' Add Device</button>' +
+      '<button class="btn btn-ghost" id="autosplit-hdhr-btn">Auto-Split</button>' +
+      '</div>' +
+      '<div id="hdhr-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    var channelGroups = [];
+    try {
+      var gResp = await api.get('/api/channel-groups');
+      channelGroups = await gResp.json();
+      if (!Array.isArray(channelGroups)) channelGroups = [];
+    } catch (e) {}
+
+    document.getElementById('add-hdhr-btn').addEventListener('click', function() {
+      showHDHRModal(null);
+    });
+
+    document.getElementById('autosplit-hdhr-btn').addEventListener('click', async function() {
+      try {
+        var r = await api.post('/api/hdhr/devices/auto-split');
+        if (r.ok) {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.message || 'Auto-split complete');
+          loadHDHRDevices();
+        } else {
+          var err = await r.json().catch(function() { return {}; });
+          toast(err.error || 'Auto-split failed', 'error');
+        }
+      } catch (e) {
+        toast('Auto-split failed', 'error');
+      }
+    });
+
+    async function loadHDHRDevices() {
+      try {
+        var resp = await api.get('/api/hdhr/devices');
+        var devices = await resp.json();
+        if (!Array.isArray(devices)) devices = [];
+        var container = document.getElementById('hdhr-list');
+        if (!container) return;
+
+        if (devices.length === 0) {
+          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No HDHR devices configured</p></div>';
+          return;
+        }
+
+        var html = '<table class="list-table"><thead><tr>' +
+          '<th>Name</th><th>UUID</th><th>Port</th><th>Groups</th><th>Max Channels</th><th>Enabled</th><th>Actions</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < devices.length; i++) {
+          var d = devices[i];
+          var groupNames = [];
+          if (d.group_ids && d.group_ids.length > 0) {
+            for (var gi = 0; gi < d.group_ids.length; gi++) {
+              var grp = channelGroups.find(function(g) { return g.id === d.group_ids[gi]; });
+              groupNames.push(grp ? grp.name : d.group_ids[gi]);
+            }
+          }
+          html += '<tr>' +
+            '<td>' + esc(d.name) + '</td>' +
+            '<td><span style="font-family:monospace;font-size:12px;color:var(--text-secondary)">' + esc(d.uuid || d.id || '') + '</span></td>' +
+            '<td>' + esc(d.port) + '</td>' +
+            '<td>' + (groupNames.length > 0 ? groupNames.map(function(n) { return '<span class="badge">' + esc(n) + '</span>'; }).join(' ') : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
+            '<td>' + esc(d.max_channels || 0) + '</td>' +
+            '<td>' + (d.is_enabled ? '<span class="badge badge-admin">Yes</span>' : '<span class="badge">No</span>') + '</td>' +
+            '<td><div class="actions-cell">' +
+            '<button class="btn btn-sm btn-ghost hdhr-edit-btn" data-id="' + esc(d.id) + '" title="Edit">' + icons.edit + '</button>' +
+            '<button class="btn btn-sm btn-icon btn-danger hdhr-del-btn" data-id="' + esc(d.id) + '" data-name="' + esc(d.name) + '" title="Delete">' + icons.trash + '</button>' +
+            '</div></td></tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+        container.querySelectorAll('.hdhr-edit-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = this.getAttribute('data-id');
+            try {
+              var r = await api.get('/api/hdhr/devices/' + id);
+              var device = await r.json();
+              showHDHRModal(device);
+            } catch (e) {
+              toast('Failed to load device', 'error');
+            }
+          });
+        });
+
+        container.querySelectorAll('.hdhr-del-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = this.getAttribute('data-id');
+            var name = this.getAttribute('data-name');
+            if (!confirm('Delete HDHR device "' + name + '"?')) return;
+            try {
+              var r = await api.del('/api/hdhr/devices/' + id);
+              if (r.ok || r.status === 204) {
+                toast('Device deleted');
+                loadHDHRDevices();
+              } else {
+                toast('Failed to delete device', 'error');
+              }
+            } catch (e) {
+              toast('Failed to delete device', 'error');
+            }
+          });
+        });
+      } catch (e) {
+        var container = document.getElementById('hdhr-list');
+        if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load HDHR devices</p></div>';
+      }
+    }
+
+    function showHDHRModal(device) {
+      var existing = document.getElementById('hdhr-modal');
+      if (existing) existing.remove();
+
+      var isEdit = !!device;
+      var d = device || {};
+      var selectedGroupIds = d.group_ids || [];
+
+      var groupCheckboxes = '';
+      for (var gi = 0; gi < channelGroups.length; gi++) {
+        var g = channelGroups[gi];
+        var checked = selectedGroupIds.indexOf(g.id) >= 0 ? ' checked' : '';
+        groupCheckboxes += '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer">' +
+          '<input type="checkbox" class="hdhr-group-cb" value="' + esc(g.id) + '"' + checked + '> ' + esc(g.name) + '</label>';
+      }
+      if (channelGroups.length === 0) {
+        groupCheckboxes = '<span style="color:var(--text-muted)">No channel groups available</span>';
+      }
+
+      var html = '<div class="modal-overlay" id="hdhr-modal">' +
+        '<div class="modal-content" style="max-width:480px">' +
+        '<div class="modal-header">' + (isEdit ? 'Edit' : 'New') + ' HDHR Device</div>' +
+        '<div class="modal-body">' +
+        '<div class="form-group"><label class="form-label">Name</label>' +
+        '<input class="form-input" id="hdhr-name" value="' + esc(d.name || '') + '" placeholder="Device name"></div>' +
+        '<div class="form-group"><label class="form-label">Port</label>' +
+        '<input class="form-input" id="hdhr-port" type="number" value="' + esc(d.port || '') + '" placeholder="65001"></div>' +
+        '<div class="form-group"><label class="form-label">Max Channels</label>' +
+        '<input class="form-input" id="hdhr-max" type="number" value="' + esc(d.max_channels || '') + '" placeholder="480"></div>' +
+        '<div class="form-group"><label class="form-label">Channel Groups</label>' +
+        '<div id="hdhr-groups" style="max-height:150px;overflow-y:auto">' + groupCheckboxes + '</div></div>' +
+        '<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+        '<input type="checkbox" id="hdhr-enabled"' + (d.is_enabled !== false ? ' checked' : '') + '> Enabled</label></div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button class="btn btn-ghost" id="hdhr-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="hdhr-save">' + (isEdit ? 'Update' : 'Create') + '</button>' +
+        '</div></div></div>';
+
+      document.body.insertAdjacentHTML('beforeend', html);
+      document.getElementById('hdhr-name').focus();
+
+      document.getElementById('hdhr-cancel').addEventListener('click', function() {
+        document.getElementById('hdhr-modal').remove();
+      });
+      document.getElementById('hdhr-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.remove();
+      });
+      document.getElementById('hdhr-save').addEventListener('click', async function() {
+        var name = document.getElementById('hdhr-name').value.trim();
+        var port = parseInt(document.getElementById('hdhr-port').value) || 0;
+        var maxChannels = parseInt(document.getElementById('hdhr-max').value) || 0;
+        var enabled = document.getElementById('hdhr-enabled').checked;
+        var groupIds = [];
+        document.querySelectorAll('.hdhr-group-cb:checked').forEach(function(cb) {
+          groupIds.push(cb.value);
+        });
+        if (!name) { toast('Name required', 'error'); return; }
+        var payload = { name: name, port: port, group_ids: groupIds, max_channels: maxChannels, is_enabled: enabled };
+        try {
+          var r;
+          if (isEdit) {
+            r = await api.put('/api/hdhr/devices/' + d.id, payload);
+          } else {
+            r = await api.post('/api/hdhr/devices', payload);
+          }
+          if (r.ok) {
+            toast(isEdit ? 'Device updated' : 'Device created');
+            document.getElementById('hdhr-modal').remove();
+            loadHDHRDevices();
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to save device', 'error');
+          }
+        } catch (err) {
+          toast('Failed to save device', 'error');
+        }
+      });
+    }
+
+    await loadHDHRDevices();
+  }
+
+  async function renderInvites(el) {
+    el.innerHTML = '<h1 class="page-title">Invites</h1>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-invite-btn">' + icons.plus + ' Create Invite</button></div>' +
+      '<div id="invite-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    document.getElementById('add-invite-btn').addEventListener('click', function() {
+      showInviteModal();
+    });
+
+    async function loadInvites() {
+      try {
+        var resp = await api.get('/api/invites');
+        var invites = await resp.json();
+        if (!Array.isArray(invites)) invites = [];
+        var container = document.getElementById('invite-list');
+        if (!container) return;
+
+        if (invites.length === 0) {
+          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No pending invites</p></div>';
+          return;
+        }
+
+        var html = '<table class="list-table"><thead><tr>' +
+          '<th>Token</th><th>Role</th><th>Created</th><th>Expires</th><th>Used</th><th>Actions</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < invites.length; i++) {
+          var inv = invites[i];
+          var token = inv.token || '';
+          var truncated = token.length > 16 ? token.substring(0, 16) + '...' : token;
+          var created = inv.created_at ? new Date(inv.created_at).toLocaleString() : '-';
+          var expires = inv.expires_at ? new Date(inv.expires_at).toLocaleString() : '-';
+          var used = inv.used || inv.is_used;
+          html += '<tr>' +
+            '<td><span style="font-family:monospace;font-size:12px">' + esc(truncated) + '</span></td>' +
+            '<td><span class="badge badge-' + esc(inv.role || 'standard') + '">' + esc(inv.role || 'standard') + '</span></td>' +
+            '<td>' + esc(created) + '</td>' +
+            '<td>' + esc(expires) + '</td>' +
+            '<td>' + (used ? '<span class="badge badge-admin">Yes</span>' : '<span class="badge">No</span>') + '</td>' +
+            '<td><div class="actions-cell">' +
+            (!used ? '<button class="btn btn-sm btn-icon btn-danger invite-del-btn" data-token="' + esc(token) + '" title="Delete">' + icons.trash + '</button>' : '') +
+            '</div></td></tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+        container.querySelectorAll('.invite-del-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var token = this.getAttribute('data-token');
+            if (!confirm('Delete this invite?')) return;
+            try {
+              var r = await api.del('/api/invites/' + token);
+              if (r.ok || r.status === 204) {
+                toast('Invite deleted');
+                loadInvites();
+              } else {
+                toast('Failed to delete invite', 'error');
+              }
+            } catch (e) {
+              toast('Failed to delete invite', 'error');
+            }
+          });
+        });
+      } catch (e) {
+        var container = document.getElementById('invite-list');
+        if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load invites</p></div>';
+      }
+    }
+
+    function showInviteModal() {
+      var existing = document.getElementById('invite-modal');
+      if (existing) existing.remove();
+
+      var html = '<div class="modal-overlay" id="invite-modal">' +
+        '<div class="modal-content" style="max-width:420px">' +
+        '<div class="modal-header">Create Invite</div>' +
+        '<div class="modal-body">' +
+        '<div class="form-group"><label class="form-label">Role</label>' +
+        '<select class="form-input" id="invite-role">' +
+        '<option value="standard">Standard</option>' +
+        '<option value="admin">Admin</option>' +
+        '<option value="jellyfin">Jellyfin</option>' +
+        '</select></div>' +
+        '<div class="form-group"><label class="form-label">Expires In</label>' +
+        '<input class="form-input" id="invite-expires" value="24h" placeholder="e.g. 24h, 7d, 1h"></div>' +
+        '<div id="invite-result" style="display:none"></div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button class="btn btn-ghost" id="invite-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="invite-create">Create</button>' +
+        '</div></div></div>';
+
+      document.body.insertAdjacentHTML('beforeend', html);
+
+      document.getElementById('invite-cancel').addEventListener('click', function() {
+        document.getElementById('invite-modal').remove();
+      });
+      document.getElementById('invite-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.remove();
+      });
+      document.getElementById('invite-create').addEventListener('click', async function() {
+        var role = document.getElementById('invite-role').value;
+        var expiresIn = document.getElementById('invite-expires').value.trim() || '24h';
+        try {
+          var r = await api.post('/api/invites', { role: role, expires_in: expiresIn });
+          if (r.ok) {
+            var data = await r.json();
+            var resultEl = document.getElementById('invite-result');
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = '<div class="form-group" style="margin-top:12px">' +
+              '<label class="form-label">Invite Token (copy now)</label>' +
+              '<div style="display:flex;gap:8px">' +
+              '<input class="form-input" id="invite-token-display" value="' + esc(data.token || '') + '" readonly style="font-family:monospace;font-size:12px">' +
+              '<button class="btn btn-ghost" id="invite-copy-btn" title="Copy">' + icons.copy + '</button>' +
+              '</div></div>';
+            document.getElementById('invite-copy-btn').addEventListener('click', function() {
+              var inp = document.getElementById('invite-token-display');
+              if (inp) {
+                inp.select();
+                try { navigator.clipboard.writeText(inp.value); toast('Copied to clipboard'); } catch (e) { toast('Select and copy manually', 'error'); }
+              }
+            });
+            document.getElementById('invite-create').style.display = 'none';
+            document.getElementById('invite-cancel').textContent = 'Close';
+            document.getElementById('invite-cancel').addEventListener('click', function() {
+              document.getElementById('invite-modal').remove();
+              loadInvites();
+            });
+          } else {
+            var err = await r.json().catch(function() { return {}; });
+            toast(err.error || 'Failed to create invite', 'error');
+          }
+        } catch (e) {
+          toast('Failed to create invite', 'error');
+        }
+      });
+    }
+
+    await loadInvites();
+  }
+
+  async function renderAPIKeys(el) {
+    el.innerHTML = '<h1 class="page-title">API Keys</h1>' +
+      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-apikey-btn">' + icons.plus + ' Create API Key</button></div>' +
+      '<div id="apikey-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    document.getElementById('add-apikey-btn').addEventListener('click', function() {
+      showAPIKeyModal();
+    });
+
+    async function loadAPIKeys() {
+      try {
+        var resp = await api.get('/api/auth/apikeys');
+        var keys = await resp.json();
+        if (!Array.isArray(keys)) keys = [];
+        var container = document.getElementById('apikey-list');
+        if (!container) return;
+
+        if (keys.length === 0) {
+          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No API keys</p></div>';
+          return;
+        }
+
+        var html = '<table class="list-table"><thead><tr>' +
+          '<th>Name</th><th>Key</th><th>Created</th><th>Actions</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          var maskedKey = k.key_prefix ? k.key_prefix + '...' : (k.key ? k.key.substring(0, 8) + '...' : '********');
+          var created = k.created_at ? new Date(k.created_at).toLocaleString() : '-';
+          html += '<tr>' +
+            '<td>' + esc(k.name) + '</td>' +
+            '<td><span style="font-family:monospace;font-size:12px;color:var(--text-secondary)">' + esc(maskedKey) + '</span></td>' +
+            '<td>' + esc(created) + '</td>' +
+            '<td><div class="actions-cell">' +
+            '<button class="btn btn-sm btn-icon btn-danger apikey-revoke-btn" data-id="' + esc(k.id) + '" data-name="' + esc(k.name) + '" title="Revoke">' + icons.trash + '</button>' +
+            '</div></td></tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+        container.querySelectorAll('.apikey-revoke-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = this.getAttribute('data-id');
+            var name = this.getAttribute('data-name');
+            if (!confirm('Revoke API key "' + name + '"? This cannot be undone.')) return;
+            try {
+              var r = await api.del('/api/auth/apikey/' + id);
+              if (r.ok || r.status === 204) {
+                toast('API key revoked');
+                loadAPIKeys();
+              } else {
+                toast('Failed to revoke API key', 'error');
+              }
+            } catch (e) {
+              toast('Failed to revoke API key', 'error');
+            }
+          });
+        });
+      } catch (e) {
+        var container = document.getElementById('apikey-list');
+        if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load API keys</p></div>';
+      }
+    }
+
+    function showAPIKeyModal() {
+      var existing = document.getElementById('apikey-modal');
+      if (existing) existing.remove();
+
+      var html = '<div class="modal-overlay" id="apikey-modal">' +
+        '<div class="modal-content" style="max-width:420px">' +
+        '<div class="modal-header">Create API Key</div>' +
+        '<div class="modal-body">' +
+        '<div class="form-group"><label class="form-label">Name</label>' +
+        '<input class="form-input" id="apikey-name" placeholder="Key name (e.g. CI integration)"></div>' +
+        '<div id="apikey-result" style="display:none"></div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button class="btn btn-ghost" id="apikey-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="apikey-create">Create</button>' +
+        '</div></div></div>';
+
+      document.body.insertAdjacentHTML('beforeend', html);
+      document.getElementById('apikey-name').focus();
+
+      document.getElementById('apikey-cancel').addEventListener('click', function() {
+        document.getElementById('apikey-modal').remove();
+      });
+      document.getElementById('apikey-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.remove();
+      });
+      document.getElementById('apikey-create').addEventListener('click', async function() {
+        var name = document.getElementById('apikey-name').value.trim();
+        if (!name) { toast('Name required', 'error'); return; }
+        try {
+          var r = await api.post('/api/auth/apikey', { name: name });
+          if (r.ok) {
+            var data = await r.json();
+            var resultEl = document.getElementById('apikey-result');
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = '<div style="margin-top:12px;padding:12px;background:var(--surface-alt);border-radius:8px;border:1px solid var(--warning)">' +
+              '<div style="color:var(--warning);font-weight:600;margin-bottom:8px">This key will not be shown again</div>' +
+              '<div style="display:flex;gap:8px">' +
+              '<input class="form-input" id="apikey-display" value="' + esc(data.key || data.api_key || '') + '" readonly style="font-family:monospace;font-size:12px">' +
+              '<button class="btn btn-ghost" id="apikey-copy-btn" title="Copy">' + icons.copy + '</button>' +
+              '</div></div>';
+            document.getElementById('apikey-copy-btn').addEventListener('click', function() {
+              var inp = document.getElementById('apikey-display');
+              if (inp) {
+                inp.select();
+                try { navigator.clipboard.writeText(inp.value); toast('Copied to clipboard'); } catch (e) { toast('Select and copy manually', 'error'); }
+              }
+            });
+            document.getElementById('apikey-create').style.display = 'none';
+            document.getElementById('apikey-cancel').textContent = 'Close';
+            document.getElementById('apikey-cancel').addEventListener('click', function() {
+              document.getElementById('apikey-modal').remove();
+              loadAPIKeys();
+            });
+          } else {
+            var err = await r.json().catch(function() { return {}; });
+            toast(err.error || 'Failed to create API key', 'error');
+          }
+        } catch (e) {
+          toast('Failed to create API key', 'error');
+        }
+      });
+    }
+
+    await loadAPIKeys();
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
@@ -7424,7 +7904,10 @@
     logos: renderLogos,
     tmdb: renderTMDBPage,
     probe: renderProbe,
-    player: renderPlayer
+    player: renderPlayer,
+    hdhrdevices: renderHDHRDevices,
+    invites: renderInvites,
+    apikeys: renderAPIKeys
   };
 
   router.init();
