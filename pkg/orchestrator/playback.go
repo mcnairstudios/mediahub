@@ -280,9 +280,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		defer func() {
 			recover() //nolint:errcheck
 		}()
-		if strings.HasPrefix(stream.URL, "rtsp://") {
-			return
-		}
+		return
 		recCfg := pluginCfg
 		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
 		recCfg.OutputFormat = "mpegts"
