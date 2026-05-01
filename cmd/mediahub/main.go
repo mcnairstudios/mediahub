@@ -668,18 +668,14 @@ func main() {
 	}
 	go enqueueTMDBStreams()
 
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				enqueueTMDBStreams()
-			}
-		}
-	}()
+	scheduler.Add(worker.Job{
+		Name:     "tmdb-enqueue",
+		Interval: 60 * time.Second,
+		Fn: func(_ context.Context) error {
+			enqueueTMDBStreams()
+			return nil
+		},
+	})
 
 	select {
 	case sig := <-sigCh:
