@@ -676,28 +676,28 @@ Endpoints mediahub has that tvproxy does NOT:
 - Library per-source browsing with category drill-in for large sources
 
 ### MEDIUM (nice to have for production)
-1. Multi-profile WireGuard with automatic failover — health check active tunnel periodically, if it fails try next profile in order, activate first one that works
+1. ~~Multi-profile WireGuard with automatic failover~~ — DONE (HealthCheck + Failover + 30s health scheduler)
 2. WG pool with per-session proxy
-3. Per-device HDHR servers
-4. Invite system for user onboarding
+3. ~~Per-device HDHR servers~~ — DONE (device store, manager, auto-split, per-device SSDP)
+4. ~~Invite system for user onboarding~~ — DONE (invite tokens, accept endpoint, expiry)
 5. ~~Rich encoder settings per HW platform~~ — DONE (default_hwaccel, default_decode_hwaccel, per-codec encoder_h264/decoder_h264/etc)
-6. Recording status flow tracking (status page)
-7. Logo service (EPG logo extraction, logo management page) — caching proxy exists
+6. ~~Recording status flow tracking~~ — DONE (pending/cancelled states, UI badges, dashboard counts)
+7. ~~Logo service~~ — DONE (EPG logo extraction, logo management page, refresh from EPG)
 8. In-process H.265 encoder fix (CGO crash on ARM64, works on amd64)
-9. NIT-based satellite discovery (prototype done, needs modulation auto-detect)
+9. ~~NIT-based satellite discovery~~ — DONE (two-pass: transmitter file seeds + NIT discovery built into normal scan)
 10. Xtream series episode enrichment from TMDB (episode names, stills)
-11. TMDB collection poster/backdrop fetching
+11. ~~TMDB collection poster/backdrop fetching~~ — DONE (already in worker.go)
 
 ### LOW (polish)
-12. Quest DLNA workaround (omit albumArtURI — Quest is a primary target)
+12. ~~Quest DLNA workaround~~ — DONE (isQuestUA + albumArtURI skip)
 13. Xtream account info endpoint
 14. OpenAPI spec endpoint
-15. pprof debug endpoint
+15. ~~pprof debug endpoint~~ — DONE (debug_enabled setting + pprof routes)
 16. Per-user DLNA filtering
 17. Network/VOD/worker/server tuning settings
-18. TMDB sync status pages
-19. Debug flag toggle
-20. API key authentication
+18. ~~TMDB sync status pages~~ — DONE (admin page with queue/recent/resync)
+19. ~~Debug flag toggle~~ — DONE (settings handler toggles log level)
+20. ~~API key authentication~~ — DONE (X-API-Key middleware + CRUD)
 21. Virtual scroll for large poster grids (localStorage caching done, virtual scroll not yet)
 
 ### NOT NEEDED (architectural differences make these unnecessary)

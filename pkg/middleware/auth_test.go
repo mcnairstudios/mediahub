@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 )
 
 type mockAuthService struct {
-	validateFunc func(ctx context.Context, token string) (*auth.User, error)
+	validateFunc       func(ctx context.Context, token string) (*auth.User, error)
+	validateAPIKeyFunc func(ctx context.Context, key string) (*auth.User, error)
 }
 
 func (m *mockAuthService) Login(ctx context.Context, username, password string) (string, error) {
@@ -38,6 +40,19 @@ func (m *mockAuthService) DeleteUser(ctx context.Context, id string) error { ret
 func (m *mockAuthService) ChangePassword(ctx context.Context, id, newPassword string) error {
 	return nil
 }
+func (m *mockAuthService) CreateInvite(_ context.Context, _ auth.Role, _ time.Duration) (*auth.Invite, error) { return nil, nil }
+func (m *mockAuthService) AcceptInvite(_ context.Context, _, _, _ string) (*auth.User, error) { return nil, nil }
+func (m *mockAuthService) ListInvites(_ context.Context) ([]*auth.Invite, error) { return nil, nil }
+func (m *mockAuthService) DeleteInvite(_ context.Context, _ string) error { return nil }
+func (m *mockAuthService) CreateAPIKey(_ context.Context, _, _ string) (*auth.APIKey, error) { return nil, nil }
+func (m *mockAuthService) ValidateAPIKey(ctx context.Context, key string) (*auth.User, error) {
+	if m.validateAPIKeyFunc != nil {
+		return m.validateAPIKeyFunc(ctx, key)
+	}
+	return nil, nil
+}
+func (m *mockAuthService) ListAPIKeys(_ context.Context, _ string) ([]*auth.APIKey, error) { return nil, nil }
+func (m *mockAuthService) RevokeAPIKey(_ context.Context, _, _ string) error { return nil }
 
 func TestAuthenticate_ValidToken(t *testing.T) {
 	expectedUser := &auth.User{ID: "u1", Username: "alice", IsAdmin: false, Role: auth.RoleStandard}
@@ -222,5 +237,109 @@ func TestUserFromContext_NoUser(t *testing.T) {
 	user := UserFromContext(context.Background())
 	if user != nil {
 		t.Fatal("expected nil user from empty context")
+	}
+}
+
+func TestAuthenticate_APIKey(t *testing.T) {
+	expectedUser := &auth.User{ID: "u1", Username: "alice", IsAdmin: false, Role: auth.RoleStandard}
+	svc := &mockAuthService{
+		validateFunc: func(_ context.Context, token string) (*auth.User, error) {
+			return nil, errors.New("should not be called for API key auth")
+		},
+	}
+	svc.validateAPIKeyFunc = func(_ context.Context, key string) (*auth.User, error) {
+		if key == "valid-api-key" {
+			return expectedUser, nil
+		}
+		return nil, errors.New("invalid api key")
+	}
+
+	var capturedUser *auth.User
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedUser = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mw := NewAuthMiddleware(svc)
+	handler := mw.Authenticate(inner)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-API-Key", "valid-api-key")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if capturedUser == nil {
+		t.Fatal("expected user on context")
+	}
+	if capturedUser.ID != "u1" {
+		t.Fatalf("expected user ID u1, got %s", capturedUser.ID)
+	}
+}
+
+func TestAuthenticate_InvalidAPIKey(t *testing.T) {
+	svc := &mockAuthService{
+		validateFunc: func(_ context.Context, _ string) (*auth.User, error) {
+			return nil, errors.New("should not be called")
+		},
+	}
+	svc.validateAPIKeyFunc = func(_ context.Context, _ string) (*auth.User, error) {
+		return nil, errors.New("invalid")
+	}
+
+	mw := NewAuthMiddleware(svc)
+	handler := mw.Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-API-Key", "bad-key")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestAuthenticate_APIKeyTakesPrecedence(t *testing.T) {
+	expectedUser := &auth.User{ID: "apikey-user", Username: "apiuser"}
+	svc := &mockAuthService{
+		validateFunc: func(_ context.Context, _ string) (*auth.User, error) {
+			return &auth.User{ID: "jwt-user", Username: "jwtuser"}, nil
+		},
+	}
+	svc.validateAPIKeyFunc = func(_ context.Context, key string) (*auth.User, error) {
+		if key == "my-key" {
+			return expectedUser, nil
+		}
+		return nil, errors.New("invalid")
+	}
+
+	var capturedUser *auth.User
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedUser = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mw := NewAuthMiddleware(svc)
+	handler := mw.Authenticate(inner)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-API-Key", "my-key")
+	req.Header.Set("Authorization", "Bearer some-jwt")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if capturedUser.ID != "apikey-user" {
+		t.Fatalf("expected apikey-user, got %s (API key should take precedence over JWT)", capturedUser.ID)
 	}
 }

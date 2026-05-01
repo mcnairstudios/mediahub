@@ -230,7 +230,9 @@
     video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
     audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
     subtitle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>',
-    sourceprofiles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>'
+    sourceprofiles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v6c0 5.25 3.82 10.15 9 11 5.18-.85 9-5.75 9-11V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>',
+    logos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+    tmdb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>'
   };
 
   var router = {
@@ -332,6 +334,8 @@
       items.push({ id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles' });
       items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
       items.push({ id: 'clients', label: 'Clients', icon: 'clients' });
+      items.push({ id: 'logos', label: 'Logos', icon: 'logos' });
+      items.push({ id: 'tmdb', label: 'TMDB', icon: 'tmdb' });
       items.push({ id: 'probe', label: 'Probe', icon: 'probe' });
       items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
       items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
@@ -417,6 +421,8 @@
     else if (page === 'settings') renderSettings(pageEl);
     else if (page === 'users') renderUsers(pageEl);
     else if (page === 'clients') renderClients(pageEl);
+    else if (page === 'logos') renderLogos(pageEl);
+    else if (page === 'tmdb') renderTMDBPage(pageEl);
     else if (page === 'probe') renderProbe(pageEl);
     else renderDashboard(pageEl);
   }
@@ -604,6 +610,7 @@
         var rec = stats.recordings;
         var recParts = [];
         if (rec.active > 0) recParts.push('<span class="badge badge-live"><span class="recording-dot" style="width:6px;height:6px;display:inline-block;margin-right:4px"></span>' + rec.active + ' recording</span>');
+        if (rec.pending > 0) recParts.push('<span class="badge badge-warning">' + rec.pending + ' pending</span>');
         if (rec.scheduled > 0) recParts.push('<span class="badge badge-warning">' + rec.scheduled + ' scheduled</span>');
         if (rec.completed > 0) recParts.push('<span class="badge badge-enabled">' + rec.completed + ' completed</span>');
         recContEl.innerHTML = recParts.length > 0
@@ -2543,7 +2550,7 @@
         var container = document.getElementById('recording-list');
         if (!container) return;
 
-        var counts = { recording: 0, scheduled: 0, completed: 0, failed: 0 };
+        var counts = { recording: 0, scheduled: 0, pending: 0, completed: 0, failed: 0, cancelled: 0 };
         for (var ci = 0; ci < recordings.length; ci++) {
           var status = recordings[ci].status || 'unknown';
           if (counts[status] !== undefined) counts[status]++;
@@ -2564,7 +2571,7 @@
         }
 
         recordings.sort(function(a, b) {
-          var statusOrder = { recording: 0, scheduled: 1, completed: 2, failed: 3 };
+          var statusOrder = { recording: 0, pending: 1, scheduled: 2, completed: 3, failed: 4, cancelled: 5 };
           var sa = statusOrder[a.status] !== undefined ? statusOrder[a.status] : 4;
           var sb = statusOrder[b.status] !== undefined ? statusOrder[b.status] : 4;
           if (sa !== sb) return sa - sb;
@@ -2585,8 +2592,12 @@
             statusBadge = '<span class="badge badge-rec-completed">Completed</span>';
           } else if (r.status === 'scheduled') {
             statusBadge = '<span class="badge badge-rec-scheduled">Scheduled</span>';
-          } else if (r.status === 'failed' || r.status === 'cancelled') {
-            statusBadge = '<span class="badge badge-rec-failed">' + esc(r.status) + '</span>';
+          } else if (r.status === 'pending') {
+            statusBadge = '<span class="badge badge-rec-pending">Pending</span>';
+          } else if (r.status === 'cancelled') {
+            statusBadge = '<span class="badge badge-rec-cancelled">Cancelled</span>';
+          } else if (r.status === 'failed') {
+            statusBadge = '<span class="badge badge-rec-failed">Failed</span>';
           } else {
             statusBadge = '<span class="badge badge-disabled">' + esc(r.status || 'unknown') + '</span>';
           }
@@ -5377,9 +5388,243 @@
     return { renderPosterGrid: renderPosterGrid, renderCategoryList: renderCategoryList };
   })();
 
+  var LibFilter = (function() {
+    var pillBase = 'display:inline-block;padding:4px 12px;border-radius:16px;cursor:pointer;font-size:11px;font-weight:500;transition:all 0.15s;user-select:none;white-space:nowrap;';
+    var pillStyles = {
+      genre:   { off: pillBase + 'border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.08);color:#3b82f6;', on: pillBase + 'border:1px solid #3b82f6;background:#3b82f6;color:#fff;' },
+      decade:  { off: pillBase + 'border:1px solid rgba(34,197,94,0.3);background:rgba(34,197,94,0.08);color:#22c55e;', on: pillBase + 'border:1px solid #22c55e;background:#22c55e;color:#fff;' },
+      cert:    { off: pillBase + 'border:1px solid rgba(249,115,22,0.3);background:rgba(249,115,22,0.08);color:#f97316;', on: pillBase + 'border:1px solid #f97316;background:#f97316;color:#fff;' },
+      tag:     { off: pillBase + 'border:1px solid rgba(168,85,247,0.3);background:rgba(168,85,247,0.08);color:#a855f7;', on: pillBase + 'border:1px solid #a855f7;background:#a855f7;color:#fff;' },
+      special: { off: pillBase + 'border:1px solid rgba(234,179,8,0.3);background:rgba(234,179,8,0.08);color:#eab308;', on: pillBase + 'border:1px solid #eab308;background:#eab308;color:#000;' },
+      clear:   { off: pillBase + 'border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:var(--text-muted);', on: pillBase + 'border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:var(--text-muted);' }
+    };
+
+    function makePill(label, group, isActive, onClick) {
+      var styles = pillStyles[group] || pillStyles.genre;
+      var btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = isActive ? styles.on : styles.off;
+      btn.onmouseenter = function() { if (!isActive) btn.style.opacity = '0.8'; };
+      btn.onmouseleave = function() { btn.style.opacity = '1'; };
+      btn.onclick = onClick;
+      return btn;
+    }
+
+    function makePillDropdown(label, options, group, activeKeys, onToggle) {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;display:inline-block;';
+      var styles = pillStyles[group] || pillStyles.genre;
+      var activeCount = 0;
+      for (var i = 0; i < options.length; i++) { if (activeKeys[group + ':' + options[i]]) activeCount++; }
+      var trigger = document.createElement('button');
+      trigger.textContent = activeCount > 0 ? label + ' (' + activeCount + ') \u25BE' : label + ' \u25BE';
+      trigger.style.cssText = activeCount > 0 ? styles.on : styles.off;
+      var popover = document.createElement('div');
+      popover.style.cssText = 'position:absolute;top:calc(100% + 4px);left:0;background:#1a1d23;border:1px solid var(--border);border-radius:12px;padding:8px;z-index:50;min-width:200px;max-width:400px;display:none;flex-wrap:wrap;gap:6px;box-shadow:0 8px 30px rgba(0,0,0,0.4);';
+      options.forEach(function(opt) {
+        var key = group + ':' + opt;
+        var isOn = !!activeKeys[key];
+        var pill = document.createElement('button');
+        pill.textContent = opt;
+        pill.style.cssText = isOn ? styles.on : styles.off;
+        pill.onclick = function(e) {
+          e.stopPropagation();
+          onToggle(key, opt);
+        };
+        popover.appendChild(pill);
+      });
+      trigger.onclick = function(e) {
+        e.stopPropagation();
+        popover.style.display = popover.style.display === 'flex' ? 'none' : 'flex';
+      };
+      document.addEventListener('click', function() { popover.style.display = 'none'; });
+      wrap.appendChild(trigger);
+      wrap.appendChild(popover);
+      return wrap;
+    }
+
+    function buildFilterBar(container, filterMeta, activeFilters, onFilterChange) {
+      var bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;';
+
+      var searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Search...';
+      searchInput.style.cssText = 'padding:5px 12px;border-radius:16px;border:1px solid var(--border);background:var(--bg-input,#1a1d23);color:var(--text-primary);font-size:12px;width:160px;outline:none;';
+      if (activeFilters._search) searchInput.value = activeFilters._search;
+      searchInput.oninput = function() {
+        activeFilters._search = searchInput.value;
+        onFilterChange();
+      };
+      bar.appendChild(searchInput);
+
+      var hasAnyFilter = false;
+      var genres = (filterMeta.genres || []);
+      var decades = (filterMeta.decades || []);
+      var certs = (filterMeta.certifications || []);
+      var tags = (filterMeta.tags || []);
+
+      if (decades.length > 0) {
+        bar.appendChild(makeSeparator());
+        decades.forEach(function(d) {
+          var key = 'decade:' + d;
+          bar.appendChild(makePill(d, 'decade', !!activeFilters[key], function() {
+            if (activeFilters[key]) { delete activeFilters[key]; }
+            else {
+              Object.keys(activeFilters).forEach(function(k) { if (k.indexOf('decade:') === 0) delete activeFilters[k]; });
+              activeFilters[key] = true;
+            }
+            onFilterChange();
+          }));
+        });
+      }
+
+      if (certs.length > 0) {
+        bar.appendChild(makeSeparator());
+        certs.forEach(function(c) {
+          var key = 'cert:' + c;
+          bar.appendChild(makePill(c, 'cert', !!activeFilters[key], function() {
+            if (activeFilters[key]) { delete activeFilters[key]; }
+            else { activeFilters[key] = true; }
+            onFilterChange();
+          }));
+        });
+      }
+
+      if (genres.length > 0) {
+        bar.appendChild(makeSeparator());
+        if (genres.length <= 8) {
+          genres.forEach(function(g) {
+            var key = 'genre:' + g;
+            bar.appendChild(makePill(g, 'genre', !!activeFilters[key], function() {
+              if (activeFilters[key]) { delete activeFilters[key]; }
+              else { activeFilters[key] = true; }
+              onFilterChange();
+            }));
+          });
+        } else {
+          bar.appendChild(makePillDropdown('Genres', genres, 'genre', activeFilters, function(key) {
+            if (activeFilters[key]) { delete activeFilters[key]; }
+            else { activeFilters[key] = true; }
+            onFilterChange();
+          }));
+        }
+      }
+
+      if (tags.length > 0) {
+        bar.appendChild(makeSeparator());
+        tags.forEach(function(t) {
+          var key = 'tag:' + t;
+          bar.appendChild(makePill(t, 'tag', !!activeFilters[key], function() {
+            if (activeFilters[key]) { delete activeFilters[key]; }
+            else { activeFilters[key] = true; }
+            onFilterChange();
+          }));
+        });
+      }
+
+      bar.appendChild(makeSeparator());
+      var collKey = 'special:collections';
+      bar.appendChild(makePill('Collections', 'special', !!activeFilters[collKey], function() {
+        if (activeFilters[collKey]) { delete activeFilters[collKey]; }
+        else { activeFilters[collKey] = true; }
+        onFilterChange();
+      }));
+
+      for (var fk in activeFilters) {
+        if (fk !== '_search' && activeFilters[fk]) { hasAnyFilter = true; break; }
+      }
+      if (hasAnyFilter) {
+        bar.appendChild(makePill('\u2715 Clear', 'clear', false, function() {
+          var search = activeFilters._search;
+          Object.keys(activeFilters).forEach(function(k) { delete activeFilters[k]; });
+          if (search) activeFilters._search = search;
+          onFilterChange();
+        }));
+      }
+
+      container.appendChild(bar);
+      return { searchInput: searchInput };
+    }
+
+    function makeSeparator() {
+      var sep = document.createElement('span');
+      sep.style.cssText = 'width:1px;height:18px;background:var(--border);align-self:center;flex-shrink:0;';
+      return sep;
+    }
+
+    function matchItem(item, activeFilters) {
+      var search = (activeFilters._search || '').trim().toLowerCase();
+      if (search && item.name.toLowerCase().indexOf(search) === -1) return false;
+
+      var genreKeys = [];
+      var decadeKeys = [];
+      var certKeys = [];
+      var tagKeys = [];
+      var wantCollections = false;
+
+      for (var k in activeFilters) {
+        if (!activeFilters[k] || k === '_search') continue;
+        if (k.indexOf('genre:') === 0) genreKeys.push(k.substring(6));
+        else if (k.indexOf('decade:') === 0) decadeKeys.push(k.substring(7));
+        else if (k.indexOf('cert:') === 0) certKeys.push(k.substring(5));
+        else if (k.indexOf('tag:') === 0) tagKeys.push(k.substring(4));
+        else if (k === 'special:collections') wantCollections = true;
+      }
+
+      if (wantCollections && !item._isCollection) return false;
+
+      if (decadeKeys.length > 0) {
+        var yr = item.year || item._year || '';
+        if (yr.length < 4) return false;
+        var itemDecade = yr.substring(0, 3) + '0s';
+        var decadeMatch = false;
+        for (var di = 0; di < decadeKeys.length; di++) { if (decadeKeys[di] === itemDecade) { decadeMatch = true; break; } }
+        if (!decadeMatch) return false;
+      }
+
+      if (certKeys.length > 0) {
+        var itemCert = item._certification || '';
+        var certMatch = false;
+        for (var ci = 0; ci < certKeys.length; ci++) { if (certKeys[ci] === itemCert) { certMatch = true; break; } }
+        if (!certMatch) return false;
+      }
+
+      if (genreKeys.length > 0) {
+        var itemGenres = item._genres || [];
+        var genreMatch = false;
+        for (var gi = 0; gi < genreKeys.length; gi++) {
+          for (var gj = 0; gj < itemGenres.length; gj++) {
+            if (genreKeys[gi] === itemGenres[gj]) { genreMatch = true; break; }
+          }
+          if (genreMatch) break;
+        }
+        if (!genreMatch) return false;
+      }
+
+      if (tagKeys.length > 0) {
+        var itemTags = item._tags || [];
+        var tagMatch = false;
+        for (var ti = 0; ti < tagKeys.length; ti++) {
+          for (var tj = 0; tj < itemTags.length; tj++) {
+            if (tagKeys[ti] === itemTags[tj]) { tagMatch = true; break; }
+          }
+          if (tagMatch) break;
+        }
+        if (!tagMatch) return false;
+      }
+
+      return true;
+    }
+
+    return { buildFilterBar: buildFilterBar, matchItem: matchItem };
+  })();
+
   async function renderLibrary(el) {
     el.innerHTML = '<h1 class="page-title">Library</h1>' +
       '<div id="lib-bar" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap"></div>' +
+      '<div id="lib-filters"></div>' +
+      '<div id="lib-count" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;"></div>' +
       '<div id="lib-content"><div class="skeleton" style="height:400px"></div></div>';
 
     try {
@@ -5406,6 +5651,7 @@
       var selectedSource = el._selectedSource || vodSources[0].id;
       var selectedTab = el._selectedTab || 'movies';
       var selectedGroup = el._selectedGroup || null;
+      if (!el._filters) el._filters = {};
 
       var bar = document.getElementById('lib-bar');
       if (bar) {
@@ -5420,27 +5666,27 @@
             srcSel.appendChild(opt);
           });
           srcSel.value = selectedSource;
-          srcSel.onchange = function() { el._selectedSource = srcSel.value; el._selectedGroup = null; el._selectedTab = 'movies'; renderLibrary(el); };
+          srcSel.onchange = function() { el._selectedSource = srcSel.value; el._selectedGroup = null; el._selectedTab = 'movies'; el._filters = {}; renderLibrary(el); };
           bar.appendChild(srcSel);
         }
 
         var moviesBtn = document.createElement('button');
         moviesBtn.className = 'btn ' + (selectedTab === 'movies' ? 'btn-primary' : 'btn-ghost');
         moviesBtn.textContent = 'Movies';
-        moviesBtn.onclick = function() { el._selectedTab = 'movies'; el._selectedGroup = null; renderLibrary(el); };
+        moviesBtn.onclick = function() { el._selectedTab = 'movies'; el._selectedGroup = null; el._filters = {}; renderLibrary(el); };
         bar.appendChild(moviesBtn);
 
         var seriesBtn = document.createElement('button');
         seriesBtn.className = 'btn ' + (selectedTab === 'series' ? 'btn-primary' : 'btn-ghost');
         seriesBtn.textContent = 'TV Series';
-        seriesBtn.onclick = function() { el._selectedTab = 'series'; el._selectedGroup = null; renderLibrary(el); };
+        seriesBtn.onclick = function() { el._selectedTab = 'series'; el._selectedGroup = null; el._filters = {}; renderLibrary(el); };
         bar.appendChild(seriesBtn);
 
         if (selectedGroup) {
           var backBtn = document.createElement('button');
           backBtn.className = 'btn btn-ghost';
           backBtn.textContent = '\u2190 Back to categories';
-          backBtn.onclick = function() { el._selectedGroup = null; renderLibrary(el); };
+          backBtn.onclick = function() { el._selectedGroup = null; el._filters = {}; renderLibrary(el); };
           bar.appendChild(backBtn);
           var groupLabel = document.createElement('span');
           groupLabel.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);';
@@ -5459,42 +5705,97 @@
           renderLibrary(el);
         });
       } else {
-        var items = await LibData.getItems(selectedSource, selectedTab === 'series' ? 'series' : 'movie', selectedGroup);
+        var libData = await LibData.getItems(selectedSource, selectedTab === 'series' ? 'series' : 'movie', selectedGroup);
+        var items = libData.items || [];
         items = LibProcessor.addPosterUrls(items);
+
+        var filterMeta = {
+          genres: libData.genres || [],
+          decades: libData.decades || [],
+          certifications: libData.certifications || [],
+          tags: libData.tags || []
+        };
+
+        var displayItems;
+        var onItemClick;
 
         if (selectedTab === 'series') {
           var seriesList = LibProcessor.groupSeries(items);
-          var gridItems = seriesList.map(function(show) {
-            return { name: show.name, poster_url: show.poster_url, year: show.year, _show: show };
+          displayItems = seriesList.map(function(show) {
+            var showGenres = [];
+            var showTags = [];
+            for (var ei = 0; ei < show.episodes.length; ei++) {
+              var ep = show.episodes[ei];
+              if (ep.genres) { for (var gi = 0; gi < ep.genres.length; gi++) { if (showGenres.indexOf(ep.genres[gi]) === -1) showGenres.push(ep.genres[gi]); } }
+              if (ep.tags) { for (var ti = 0; ti < ep.tags.length; ti++) { if (showTags.indexOf(ep.tags[ti]) === -1) showTags.push(ep.tags[ti]); } }
+            }
+            return { name: show.name, poster_url: show.poster_url, year: show.year, _show: show, _genres: showGenres, _tags: showTags, _certification: '', _isCollection: false };
           });
-          LibGrid.renderPosterGrid(content, gridItems, function(item) {
-            showSeriesModal(item._show);
-          });
+          onItemClick = function(item) { showSeriesModal(item._show); };
         } else {
           if (selectedGroup) {
-            var movieItems = items.map(function(m) {
-              return { name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m };
+            displayItems = items.map(function(m) {
+              return { name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m, _genres: m.genres || [], _tags: m.tags || [], _certification: m.certification || '', _isCollection: false };
             });
-            movieItems.sort(function(a, b) { return a.name.localeCompare(b.name); });
-            LibGrid.renderPosterGrid(content, movieItems, function(item) {
-              showMovieModal(item._movie);
-            });
+            displayItems.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            onItemClick = function(item) { showMovieModal(item._movie); };
           } else {
             var grouped = LibProcessor.groupMovies(items);
-            var combined = [];
+            displayItems = [];
             grouped.collections.forEach(function(col) {
-              combined.push({ name: col.name, poster_url: col.poster_url, badge: col.movies.length + ' films', _collection: col });
+              var colGenres = [];
+              var colTags = [];
+              var colCert = '';
+              for (var mi = 0; mi < col.movies.length; mi++) {
+                var mov = col.movies[mi];
+                if (mov.genres) { for (var gi = 0; gi < mov.genres.length; gi++) { if (colGenres.indexOf(mov.genres[gi]) === -1) colGenres.push(mov.genres[gi]); } }
+                if (mov.tags) { for (var ti = 0; ti < mov.tags.length; ti++) { if (colTags.indexOf(mov.tags[ti]) === -1) colTags.push(mov.tags[ti]); } }
+                if (mov.certification && !colCert) colCert = mov.certification;
+              }
+              displayItems.push({ name: col.name, poster_url: col.poster_url, badge: col.movies.length + ' films', _collection: col, _genres: colGenres, _tags: colTags, _certification: colCert, _isCollection: true, _year: col.movies[0] ? col.movies[0].year : '' });
             });
             grouped.movies.forEach(function(m) {
-              combined.push({ name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m });
+              displayItems.push({ name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m, _genres: m.genres || [], _tags: m.tags || [], _certification: m.certification || '', _isCollection: false });
             });
-            combined.sort(function(a, b) { return a.name.localeCompare(b.name); });
-            LibGrid.renderPosterGrid(content, combined, function(item) {
+            displayItems.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            onItemClick = function(item) {
               if (item._collection) showCollectionModal(item._collection);
               else if (item._movie) showMovieModal(item._movie);
-            });
+            };
           }
         }
+
+        var filtersContainer = document.getElementById('lib-filters');
+        var countEl = document.getElementById('lib-count');
+        var activeFilters = el._filters;
+
+        function renderFilteredGrid() {
+          var filtered = displayItems.filter(function(item) {
+            return LibFilter.matchItem(item, activeFilters);
+          });
+          if (countEl) {
+            if (filtered.length !== displayItems.length) {
+              countEl.textContent = filtered.length + ' of ' + displayItems.length + ' titles';
+            } else {
+              countEl.textContent = displayItems.length + ' titles';
+            }
+          }
+          LibGrid.renderPosterGrid(content, filtered, onItemClick);
+        }
+
+        function onFilterChange() {
+          if (filtersContainer) {
+            filtersContainer.innerHTML = '';
+            LibFilter.buildFilterBar(filtersContainer, filterMeta, activeFilters, onFilterChange);
+          }
+          renderFilteredGrid();
+        }
+
+        if (filtersContainer && (filterMeta.genres.length > 0 || filterMeta.decades.length > 0 || filterMeta.certifications.length > 0 || filterMeta.tags.length > 0 || displayItems.some(function(d) { return d._isCollection; }))) {
+          LibFilter.buildFilterBar(filtersContainer, filterMeta, activeFilters, onFilterChange);
+        }
+
+        renderFilteredGrid();
       }
 
     } catch (e) {
@@ -6928,6 +7229,182 @@
     }
   }
 
+  async function renderLogos(el) {
+    el.innerHTML = '<h1 class="page-title">Channel Logos</h1>' +
+      '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+      '<button class="btn btn-primary" id="refresh-logos-btn">' + icons.refresh + ' Refresh from EPG</button>' +
+      '</div>' +
+      '<div class="search-bar">' + icons.search + '<input id="logo-search" placeholder="Search channels..."></div>' +
+      '<div id="logo-list"><div class="skeleton" style="height:400px"></div></div>';
+
+    var refreshBtn = document.getElementById('refresh-logos-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async function() {
+        refreshBtn.disabled = true;
+        try {
+          var r = await api.post('/api/logos/refresh-from-epg');
+          var data = await r.json();
+          toast('Updated ' + (data.updated || 0) + ' channel logos');
+          renderLogos(el);
+        } catch (err) {
+          toast('Failed to refresh logos', 'error');
+        }
+        refreshBtn.disabled = false;
+      });
+    }
+
+    try {
+      var resp = await api.get('/api/logos');
+      var logos = await resp.json();
+      if (!Array.isArray(logos)) logos = [];
+
+      function renderLogoGrid(filter) {
+        var container = document.getElementById('logo-list');
+        if (!container) return;
+        var filtered = logos;
+        if (filter) {
+          filtered = logos.filter(function(l) {
+            return (l.channel_name || '').toLowerCase().indexOf(filter) >= 0;
+          });
+        }
+        if (filtered.length === 0) {
+          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No channels found</p></div>';
+          return;
+        }
+        filtered.sort(function(a, b) { return (a.number || 0) - (b.number || 0); });
+        var html = '<table class="list-table"><thead><tr>' +
+          '<th style="width:60px">Logo</th><th>#</th><th>Channel</th><th>Source</th><th>TVG ID</th><th style="width:120px">Actions</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < filtered.length; i++) {
+          var l = filtered[i];
+          var logoImg = l.logo_url
+            ? '<img src="' + esc(l.logo_url) + '" style="width:40px;height:40px;object-fit:contain;border-radius:4px;background:var(--bg-hover)" alt="" onerror="this.style.display=\'none\'">'
+            : '<div style="width:40px;height:40px;background:var(--bg-hover);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px">none</div>';
+          var sourceBadge = '<span class="badge badge-' + (l.source === 'epg' ? 'enabled' : l.source === 'manual' ? 'info' : 'disabled') + '">' + esc(l.source) + '</span>';
+          html += '<tr>' +
+            '<td>' + logoImg + '</td>' +
+            '<td>' + esc(l.number || '-') + '</td>' +
+            '<td>' + esc(l.channel_name) + '</td>' +
+            '<td>' + sourceBadge + '</td>' +
+            '<td style="font-size:12px;color:var(--text-muted)">' + esc(l.tvg_id || '-') + '</td>' +
+            '<td><button class="btn btn-sm btn-ghost logo-edit-btn" data-id="' + esc(l.channel_id) + '" data-name="' + esc(l.channel_name) + '" data-url="' + esc(l.logo_url || '') + '">' + icons.edit + '</button></td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+        container.querySelectorAll('.logo-edit-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var channelId = this.getAttribute('data-id');
+            var channelName = this.getAttribute('data-name');
+            var currentUrl = this.getAttribute('data-url');
+            var newUrl = prompt('Logo URL for "' + channelName + '":', currentUrl);
+            if (newUrl === null) return;
+            api.put('/api/logos/' + channelId, { logo_url: newUrl }).then(function(r) {
+              if (r.ok) {
+                toast('Logo updated');
+                renderLogos(el);
+              } else {
+                r.json().then(function(d) { toast(d.error || 'Failed', 'error'); });
+              }
+            }).catch(function() { toast('Failed to update logo', 'error'); });
+          });
+        });
+      }
+
+      renderLogoGrid('');
+      document.getElementById('logo-search').addEventListener('input', function() {
+        renderLogoGrid(this.value.toLowerCase());
+      });
+    } catch (e) {
+      document.getElementById('logo-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load logos</p></div>';
+    }
+  }
+
+  async function renderTMDBPage(el) {
+    el.innerHTML = '<h1 class="page-title">TMDB Metadata</h1>' +
+      '<div id="tmdb-content"><div class="skeleton" style="height:400px"></div></div>';
+
+    var container = document.getElementById('tmdb-content');
+    if (!container) return;
+
+    try {
+      var results = await Promise.all([
+        api.get('/api/tmdb/queue').then(function(r) { return r.json(); }),
+        api.get('/api/tmdb/sync').then(function(r) { return r.json(); }),
+        api.get('/api/tmdb/recent').then(function(r) { return r.json(); })
+      ]);
+      var queue = results[0] || {};
+      var sync = results[1] || {};
+      var recent = results[2] || [];
+
+      var html = '';
+
+      html += '<div class="settings-section">' +
+        '<div class="settings-section-header">Queue Status</div>' +
+        '<div class="settings-section-body">' +
+        '<div style="display:flex;gap:24px;flex-wrap:wrap">' +
+        '<div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value">' + (queue.metadata || 0) + '</div><div class="stat-label">Metadata Queue</div></div>' +
+        '<div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value">' + (queue.images || 0) + '</div><div class="stat-label">Image Queue</div></div>';
+
+      if (sync.syncing) {
+        html += '<div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value">' + (sync.completed || 0) + ' / ' + (sync.total || 0) + '</div><div class="stat-label">Sync Progress</div></div>';
+      }
+
+      html += '</div>' +
+        '<div style="margin-top:16px">' +
+        '<button class="btn btn-danger" id="tmdb-resync-btn">' + icons.refresh + ' Re-sync All</button>' +
+        '<span class="field-hint" style="margin-left:8px">Clears all cached metadata and images, then re-enqueues all streams with TMDB IDs for resolution.</span>' +
+        '</div>' +
+        '</div></div>';
+
+      html += '<div class="settings-section">' +
+        '<div class="settings-section-header">Recently Resolved</div>' +
+        '<div class="settings-section-body">';
+
+      if (!Array.isArray(recent) || recent.length === 0) {
+        html += '<div style="color:var(--text-muted);font-size:13px">No recently resolved items.</div>';
+      } else {
+        html += '<table class="list-table"><thead><tr>' +
+          '<th>Title</th><th>Type</th><th>TMDB ID</th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < recent.length; i++) {
+          var item = recent[i];
+          var typeBadge = '<span class="badge badge-' + (item.media_type === 'movie' ? 'enabled' : 'info') + '">' + esc(item.media_type) + '</span>';
+          html += '<tr>' +
+            '<td>' + esc(item.title || 'Unknown') + '</td>' +
+            '<td>' + typeBadge + '</td>' +
+            '<td><a href="https://www.themoviedb.org/' + (item.media_type === 'series' ? 'tv' : 'movie') + '/' + item.tmdb_id + '" target="_blank" style="color:var(--accent)">' + item.tmdb_id + '</a></td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      html += '</div></div>';
+
+      container.innerHTML = html;
+
+      var resyncBtn = document.getElementById('tmdb-resync-btn');
+      if (resyncBtn) {
+        resyncBtn.addEventListener('click', async function() {
+          if (!confirm('This will clear all cached TMDB metadata and images, then re-fetch everything. This may take a while. Continue?')) return;
+          resyncBtn.disabled = true;
+          try {
+            var r = await api.post('/api/tmdb/resync');
+            var data = await r.json();
+            toast('Re-sync started: ' + (data.enqueued || 0) + ' items enqueued');
+            setTimeout(function() { renderTMDBPage(el); }, 2000);
+          } catch (err) {
+            toast('Failed to start re-sync', 'error');
+          }
+          resyncBtn.disabled = false;
+        });
+      }
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load TMDB status</p></div>';
+    }
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
@@ -6944,6 +7421,8 @@
     settings: renderSettings,
     users: renderUsers,
     clients: renderClients,
+    logos: renderLogos,
+    tmdb: renderTMDBPage,
     probe: renderProbe,
     player: renderPlayer
   };

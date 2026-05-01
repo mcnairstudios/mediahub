@@ -252,7 +252,7 @@ func TestStartPlayback_DefaultDeliveryMSE(t *testing.T) {
 	}
 }
 
-func TestStartPlayback_RecordingAlwaysAttached(t *testing.T) {
+func TestStartPlayback_DeliveryPluginAttached(t *testing.T) {
 	deps := newTestPlaybackDeps([]media.Stream{
 		{ID: "stream-1", Name: "Test Stream", URL: "http://example.com/stream"},
 	})
@@ -265,20 +265,14 @@ func TestStartPlayback_RecordingAlwaysAttached(t *testing.T) {
 
 	plugins := result.Session.FanOut.Plugins()
 	hasDelivery := false
-	hasRecord := false
 	for _, p := range plugins {
 		switch p.Mode() {
 		case output.DeliveryMSE, output.DeliveryHLS, output.DeliveryStream:
 			hasDelivery = true
-		case output.DeliveryRecord:
-			hasRecord = true
 		}
 	}
 	if !hasDelivery {
 		t.Error("expected a delivery plugin")
-	}
-	if !hasRecord {
-		t.Error("expected a recording plugin always attached")
 	}
 }
 

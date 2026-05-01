@@ -12,6 +12,15 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/auth/google", s.handleGoogleAuth)
 	s.mux.HandleFunc("GET /api/auth/google/callback", s.handleGoogleCallback)
 
+	s.mux.Handle("POST /api/invites", s.adminOnly(s.handleCreateInvite))
+	s.mux.HandleFunc("POST /api/invites/accept", s.handleAcceptInvite)
+	s.mux.Handle("GET /api/invites", s.adminOnly(s.handleListInvites))
+	s.mux.Handle("DELETE /api/invites/{token}", s.adminOnly(s.handleDeleteInvite))
+
+	s.mux.Handle("POST /api/auth/apikey", s.authenticated(s.handleCreateAPIKey))
+	s.mux.Handle("GET /api/auth/apikeys", s.authenticated(s.handleListAPIKeys))
+	s.mux.Handle("DELETE /api/auth/apikey/{id}", s.authenticated(s.handleRevokeAPIKey))
+
 	s.mux.Handle("GET /api/streams", s.authenticated(s.handleListStreams))
 	s.mux.Handle("GET /api/channels", s.authenticated(s.handleListChannels))
 	s.mux.Handle("GET /api/settings", s.authenticated(s.handleGetSettings))
@@ -116,6 +125,12 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tmdb/detail/{tmdbID}", s.authenticated(s.handleTMDBDetail))
 	s.mux.Handle("GET /api/tmdb/queue", s.authenticated(s.handleTMDBQueue))
 	s.mux.Handle("GET /api/tmdb/sync", s.authenticated(s.handleTMDBSyncStatus))
+	s.mux.Handle("POST /api/tmdb/resync", s.adminOnly(s.handleTMDBResync))
+	s.mux.Handle("GET /api/tmdb/recent", s.authenticated(s.handleTMDBRecent))
+
+	s.mux.Handle("GET /api/logos", s.authenticated(s.handleListLogos))
+	s.mux.Handle("POST /api/logos/refresh-from-epg", s.adminOnly(s.handleRefreshLogosFromEPG))
+	s.mux.Handle("PUT /api/logos/{id}", s.adminOnly(s.handleUpdateChannelLogo))
 
 	if s.deps.TMDBImageServer != nil {
 		s.mux.HandleFunc("GET /api/tmdb/i/{path...}", s.deps.TMDBImageServer.ServeHTTP)
@@ -132,6 +147,13 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/source-profiles", s.adminOnly(s.handleCreateSourceProfile))
 	s.mux.Handle("PUT /api/source-profiles/{id}", s.adminOnly(s.handleUpdateSourceProfile))
 	s.mux.Handle("DELETE /api/source-profiles/{id}", s.adminOnly(s.handleDeleteSourceProfile))
+
+	s.mux.Handle("GET /api/hdhr/devices", s.authenticated(s.handleListHDHRDevices))
+	s.mux.Handle("GET /api/hdhr/devices/{id}", s.authenticated(s.handleGetHDHRDevice))
+	s.mux.Handle("POST /api/hdhr/devices", s.adminOnly(s.handleCreateHDHRDevice))
+	s.mux.Handle("PUT /api/hdhr/devices/{id}", s.adminOnly(s.handleUpdateHDHRDevice))
+	s.mux.Handle("DELETE /api/hdhr/devices/{id}", s.adminOnly(s.handleDeleteHDHRDevice))
+	s.mux.Handle("POST /api/hdhr/devices/auto-split", s.adminOnly(s.handleAutoSplitHDHRDevices))
 
 	s.mux.Handle("GET /api/capabilities", s.authenticated(s.handleCapabilities))
 	s.mux.Handle("GET /api/activity", s.adminOnly(s.handleListActivity))

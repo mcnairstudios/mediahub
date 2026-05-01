@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -488,4 +489,75 @@ func (s *Server) handleTMDBImage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.TMDBImages.ServeHTTP(w, r)
 }
+
+func (s *Server) handleTMDBResync(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TMDBStore == nil {
+		httputil.RespondError(w, http.StatusServiceUnavailable, "TMDB store not configured")
+		return
+	}
+
+	if err := s.deps.TMDBStore.ClearAllBlobs(); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to clear blobs")
+		return
+	}
+	if err := s.deps.TMDBStore.ClearImageQueue(); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to clear image queue")
+		return
+	}
+
+	streams, err := s.deps.StreamStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list streams")
+		return
+	}
+
+	enqueued := 0
+	seen := make(map[string]bool)
+	for _, st := range streams {
+		if st.TMDBID == "" {
+			continue
+		}
+		tmdbID, err := strconv.Atoi(st.TMDBID)
+		if err != nil || tmdbID <= 0 {
+			continue
+		}
+		mt := "movie"
+		if st.VODType == "series" || st.VODType == "episode" || st.Season > 0 {
+			mt = "series"
+		}
+		key := fmt.Sprintf("%s:%d", mt, tmdbID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		s.deps.TMDBStore.EnqueueMetadata(tmdb.QueueEntry{
+			TMDBID:    tmdbID,
+			MediaType: mt,
+			Status:    "resolving",
+			CreatedAt: now().Unix(),
+		})
+		enqueued++
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]int{"enqueued": enqueued})
+}
+
+func (s *Server) handleTMDBRecent(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TMDBStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	entries, err := s.deps.TMDBStore.ListRecentBlobs(50)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list recent entries")
+		return
+	}
+	if entries == nil {
+		entries = []tmdb.RecentBlobEntry{}
+	}
+	httputil.RespondJSON(w, http.StatusOK, entries)
+}
+
+var now = time.Now
 

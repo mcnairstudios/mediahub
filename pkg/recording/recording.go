@@ -9,10 +9,12 @@ type Status string
 
 const (
 	StatusActive    Status = "active"
+	StatusPending   Status = "pending"
 	StatusRecording Status = "recording"
 	StatusCompleted Status = "completed"
 	StatusScheduled Status = "scheduled"
 	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
 )
 
 type Recording struct {

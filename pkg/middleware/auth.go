@@ -23,6 +23,17 @@ func NewAuthMiddleware(authService auth.Service) *AuthMiddleware {
 
 func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
+			user, err := m.authService.ValidateAPIKey(r.Context(), apiKey)
+			if err != nil {
+				httputil.RespondError(w, http.StatusUnauthorized, "invalid api key")
+				return
+			}
+			ctx := context.WithValue(r.Context(), UserContextKey, user)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		header := r.Header.Get("Authorization")
 		if header == "" {
 			httputil.RespondError(w, http.StatusUnauthorized, "missing authorization header")

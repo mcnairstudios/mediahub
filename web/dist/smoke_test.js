@@ -112,7 +112,7 @@ try {
   if (exported && exported.pages) {
     var pageNames = Object.keys(exported.pages);
     console.log('PASS: pages object exported with keys:', pageNames.join(', '));
-    var expected = ['dashboard', 'streams', 'channels', 'library', 'guide', 'recordings', 'favorites', 'activity', 'sources', 'sourceprofiles', 'epgsources', 'wireguard', 'settings', 'users', 'clients', 'probe', 'player'];
+    var expected = ['dashboard', 'streams', 'channels', 'library', 'guide', 'recordings', 'favorites', 'activity', 'sources', 'sourceprofiles', 'epgsources', 'wireguard', 'settings', 'users', 'clients', 'logos', 'tmdb', 'probe', 'player'];
     for (var i = 0; i < expected.length; i++) {
       if (pageNames.indexOf(expected[i]) < 0) {
         console.error('FAIL: missing page:', expected[i]);

@@ -345,6 +345,66 @@ func (s *Service) ActivePlugin() *Plugin {
 	return s.plugin
 }
 
+func (s *Service) HealthCheck(ctx context.Context) error {
+	s.mu.RLock()
+	tunnel := s.tunnel
+	s.mu.RUnlock()
+
+	if tunnel == nil {
+		return fmt.Errorf("no active tunnel")
+	}
+
+	client := tunnel.HTTPClient(10 * time.Second)
+	resp, err := client.Get("https://www.cloudflare.com/cdn-cgi/trace")
+	if err != nil {
+		return fmt.Errorf("health check request failed: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (s *Service) Failover(ctx context.Context) (string, error) {
+	profiles, err := s.ListProfiles(ctx)
+	if err != nil {
+		return "", fmt.Errorf("listing profiles: %w", err)
+	}
+
+	s.mu.RLock()
+	var failedID string
+	if s.tunnel != nil {
+		failedID = s.tunnel.config.ID
+	}
+	s.mu.RUnlock()
+
+	for _, p := range profiles {
+		if p.ID == failedID {
+			continue
+		}
+
+		result := s.TestProfile(ctx, p.ID)
+		if !result.Success {
+			continue
+		}
+
+		if err := s.Activate(ctx, p.ID); err != nil {
+			continue
+		}
+		return p.Name, nil
+	}
+
+	if failedID != "" {
+		if err := s.Reconnect(ctx); err == nil {
+			return "reconnected to original", nil
+		}
+	}
+
+	return "", fmt.Errorf("all profiles failed")
+}
+
 func (s *Service) Close() {
 	s.Deactivate()
 }

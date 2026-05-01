@@ -1110,7 +1110,7 @@ func TestSourceStreamCount(t *testing.T) {
 		Type:      "m3u",
 		Name:      "Test M3U",
 		IsEnabled: true,
-		Config:    map[string]string{"url": "http://example.com/test.m3u"},
+		Config:    map[string]string{"url": "http://example.com/test.m3u", "stream_count": "2"},
 	})
 
 	resp := env.request("GET", "/api/sources", nil, env.adminToken)

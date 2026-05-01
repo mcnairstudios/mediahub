@@ -97,7 +97,8 @@ func (s *Server) ContentDirectoryControl(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	soapAction := r.Header.Get("SOAPAction")
-	result, err := s.handleContentDirectoryAction(r.Context(), soapAction, body)
+	omitArt := isQuestUA(r.Header.Get("User-Agent"))
+	result, err := s.handleContentDirectoryAction(r.Context(), soapAction, body, omitArt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -242,12 +243,16 @@ const connectionManagerXML = `<?xml version="1.0" encoding="UTF-8"?>
   </serviceStateTable>
 </scpd>`
 
-func (s *Server) handleContentDirectoryAction(ctx context.Context, soapAction string, body []byte) (string, error) {
+func isQuestUA(ua string) bool {
+	return strings.Contains(ua, "Dalvik/2.1.0") && strings.Contains(ua, "Quest")
+}
+
+func (s *Server) handleContentDirectoryAction(ctx context.Context, soapAction string, body []byte, omitArt bool) (string, error) {
 	action := extractAction(soapAction)
 
 	switch action {
 	case "Browse":
-		return s.handleBrowse(ctx, body)
+		return s.handleBrowse(ctx, body, omitArt)
 	case "GetSearchCapabilities":
 		return soapResponse("ContentDirectory", "GetSearchCapabilities", "<SearchCaps></SearchCaps>"), nil
 	case "GetSortCapabilities":
@@ -278,7 +283,7 @@ func (s *Server) handleConnectionManagerAction(soapAction string, body []byte) (
 	}
 }
 
-func (s *Server) handleBrowse(ctx context.Context, body []byte) (string, error) {
+func (s *Server) handleBrowse(ctx context.Context, body []byte, omitArt bool) (string, error) {
 	var env SoapEnvelope
 	if err := xml.Unmarshal(body, &env); err != nil {
 		return "", fmt.Errorf("parsing SOAP envelope: %w", err)
@@ -293,9 +298,9 @@ func (s *Server) handleBrowse(ctx context.Context, body []byte) (string, error) 
 	case req.ObjectID == "0":
 		return s.browseRoot(ctx, req.BrowseFlag)
 	case strings.HasPrefix(req.ObjectID, "grp-"):
-		return s.browseGroup(ctx, req.ObjectID, req.BrowseFlag, req.StartingIndex, req.RequestedCount)
+		return s.browseGroup(ctx, req.ObjectID, req.BrowseFlag, req.StartingIndex, req.RequestedCount, omitArt)
 	case strings.HasPrefix(req.ObjectID, "ch-"):
-		return s.browseChannelItem(ctx, req.ObjectID, req.BrowseFlag)
+		return s.browseChannelItem(ctx, req.ObjectID, req.BrowseFlag, omitArt)
 	default:
 		return soapBrowseResponse(xmlEscape(emptyDIDL), 0, 0), nil
 	}
@@ -358,7 +363,7 @@ func (s *Server) browseRoot(ctx context.Context, browseFlag string) (string, err
 	return soapBrowseResponse(xmlEscape(b.String()), childCount, childCount), nil
 }
 
-func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, startIdx, reqCount int) (string, error) {
+func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, startIdx, reqCount int, omitArt bool) (string, error) {
 	groupID := strings.TrimPrefix(objectID, "grp-")
 
 	channels, err := s.channels.ListChannels(ctx)
@@ -415,7 +420,7 @@ func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, s
 		b.WriteString(fmt.Sprintf(`<item id="ch-%s" parentID="%s" restricted="1">`, xmlEscape(ch.ID), xmlEscape(objectID)))
 		b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(ch.Name)))
 		b.WriteString(`<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>`)
-		if ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
+		if !omitArt && ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
 			profile := logoProfile(ch.LogoURL)
 			b.WriteString(fmt.Sprintf(`<upnp:albumArtURI dlna:profileID="%s">%s</upnp:albumArtURI>`, profile, xmlEscape(ch.LogoURL)))
 		}
@@ -427,7 +432,7 @@ func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, s
 	return soapBrowseResponse(xmlEscape(b.String()), len(page), total), nil
 }
 
-func (s *Server) browseChannelItem(ctx context.Context, objectID, browseFlag string) (string, error) {
+func (s *Server) browseChannelItem(ctx context.Context, objectID, browseFlag string, omitArt bool) (string, error) {
 	if browseFlag != "BrowseMetadata" {
 		return soapBrowseResponse(xmlEscape(emptyDIDL), 0, 0), nil
 	}
@@ -449,7 +454,7 @@ func (s *Server) browseChannelItem(ctx context.Context, objectID, browseFlag str
 	b.WriteString(fmt.Sprintf(`<item id="ch-%s" parentID="%s" restricted="1">`, xmlEscape(ch.ID), xmlEscape(parentID)))
 	b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(ch.Name)))
 	b.WriteString(`<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>`)
-	if ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
+	if !omitArt && ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
 		profile := logoProfile(ch.LogoURL)
 		b.WriteString(fmt.Sprintf(`<upnp:albumArtURI dlna:profileID="%s">%s</upnp:albumArtURI>`, profile, xmlEscape(ch.LogoURL)))
 	}

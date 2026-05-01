@@ -31,16 +31,27 @@ const (
 )
 
 type DiscoveryResponder struct {
-	baseURL  string
-	deviceID uint32
-	log      zerolog.Logger
+	baseURL        string
+	deviceID       uint32
+	deviceIDString string
+	log            zerolog.Logger
 }
 
 func NewDiscoveryResponder(baseURL string, log zerolog.Logger) *DiscoveryResponder {
 	return &DiscoveryResponder{
-		baseURL:  baseURL,
-		deviceID: crc32.ChecksumIEEE([]byte(DefaultDeviceID)),
-		log:      log.With().Str("component", "hdhr_discovery").Logger(),
+		baseURL:        baseURL,
+		deviceID:       crc32.ChecksumIEEE([]byte(DefaultDeviceID)),
+		deviceIDString: DefaultDeviceID,
+		log:            log.With().Str("component", "hdhr_discovery").Logger(),
+	}
+}
+
+func NewDiscoveryResponderForDevice(baseURL string, deviceUUID string, log zerolog.Logger) *DiscoveryResponder {
+	return &DiscoveryResponder{
+		baseURL:        baseURL,
+		deviceID:       crc32.ChecksumIEEE([]byte(deviceUUID)),
+		deviceIDString: deviceUUID,
+		log:            log.With().Str("component", "hdhr_discovery").Str("device", deviceUUID).Logger(),
 	}
 }
 

@@ -150,3 +150,118 @@ func (s *MemoryUserStore) GetPasswordHash(_ context.Context, id string) (string,
 	}
 	return su.PasswordHash, nil
 }
+
+type MemoryInviteStore struct {
+	invites map[string]*Invite
+	mu      sync.RWMutex
+}
+
+func NewMemoryInviteStore() *MemoryInviteStore {
+	return &MemoryInviteStore{invites: make(map[string]*Invite)}
+}
+
+func (s *MemoryInviteStore) Create(_ context.Context, invite *Invite) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *invite
+	s.invites[invite.Token] = &cp
+	return nil
+}
+
+func (s *MemoryInviteStore) Get(_ context.Context, token string) (*Invite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	inv, ok := s.invites[token]
+	if !ok {
+		return nil, ErrInviteNotFound
+	}
+	cp := *inv
+	return &cp, nil
+}
+
+func (s *MemoryInviteStore) List(_ context.Context) ([]*Invite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*Invite, 0, len(s.invites))
+	for _, inv := range s.invites {
+		cp := *inv
+		result = append(result, &cp)
+	}
+	return result, nil
+}
+
+func (s *MemoryInviteStore) Update(_ context.Context, invite *Invite) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.invites[invite.Token]; !ok {
+		return ErrInviteNotFound
+	}
+	cp := *invite
+	s.invites[invite.Token] = &cp
+	return nil
+}
+
+func (s *MemoryInviteStore) Delete(_ context.Context, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.invites[token]; !ok {
+		return ErrInviteNotFound
+	}
+	delete(s.invites, token)
+	return nil
+}
+
+type MemoryAPIKeyStore struct {
+	keys map[string]*APIKey
+	mu   sync.RWMutex
+}
+
+func NewMemoryAPIKeyStore() *MemoryAPIKeyStore {
+	return &MemoryAPIKeyStore{keys: make(map[string]*APIKey)}
+}
+
+func (s *MemoryAPIKeyStore) Create(_ context.Context, key *APIKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *key
+	s.keys[key.ID] = &cp
+	return nil
+}
+
+func (s *MemoryAPIKeyStore) GetByKey(_ context.Context, key string) (*APIKey, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, k := range s.keys {
+		if k.Key == key {
+			cp := *k
+			return &cp, nil
+		}
+	}
+	return nil, ErrAPIKeyNotFound
+}
+
+func (s *MemoryAPIKeyStore) ListByUser(_ context.Context, userID string) ([]*APIKey, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*APIKey
+	for _, k := range s.keys {
+		if k.UserID == userID {
+			cp := *k
+			result = append(result, &cp)
+		}
+	}
+	return result, nil
+}
+
+func (s *MemoryAPIKeyStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.keys[id]; !ok {
+		return ErrAPIKeyNotFound
+	}
+	delete(s.keys, id)
+	return nil
+}
+
+var _ InviteStore = (*MemoryInviteStore)(nil)
+var _ APIKeyStore = (*MemoryAPIKeyStore)(nil)

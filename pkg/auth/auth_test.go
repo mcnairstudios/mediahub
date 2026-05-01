@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestRoleConstants(t *testing.T) {
@@ -50,6 +51,14 @@ func (m *mockService) ListUsers(_ context.Context) ([]*User, error)             
 func (m *mockService) UpdateUser(_ context.Context, _ string, _, _ string, _ Role, _ []string) (*User, error) { return nil, nil }
 func (m *mockService) DeleteUser(_ context.Context, _ string) error                          { return nil }
 func (m *mockService) ChangePassword(_ context.Context, _, _ string) error                   { return nil }
+func (m *mockService) CreateInvite(_ context.Context, _ Role, _ time.Duration) (*Invite, error) { return nil, nil }
+func (m *mockService) AcceptInvite(_ context.Context, _, _, _ string) (*User, error) { return nil, nil }
+func (m *mockService) ListInvites(_ context.Context) ([]*Invite, error) { return nil, nil }
+func (m *mockService) DeleteInvite(_ context.Context, _ string) error { return nil }
+func (m *mockService) CreateAPIKey(_ context.Context, _, _ string) (*APIKey, error) { return nil, nil }
+func (m *mockService) ValidateAPIKey(_ context.Context, _ string) (*User, error) { return nil, nil }
+func (m *mockService) ListAPIKeys(_ context.Context, _ string) ([]*APIKey, error) { return nil, nil }
+func (m *mockService) RevokeAPIKey(_ context.Context, _, _ string) error { return nil }
 
 func TestMockSatisfiesService(t *testing.T) {
 	var _ Service = (*mockService)(nil)

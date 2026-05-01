@@ -8,6 +8,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/favorite"
+	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
@@ -188,6 +189,21 @@ func (f *Factory) FavoriteStore(backend BackendType) (favorite.Store, error) {
 			return nil, fmt.Errorf("open bolt db: %w", err)
 		}
 		return db.FavoriteStore(), nil
+	default:
+		return nil, fmt.Errorf("unknown backend: %q", backend)
+	}
+}
+
+func (f *Factory) HDHRDeviceStore(backend BackendType) (hdhr.DeviceStore, error) {
+	switch backend {
+	case BackendMemory:
+		return NewMemoryHDHRDeviceStore(), nil
+	case BackendBolt:
+		db, err := boltstore.Open(filepath.Join(f.dataDir, "mediahub.db"))
+		if err != nil {
+			return nil, fmt.Errorf("open bolt db: %w", err)
+		}
+		return db.HDHRDeviceStore(), nil
 	default:
 		return nil, fmt.Errorf("unknown backend: %q", backend)
 	}

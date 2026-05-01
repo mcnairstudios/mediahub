@@ -81,3 +81,9 @@ type ResolvedStream struct {
 	StreamID string
 	TMDBID   int
 }
+
+type RecentBlobEntry struct {
+	TMDBID    int    `json:"tmdb_id"`
+	MediaType string `json:"media_type"`
+	Title     string `json:"title"`
+}

@@ -22,6 +22,8 @@ type SSDPAdvertiser struct {
 	log              zerolog.Logger
 	announceInterval time.Duration
 	mu               sync.Mutex
+	deviceID         string
+	friendlyName     string
 }
 
 func NewSSDPAdvertiser(baseURL string, announceInterval time.Duration, log zerolog.Logger) *SSDPAdvertiser {
@@ -33,6 +35,27 @@ func NewSSDPAdvertiser(baseURL string, announceInterval time.Duration, log zerol
 		log:              log.With().Str("component", "hdhr-ssdp").Logger(),
 		announceInterval: announceInterval,
 	}
+}
+
+func (a *SSDPAdvertiser) SetDeviceID(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.deviceID = id
+}
+
+func (a *SSDPAdvertiser) SetFriendlyName(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.friendlyName = name
+}
+
+func (a *SSDPAdvertiser) getDeviceID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deviceID != "" {
+		return a.deviceID
+	}
+	return DefaultDeviceID
 }
 
 func (a *SSDPAdvertiser) Run(ctx context.Context) {
@@ -115,7 +138,7 @@ func (a *SSDPAdvertiser) listenForSearches(ctx context.Context, conn *net.UDPCon
 
 func (a *SSDPAdvertiser) sendAlive() {
 	location := a.location()
-	usn := "uuid:" + DefaultDeviceID + "::upnp:rootdevice"
+	usn := "uuid:" + a.getDeviceID() + "::upnp:rootdevice"
 
 	msg := "NOTIFY * HTTP/1.1\r\n" +
 		"HOST: " + ssdpMulticastAddr + "\r\n" +
@@ -132,7 +155,7 @@ func (a *SSDPAdvertiser) sendAlive() {
 }
 
 func (a *SSDPAdvertiser) sendByeBye() {
-	usn := "uuid:" + DefaultDeviceID + "::upnp:rootdevice"
+	usn := "uuid:" + a.getDeviceID() + "::upnp:rootdevice"
 
 	msg := "NOTIFY * HTTP/1.1\r\n" +
 		"HOST: " + ssdpMulticastAddr + "\r\n" +
@@ -147,7 +170,7 @@ func (a *SSDPAdvertiser) sendByeBye() {
 
 func (a *SSDPAdvertiser) sendSearchResponse(addr *net.UDPAddr, st string) {
 	location := a.location()
-	usn := "uuid:" + DefaultDeviceID + "::upnp:rootdevice"
+	usn := "uuid:" + a.getDeviceID() + "::upnp:rootdevice"
 
 	msg := "HTTP/1.1 200 OK\r\n" +
 		"CACHE-CONTROL: max-age=" + fmt.Sprintf("%d", ssdpMaxAge) + "\r\n" +

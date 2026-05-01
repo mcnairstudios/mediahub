@@ -13,6 +13,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/favorite"
+	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/logocache"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
 	"github.com/mcnairstudios/mediahub/pkg/output"
@@ -55,6 +56,7 @@ type OrchestratorDeps struct {
 	TMDBImageServer   *tmdb.ImageServer
 	SourceProfileStore sourceprofile.Store
 	ProbeCache         store.ProbeCache
+	HDHRDeviceStore    hdhr.DeviceStore
 	Config            *config.Config
 	StaticFS          fs.FS
 	UserAgent         string

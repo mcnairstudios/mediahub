@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -237,6 +238,8 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 			s.deps.SettingsStore.Set(ctx, "epg_channel_meta", string(data))
 		}
 	}
+
+	s.assignEPGLogos(ctx, iconMap, nameMap)
 
 	now := time.Now()
 	src.LastRefreshed = &now
@@ -537,22 +540,34 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	recordings, err := s.deps.RecordingStore.List(r.Context(), "", true)
 	if err == nil {
 		active := 0
+		pending := 0
 		completed := 0
 		scheduled := 0
+		failed := 0
+		cancelled := 0
 		for _, rec := range recordings {
 			switch rec.Status {
 			case "recording":
 				active++
+			case "pending":
+				pending++
 			case "completed":
 				completed++
 			case "scheduled":
 				scheduled++
+			case "failed":
+				failed++
+			case "cancelled":
+				cancelled++
 			}
 		}
 		stats["recordings"] = map[string]any{
 			"active":    active,
+			"pending":   pending,
 			"completed": completed,
 			"scheduled": scheduled,
+			"failed":    failed,
+			"cancelled": cancelled,
 			"total":     len(recordings),
 		}
 	}
@@ -582,4 +597,197 @@ func (s *Server) RefreshAllEPGSources(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Server) assignEPGLogos(ctx context.Context, iconMap, nameMap map[string]string) {
+	if len(iconMap) == 0 || s.deps.ChannelStore == nil {
+		return
+	}
+
+	channels, err := s.deps.ChannelStore.List(ctx)
+	if err != nil {
+		return
+	}
+
+	nameToIcon := make(map[string]string, len(nameMap))
+	for epgID, name := range nameMap {
+		if icon, ok := iconMap[epgID]; ok {
+			nameToIcon[strings.ToLower(name)] = icon
+		}
+	}
+
+	for i := range channels {
+		ch := &channels[i]
+		if ch.LogoURL != "" {
+			continue
+		}
+
+		var logoURL string
+		if ch.TvgID != "" {
+			logoURL = iconMap[ch.TvgID]
+		}
+		if logoURL == "" {
+			logoURL = nameToIcon[strings.ToLower(ch.Name)]
+		}
+		if logoURL == "" {
+			continue
+		}
+
+		if s.deps.LogoCache != nil {
+			logoURL = s.deps.LogoCache.Resolve(logoURL)
+		}
+		ch.LogoURL = logoURL
+		s.deps.ChannelStore.Update(ctx, ch)
+	}
+}
+
+func (s *Server) handleListLogos(w http.ResponseWriter, r *http.Request) {
+	channels, err := s.deps.ChannelStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+
+	var epgMeta map[string]map[string]string
+	if metaStr, err := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta"); err == nil && metaStr != "" {
+		json.Unmarshal([]byte(metaStr), &epgMeta)
+	}
+
+	type logoEntry struct {
+		ChannelID   string `json:"channel_id"`
+		ChannelName string `json:"channel_name"`
+		Number      int    `json:"number"`
+		LogoURL     string `json:"logo_url"`
+		TvgID       string `json:"tvg_id,omitempty"`
+		Source      string `json:"source"`
+	}
+
+	var entries []logoEntry
+	for _, ch := range channels {
+		source := "none"
+		if ch.LogoURL != "" {
+			source = "manual"
+			if epgMeta != nil {
+				if icons, ok := epgMeta["icons"]; ok {
+					if ch.TvgID != "" {
+						if epgIcon, ok := icons[ch.TvgID]; ok && strings.Contains(ch.LogoURL, "url=") {
+							_ = epgIcon
+							source = "epg"
+						}
+					}
+				}
+			}
+		}
+		entries = append(entries, logoEntry{
+			ChannelID:   ch.ID,
+			ChannelName: ch.Name,
+			Number:      ch.Number,
+			LogoURL:     ch.LogoURL,
+			TvgID:       ch.TvgID,
+			Source:       source,
+		})
+	}
+	if entries == nil {
+		entries = []logoEntry{}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, entries)
+}
+
+func (s *Server) handleRefreshLogosFromEPG(w http.ResponseWriter, r *http.Request) {
+	var epgMeta map[string]map[string]string
+	metaStr, err := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta")
+	if err != nil || metaStr == "" {
+		httputil.RespondJSON(w, http.StatusOK, map[string]int{"updated": 0})
+		return
+	}
+	if json.Unmarshal([]byte(metaStr), &epgMeta) != nil {
+		httputil.RespondJSON(w, http.StatusOK, map[string]int{"updated": 0})
+		return
+	}
+
+	iconMap := epgMeta["icons"]
+	nameMap := epgMeta["names"]
+	if len(iconMap) == 0 {
+		httputil.RespondJSON(w, http.StatusOK, map[string]int{"updated": 0})
+		return
+	}
+
+	channels, err := s.deps.ChannelStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+
+	nameToIcon := make(map[string]string, len(nameMap))
+	for epgID, name := range nameMap {
+		if icon, ok := iconMap[epgID]; ok {
+			nameToIcon[strings.ToLower(name)] = icon
+		}
+	}
+
+	updated := 0
+	for i := range channels {
+		ch := &channels[i]
+		var logoURL string
+		if ch.TvgID != "" {
+			logoURL = iconMap[ch.TvgID]
+		}
+		if logoURL == "" {
+			logoURL = nameToIcon[strings.ToLower(ch.Name)]
+		}
+		if logoURL == "" {
+			continue
+		}
+		if s.deps.LogoCache != nil {
+			logoURL = s.deps.LogoCache.Resolve(logoURL)
+		}
+		if ch.LogoURL == logoURL {
+			continue
+		}
+		ch.LogoURL = logoURL
+		if s.deps.ChannelStore.Update(r.Context(), ch) == nil {
+			updated++
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]int{"updated": updated})
+}
+
+func (s *Server) handleUpdateChannelLogo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "channel ID required")
+		return
+	}
+
+	ch, err := s.deps.ChannelStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get channel")
+		return
+	}
+	if ch == nil {
+		httputil.RespondError(w, http.StatusNotFound, "channel not found")
+		return
+	}
+
+	var req struct {
+		LogoURL string `json:"logo_url"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if s.deps.LogoCache != nil && req.LogoURL != "" {
+		req.LogoURL = s.deps.LogoCache.Resolve(req.LogoURL)
+	}
+	ch.LogoURL = req.LogoURL
+
+	if err := s.deps.ChannelStore.Update(r.Context(), ch); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update channel")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, ch)
 }

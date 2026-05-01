@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -96,8 +97,14 @@ func main() {
 	clientStore := db.ClientStore()
 	sourceProfileStore := db.SourceProfileStore()
 	probeCache := db.ProbeCacheStore()
+	hdhrDeviceStore := db.HDHRDeviceStore()
+
+	inviteStore := db.InviteStore()
+	apiKeyStore := db.APIKeyStore()
 
 	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
+	authService.SetInviteStore(inviteStore)
+	authService.SetAPIKeyStore(apiKeyStore)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -397,6 +404,29 @@ func main() {
 		},
 	})
 
+	scheduler.Add(worker.Job{
+		Name:     "wg-health",
+		Interval: 30 * time.Second,
+		Fn: func(ctx context.Context) error {
+			if wgService.ActivePlugin() == nil {
+				return nil
+			}
+			if err := wgService.HealthCheck(ctx); err != nil {
+				log.Printf("wireguard: health check failed: %v — attempting failover", err)
+				name, fErr := wgService.Failover(ctx)
+				if fErr != nil {
+					return fmt.Errorf("wireguard failover failed: %w", fErr)
+				}
+				log.Printf("wireguard: failover succeeded — now using %s", name)
+				if plugin := wgService.ActivePlugin(); plugin != nil {
+					connReg.Register(plugin)
+					connReg.SetActive("wireguard")
+				}
+			}
+			return nil
+		},
+	})
+
 	recScheduler := recscheduler.New(recordingStore)
 	recDeps := orchestrator.RecordingDeps{
 		SessionMgr:     sessionMgr,
@@ -460,6 +490,7 @@ func main() {
 		TMDBImageServer:   tmdbImageServer,
 		SourceProfileStore: sourceProfileStore,
 		ProbeCache:         probeCache,
+		HDHRDeviceStore:    hdhrDeviceStore,
 		Config:            cfg,
 		StaticFS:          staticFS,
 		UserAgent:         cfg.UserAgent,
@@ -471,6 +502,17 @@ func main() {
 	epgRefreshFn = apiServer.RefreshEPGSource
 
 	mainMux := http.NewServeMux()
+
+	debugEnabled, _ := settingsStore.Get(ctx, "debug_enabled")
+	if debugEnabled == "true" || debugEnabled == "1" {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		mainMux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mainMux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mainMux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mainMux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mainMux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+		log.Printf("debug mode enabled: pprof endpoints registered, log level set to debug")
+	}
 
 	apiHandler := apiServer.Handler()
 	mainMux.Handle("/", apiHandler)
@@ -555,6 +597,12 @@ func main() {
 	go func() {
 		log.Printf("hdhr SSDP advertiser starting")
 		hdhrSsdp.Run(ctx)
+	}()
+
+	hdhrDeviceMgr := hdhr.NewDeviceManager(hdhrDeviceStore, channelStore, cfg.BaseURL, zlog)
+	go func() {
+		log.Printf("hdhr device manager starting")
+		hdhrDeviceMgr.Run(ctx)
 	}()
 
 	if cfg.DLNAEnabled {

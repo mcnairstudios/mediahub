@@ -338,3 +338,23 @@ func TestToProfileResponseMasksKey(t *testing.T) {
 		t.Fatal("expected masked key in response")
 	}
 }
+
+func TestServiceHealthCheckNoTunnel(t *testing.T) {
+	svc := NewService(newMemSettings(), PluginConfig{})
+	ctx := context.Background()
+
+	err := svc.HealthCheck(ctx)
+	if err == nil {
+		t.Fatal("expected error when no active tunnel")
+	}
+}
+
+func TestServiceFailoverNoProfiles(t *testing.T) {
+	svc := NewService(newMemSettings(), PluginConfig{})
+	ctx := context.Background()
+
+	_, err := svc.Failover(ctx)
+	if err == nil {
+		t.Fatal("expected error when no profiles available")
+	}
+}

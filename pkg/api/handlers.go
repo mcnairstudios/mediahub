@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
@@ -189,6 +191,16 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if err := s.deps.SettingsStore.Set(r.Context(), key, value); err != nil {
 			httputil.RespondError(w, http.StatusInternalServerError, "failed to update settings")
 			return
+		}
+	}
+
+	if v, ok := settings["debug_enabled"]; ok {
+		if v == "true" || v == "1" {
+			zerolog.SetGlobalLevel(zerolog.DebugLevel)
+			log.Println("debug mode enabled via settings: log level set to debug")
+		} else {
+			zerolog.SetGlobalLevel(zerolog.InfoLevel)
+			log.Println("debug mode disabled via settings: log level set to info")
 		}
 	}
 

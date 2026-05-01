@@ -160,6 +160,70 @@ func (s *Store) DeleteBlob(tmdbID int) error {
 	})
 }
 
+func (s *Store) ClearAllBlobs() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		if err := tx.DeleteBucket(bucketTMDBBlobs); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucket(bucketTMDBBlobs)
+		return err
+	})
+}
+
+func (s *Store) ClearImageQueue() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		if err := tx.DeleteBucket(bucketImageQueue); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucket(bucketImageQueue)
+		return err
+	})
+}
+
+func (s *Store) ListRecentBlobs(limit int) ([]RecentBlobEntry, error) {
+	var entries []RecentBlobEntry
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		c := b(tx, bucketTMDBBlobs).Cursor()
+		for k, v := c.Last(); k != nil; k, v = c.Prev() {
+			if len(entries) >= limit {
+				break
+			}
+			var mediaType string
+			var tmdbID int
+			if len(k) == 9 {
+				if k[0] == 's' {
+					mediaType = "series"
+				} else {
+					mediaType = "movie"
+				}
+				tmdbID = int(binary.BigEndian.Uint64(k[1:]))
+			} else if len(k) == 8 {
+				mediaType = "movie"
+				tmdbID = int(binary.BigEndian.Uint64(k))
+			} else {
+				continue
+			}
+			var title string
+			var raw map[string]any
+			if json.Unmarshal(v, &raw) == nil {
+				if t, ok := raw["title"].(string); ok {
+					title = t
+				}
+				if t, ok := raw["name"].(string); ok && title == "" {
+					title = t
+				}
+			}
+			entries = append(entries, RecentBlobEntry{
+				TMDBID:    tmdbID,
+				MediaType: mediaType,
+				Title:     title,
+			})
+		}
+		return nil
+	})
+	return entries, err
+}
+
 func (s *Store) EnqueueImage(localPath string, entry ImageQueueEntry) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		data, err := json.Marshal(entry)

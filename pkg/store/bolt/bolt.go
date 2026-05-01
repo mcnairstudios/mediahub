@@ -21,6 +21,9 @@ var (
 	bucketTMDBQueue      = []byte("tmdb_queue")
 	bucketTMDBBlobs      = []byte("tmdb_blobs")
 	bucketImageQueue     = []byte("image_queue")
+	bucketHDHRDevices    = []byte("hdhr_devices")
+	bucketInvites        = []byte("invites")
+	bucketAPIKeys        = []byte("api_keys")
 )
 
 type DB struct {
@@ -39,6 +42,8 @@ func Open(path string) (*DB, error) {
 		bucketSourceConfigs, bucketFavorites, bucketClients,
 		bucketSourceProfiles, bucketProbeCache,
 		bucketTMDBQueue, bucketTMDBBlobs, bucketImageQueue,
+		bucketHDHRDevices,
+		bucketInvites, bucketAPIKeys,
 	}
 
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -117,6 +122,18 @@ func (d *DB) ProbeCacheStore() *ProbeCacheStore {
 	return &ProbeCacheStore{db: d.db}
 }
 
+func (d *DB) HDHRDeviceStore() *HDHRDeviceStore {
+	return &HDHRDeviceStore{db: d.db}
+}
+
+func (d *DB) InviteStore() *InviteStore {
+	return &InviteStore{db: d.db}
+}
+
+func (d *DB) APIKeyStore() *APIKeyStore {
+	return &APIKeyStore{db: d.db}
+}
+
 func (d *DB) ClearBucket(name string) error {
 	bucketName := []byte(name)
 	return d.db.Update(func(tx *bbolt.Tx) error {
@@ -134,6 +151,8 @@ func (d *DB) ClearAll() error {
 		"epg_sources", "epg_programs", "recordings", "users",
 		"source_configs", "favorites", "clients", "source_profiles",
 		"probe_cache", "tmdb_queue", "tmdb_blobs", "image_queue",
+		"hdhr_devices",
+		"invites", "api_keys",
 	}
 	return d.db.Update(func(tx *bbolt.Tx) error {
 		for _, name := range buckets {

@@ -100,7 +100,9 @@ a:hover{color:var(--accent-hover)}
 .badge-rec-active{background:rgba(239,68,68,.15);color:var(--danger);display:inline-flex;align-items:center;gap:4px}
 .badge-rec-completed{background:rgba(52,211,153,.15);color:var(--success)}
 .badge-rec-scheduled{background:rgba(91,110,239,.15);color:var(--accent)}
+.badge-rec-pending{background:rgba(251,191,36,.15);color:var(--warning)}
 .badge-rec-failed{background:rgba(239,68,68,.15);color:var(--danger)}
+.badge-rec-cancelled{background:rgba(156,163,175,.2);color:var(--text-muted)}
 
 .btn{
   display:inline-flex;align-items:center;gap:6px;

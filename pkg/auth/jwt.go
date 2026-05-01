@@ -31,6 +31,8 @@ type claims struct {
 
 type JWTService struct {
 	store      UserStore
+	invites    InviteStore
+	apiKeys    APIKeyStore
 	secret     []byte
 	tokenTTL   time.Duration
 	refreshTTL time.Duration
@@ -43,6 +45,14 @@ func NewJWTService(store UserStore, secret string) *JWTService {
 		tokenTTL:   24 * time.Hour,
 		refreshTTL: 7 * 24 * time.Hour,
 	}
+}
+
+func (s *JWTService) SetInviteStore(store InviteStore) {
+	s.invites = store
+}
+
+func (s *JWTService) SetAPIKeyStore(store APIKeyStore) {
+	s.apiKeys = store
 }
 
 func (s *JWTService) Login(ctx context.Context, username, password string) (string, error) {
@@ -250,8 +260,159 @@ func (s *JWTService) parseToken(tokenString string) (*claims, error) {
 	return c, nil
 }
 
+func (s *JWTService) CreateInvite(_ context.Context, role Role, expiresIn time.Duration) (*Invite, error) {
+	if s.invites == nil {
+		return nil, fmt.Errorf("invite store not configured")
+	}
+	if expiresIn <= 0 {
+		expiresIn = 24 * time.Hour
+	}
+
+	token, err := generateToken32()
+	if err != nil {
+		return nil, fmt.Errorf("generating invite token: %w", err)
+	}
+
+	now := time.Now()
+	invite := &Invite{
+		Token:     token,
+		Role:      role,
+		CreatedAt: now,
+		ExpiresAt: now.Add(expiresIn),
+	}
+
+	if err := s.invites.Create(context.Background(), invite); err != nil {
+		return nil, err
+	}
+
+	return invite, nil
+}
+
+func (s *JWTService) AcceptInvite(ctx context.Context, token, username, password string) (*User, error) {
+	if s.invites == nil {
+		return nil, fmt.Errorf("invite store not configured")
+	}
+
+	invite, err := s.invites.Get(ctx, token)
+	if err != nil {
+		return nil, ErrInviteNotFound
+	}
+	if invite.Used {
+		return nil, ErrInviteUsed
+	}
+	if time.Now().After(invite.ExpiresAt) {
+		return nil, ErrInviteExpired
+	}
+
+	user, err := s.CreateUser(ctx, username, password, "", invite.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	invite.Used = true
+	s.invites.Update(ctx, invite)
+
+	return user, nil
+}
+
+func (s *JWTService) ListInvites(ctx context.Context) ([]*Invite, error) {
+	if s.invites == nil {
+		return nil, fmt.Errorf("invite store not configured")
+	}
+	return s.invites.List(ctx)
+}
+
+func (s *JWTService) DeleteInvite(ctx context.Context, token string) error {
+	if s.invites == nil {
+		return fmt.Errorf("invite store not configured")
+	}
+	return s.invites.Delete(ctx, token)
+}
+
+func (s *JWTService) CreateAPIKey(ctx context.Context, userID, name string) (*APIKey, error) {
+	if s.apiKeys == nil {
+		return nil, fmt.Errorf("api key store not configured")
+	}
+
+	if _, err := s.store.Get(ctx, userID); err != nil {
+		return nil, err
+	}
+
+	id, err := generateID()
+	if err != nil {
+		return nil, fmt.Errorf("generating api key id: %w", err)
+	}
+	key, err := generateToken32()
+	if err != nil {
+		return nil, fmt.Errorf("generating api key: %w", err)
+	}
+
+	apiKey := &APIKey{
+		ID:        id,
+		Key:       key,
+		UserID:    userID,
+		Name:      name,
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.apiKeys.Create(ctx, apiKey); err != nil {
+		return nil, err
+	}
+
+	return apiKey, nil
+}
+
+func (s *JWTService) ValidateAPIKey(ctx context.Context, key string) (*User, error) {
+	if s.apiKeys == nil {
+		return nil, fmt.Errorf("api key store not configured")
+	}
+
+	apiKey, err := s.apiKeys.GetByKey(ctx, key)
+	if err != nil {
+		return nil, ErrAPIKeyNotFound
+	}
+
+	user, err := s.store.Get(ctx, apiKey.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (s *JWTService) ListAPIKeys(ctx context.Context, userID string) ([]*APIKey, error) {
+	if s.apiKeys == nil {
+		return nil, fmt.Errorf("api key store not configured")
+	}
+	return s.apiKeys.ListByUser(ctx, userID)
+}
+
+func (s *JWTService) RevokeAPIKey(ctx context.Context, userID, keyID string) error {
+	if s.apiKeys == nil {
+		return fmt.Errorf("api key store not configured")
+	}
+	keys, err := s.apiKeys.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, k := range keys {
+		if k.ID == keyID {
+			return s.apiKeys.Delete(ctx, keyID)
+		}
+	}
+	return ErrAPIKeyNotFound
+}
+
 func generateID() (string, error) {
 	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func generateToken32() (string, error) {
+	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}

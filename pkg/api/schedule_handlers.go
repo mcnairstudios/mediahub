@@ -125,8 +125,8 @@ func (s *Server) handleCancelScheduledRecording(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if rec.Status != recording.StatusScheduled {
-		httputil.RespondError(w, http.StatusConflict, "can only cancel scheduled recordings")
+	if rec.Status != recording.StatusScheduled && rec.Status != recording.StatusPending {
+		httputil.RespondError(w, http.StatusConflict, "can only cancel scheduled or pending recordings")
 		return
 	}
 

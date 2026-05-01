@@ -20,12 +20,15 @@ const (
 	DefaultFirmwareVersion = "20231001"
 	DefaultDeviceAuth      = "mediahub"
 	DefaultTunerCount      = 6
+	DefaultMaxChannels     = 200
 )
 
 type Server struct {
 	mux          *http.ServeMux
 	channelStore channel.Store
 	cfg          *config.Config
+	device       *Device
+	baseURL      string
 }
 
 func NewServer(channelStore channel.Store, cfg *config.Config) *Server {
@@ -33,6 +36,17 @@ func NewServer(channelStore channel.Store, cfg *config.Config) *Server {
 		mux:          http.NewServeMux(),
 		channelStore: channelStore,
 		cfg:          cfg,
+	}
+	s.registerRoutes()
+	return s
+}
+
+func NewDeviceServer(channelStore channel.Store, device *Device, baseURL string) *Server {
+	s := &Server{
+		mux:          http.NewServeMux(),
+		channelStore: channelStore,
+		device:       device,
+		baseURL:      baseURL,
 	}
 	s.registerRoutes()
 	return s
@@ -50,20 +64,37 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /device.xml", s.handleDeviceXML)
 }
 
-func (s *Server) baseURL() string {
+func (s *Server) getBaseURL() string {
+	if s.baseURL != "" {
+		return s.baseURL
+	}
 	return s.cfg.BaseURL
 }
 
+func (s *Server) deviceID() string {
+	if s.device != nil {
+		return s.device.DeviceUUID
+	}
+	return DefaultDeviceID
+}
+
+func (s *Server) friendlyName() string {
+	if s.device != nil {
+		return s.device.Name
+	}
+	return DefaultFriendlyName
+}
+
 func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
-	base := s.baseURL()
+	base := s.getBaseURL()
 	resp := DiscoverResponse{
-		FriendlyName:    DefaultFriendlyName,
+		FriendlyName:    s.friendlyName(),
 		Manufacturer:    "Silicondust",
 		ManufacturerURL: "https://www.silicondust.com/",
 		ModelNumber:     DefaultModelNumber,
 		FirmwareName:    DefaultFirmwareName,
 		FirmwareVersion: DefaultFirmwareVersion,
-		DeviceID:        DefaultDeviceID,
+		DeviceID:        s.deviceID(),
 		DeviceAuth:      DefaultDeviceAuth,
 		BaseURL:         base,
 		LineupURL:       base + "/lineup.json",
@@ -108,7 +139,8 @@ func (s *Server) handleLineupXML(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeviceXML(w http.ResponseWriter, r *http.Request) {
-	base := s.baseURL()
+	base := s.getBaseURL()
+	devID := s.deviceID()
 	resp := DeviceXML{
 		XMLNS:   "urn:schemas-upnp-org:device-1-0",
 		URLBase: base,
@@ -118,12 +150,12 @@ func (s *Server) handleDeviceXML(w http.ResponseWriter, r *http.Request) {
 		},
 		Device: deviceInnerXML{
 			DeviceType:   "urn:schemas-upnp-org:device:MediaServer:1",
-			FriendlyName: DefaultFriendlyName,
+			FriendlyName: s.friendlyName(),
 			Manufacturer: "Silicondust",
 			ModelName:    DefaultModelNumber,
 			ModelNumber:  DefaultModelNumber,
-			SerialNumber: DefaultDeviceID,
-			UDN:          "uuid:" + DefaultDeviceID,
+			SerialNumber: devID,
+			UDN:          "uuid:" + devID,
 		},
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -137,10 +169,21 @@ func (s *Server) buildLineup(ctx context.Context) ([]LineupEntry, error) {
 		return nil, fmt.Errorf("listing channels: %w", err)
 	}
 
-	base := s.baseURL()
+	var allowedGroups map[string]bool
+	if s.device != nil && len(s.device.GroupIDs) > 0 {
+		allowedGroups = make(map[string]bool, len(s.device.GroupIDs))
+		for _, gid := range s.device.GroupIDs {
+			allowedGroups[gid] = true
+		}
+	}
+
+	base := s.getBaseURL()
 	lineup := make([]LineupEntry, 0, len(channels))
 	for _, ch := range channels {
 		if !ch.IsEnabled {
+			continue
+		}
+		if allowedGroups != nil && !allowedGroups[ch.GroupID] {
 			continue
 		}
 		lineup = append(lineup, LineupEntry{

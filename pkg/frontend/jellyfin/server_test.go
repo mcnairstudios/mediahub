@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -59,6 +60,14 @@ func (m *mockAuthService) DeleteUser(_ context.Context, id string) error { retur
 func (m *mockAuthService) ChangePassword(_ context.Context, id, newPassword string) error {
 	return nil
 }
+func (m *mockAuthService) CreateInvite(_ context.Context, _ auth.Role, _ time.Duration) (*auth.Invite, error) { return nil, nil }
+func (m *mockAuthService) AcceptInvite(_ context.Context, _, _, _ string) (*auth.User, error) { return nil, nil }
+func (m *mockAuthService) ListInvites(_ context.Context) ([]*auth.Invite, error) { return nil, nil }
+func (m *mockAuthService) DeleteInvite(_ context.Context, _ string) error { return nil }
+func (m *mockAuthService) CreateAPIKey(_ context.Context, _, _ string) (*auth.APIKey, error) { return nil, nil }
+func (m *mockAuthService) ValidateAPIKey(_ context.Context, _ string) (*auth.User, error) { return nil, nil }
+func (m *mockAuthService) ListAPIKeys(_ context.Context, _ string) ([]*auth.APIKey, error) { return nil, nil }
+func (m *mockAuthService) RevokeAPIKey(_ context.Context, _, _ string) error { return nil }
 
 type mockChannelStore struct {
 	channels []channel.Channel
