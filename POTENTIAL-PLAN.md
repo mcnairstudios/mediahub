@@ -646,50 +646,61 @@ Endpoints mediahub has that tvproxy does NOT:
 
 ---
 
-## Priority Summary
+## Priority Summary (Updated May 2026)
 
-### HIGH (blocks real usage)
-1. **Dockerfile** — cannot deploy without it
-2. **CI pipeline** — cannot release without it
-3. **Multi-arch Docker builds** — required for amd64 + arm64 targets
-4. **Auto-recovery for live streams** — streams die and stay dead without this
-5. **Recording intent persistence + restart recovery** — recordings lost on restart
+### DONE
+- Dockerfile + CI pipeline + multi-arch Docker builds
+- Auto-recovery for live streams (3 retries, exponential backoff)
+- Recording intent persistence + restart recovery
+- Import/export for configuration backup
+- Per-channel stream profile override (stream_profile_id on channels)
+- Per-user channel group filtering (ChannelGroupIDs on users, JWT propagation)
+- Priority resolution chain for client detection (priority field, sorted matching)
+- Channel groups management UI page
+- EPG deduplication (bolt key = channelID + startTime, natural dedup)
+- Bulk EPG insert optimization (5000-item batches)
+- Probe result cache (persistent, bolt-backed, 24h TTL)
+- SSDP advertisement for HDHR + DLNA
+- Activity tracking integration with playback (in-memory, API + frontend page)
+- Scheduled recording from EPG guide UI (bolt store, scheduler, status flow)
+- Subtitle extraction to WebVTT (pkg/av/subtitle/)
+- DLNA/Jellyfin enable/disable toggles
+- Per-source refresh intervals (none/minute/hourly/daily/weekly)
+- EPG per-source refresh intervals
+- TMDB blob architecture (work queue, metadata worker, image worker, forward name index)
+- Xtream VOD + series fetching
+- SAT>IP scan with updated DVB tables (8PSK, FEC, multi-file, 871 channels)
+- FFmpeg subprocess transcode (H.265+AAC via HLS for browser playback)
+- Annex B → AVCC conversion for fMP4 MSE
+- Encrypted channel labelling (ENC badge)
+- Library per-source browsing with category drill-in for large sources
 
 ### MEDIUM (nice to have for production)
-6. Import/export for configuration backup
-7. Multi-profile WireGuard with failover
-8. WG pool with per-session proxy
-9. Per-channel stream profile override
-10. Per-user channel group filtering
-11. Priority resolution chain for client detection
-12. Channel groups management UI page
-13. Per-source stream tabs in frontend
-14. EPG deduplication + orphan cleanup
-15. Bulk EPG insert optimization
-16. Probe result cache (persistent)
-17. Per-device HDHR servers
-18. SSDP advertisement for HDHR
-19. Activity tracking integration with playback
-20. Invite system for user onboarding
-21. Rich encoder settings per HW platform
-22. Scheduled recording from EPG guide UI
-23. Recording status flow tracking
-24. EPG guide scheduled state display
+1. Multi-profile WireGuard with failover
+2. WG pool with per-session proxy
+3. Per-device HDHR servers
+4. Invite system for user onboarding
+5. Rich encoder settings per HW platform
+6. Recording status flow tracking (status page)
+7. Logo service (EPG logo extraction, logo management page) — caching proxy exists
+8. In-process H.265 encoder fix (CGO crash on ARM64, works on amd64)
+9. NIT-based satellite discovery (prototype done, needs modulation auto-detect)
+10. Xtream series episode enrichment from TMDB (episode names, stills)
+11. TMDB collection poster/backdrop fetching
 
 ### LOW (polish)
-25. Xtream account info endpoint
-26. Xtream API response cache
-27. Subtitle extraction to WebVTT
-28. Tee for raw byte capture
-29. M3U8 output variant
-30. Logo management page
-31. OpenAPI spec endpoint
-32. pprof debug endpoint
-33. Quest DLNA workaround
-34. Per-user DLNA filtering
-35. Network/VOD/worker/server tuning settings
-36. Frontend filter pills, keyboard jump, collection modals
-37. TMDB sync status pages
-38. Debug flag toggle
-39. API key authentication
-40. Proto-based probe serialization
+12. Xtream account info endpoint
+13. Xtream API response cache
+14. Tee for raw byte capture
+15. M3U8 output variant
+16. OpenAPI spec endpoint
+17. pprof debug endpoint
+18. Quest DLNA workaround
+19. Per-user DLNA filtering
+20. Network/VOD/worker/server tuning settings
+21. TMDB sync status pages
+22. Debug flag toggle
+23. API key authentication
+24. Proto-based probe serialization
+25. Virtual scroll for large poster grids (localStorage caching done, virtual scroll not yet)
+26. Sprite sheets for episode thumbnails (design done, not implemented)
