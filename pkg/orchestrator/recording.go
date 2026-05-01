@@ -40,9 +40,14 @@ func StartRecording(ctx context.Context, deps RecordingDeps, streamID string, ti
 		return fmt.Errorf("session %s not found", streamID)
 	}
 
-	recID := generateRecordingID()
-	sourcePath := filepath.Join(sess.OutputDir, "source.ts")
+	recPlugin := findRecordPlugin(sess)
+	if recPlugin == nil {
+		return fmt.Errorf("no record plugin on session %s", streamID)
+	}
 
+	recPlugin.SetPreserved(true)
+
+	recID := generateRecordingID()
 	rec := &recording.Recording{
 		ID:         recID,
 		StreamID:   streamID,
@@ -51,11 +56,12 @@ func StartRecording(ctx context.Context, deps RecordingDeps, streamID string, ti
 		UserID:     userID,
 		Status:     recording.StatusRecording,
 		StartedAt:  time.Now(),
-		FilePath:   sourcePath,
+		FilePath:   recPlugin.FilePath(),
 		Container:  "mpegts",
 	}
 
 	if err := deps.RecordingStore.Create(ctx, rec); err != nil {
+		recPlugin.SetPreserved(false)
 		return fmt.Errorf("create recording: %w", err)
 	}
 
@@ -79,6 +85,8 @@ func StopRecording(ctx context.Context, deps RecordingDeps, streamID string) err
 		return fmt.Errorf("session %s not found", streamID)
 	}
 
+	recPlugin := findRecordPlugin(sess)
+
 	sess.SetRecorded(false)
 	removeIntent(sess.OutputDir)
 
@@ -92,6 +100,11 @@ func StopRecording(ctx context.Context, deps RecordingDeps, streamID string) err
 			r.Status = recording.StatusCompleted
 			r.StoppedAt = time.Now()
 
+			if recPlugin != nil {
+				r.FilePath = recPlugin.FilePath()
+				r.FileSize = recPlugin.FileSize()
+			}
+
 			destPath, moveErr := completeRecording(deps.RecordDir, r.FilePath, r.Title)
 			if moveErr != nil {
 				log.Printf("recording: failed to move file for %s: %v", r.ID, moveErr)
@@ -101,6 +114,10 @@ func StopRecording(ctx context.Context, deps RecordingDeps, streamID string) err
 				if fi, err := os.Stat(destPath); err == nil {
 					r.FileSize = fi.Size()
 				}
+			}
+
+			if recPlugin != nil {
+				recPlugin.SetPreserved(false)
 			}
 
 			if err := deps.RecordingStore.Update(ctx, &r); err != nil {
@@ -166,6 +183,24 @@ func sanitizeFilename(name string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+type recordingPlugin interface {
+	FilePath() string
+	FileSize() int64
+	SetPreserved(bool)
+	IsPreserved() bool
+}
+
+func findRecordPlugin(sess *session.Session) recordingPlugin {
+	for _, p := range sess.FanOut.Plugins() {
+		if p.Mode() == output.DeliveryRecord {
+			if rp, ok := p.(recordingPlugin); ok {
+				return rp
+			}
+		}
+	}
+	return nil
 }
 
 func ScheduleRecording(ctx context.Context, deps RecordingDeps, rec *recording.Recording) error {

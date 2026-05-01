@@ -14,13 +14,35 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
 
+type mockRecordPlugin struct {
+	mode      output.DeliveryMode
+	filePath  string
+	preserved bool
+	fileSize  int64
+}
+
+func (m *mockRecordPlugin) Mode() output.DeliveryMode                  { return m.mode }
+func (m *mockRecordPlugin) PushVideo([]byte, int64, int64, bool) error { return nil }
+func (m *mockRecordPlugin) PushAudio([]byte, int64, int64) error       { return nil }
+func (m *mockRecordPlugin) PushSubtitle([]byte, int64, int64) error    { return nil }
+func (m *mockRecordPlugin) EndOfStream()                               {}
+func (m *mockRecordPlugin) ResetForSeek()                              {}
+func (m *mockRecordPlugin) Stop()                                      {}
+func (m *mockRecordPlugin) Status() output.PluginStatus {
+	return output.PluginStatus{Mode: m.mode, Healthy: true}
+}
+func (m *mockRecordPlugin) FilePath() string        { return m.filePath }
+func (m *mockRecordPlugin) FileSize() int64         { return m.fileSize }
+func (m *mockRecordPlugin) SetPreserved(v bool)     { m.preserved = v }
+func (m *mockRecordPlugin) IsPreserved() bool       { return m.preserved }
+
 func newTestRecordingDeps(t *testing.T) RecordingDeps {
 	t.Helper()
 	dir := t.TempDir()
 
 	reg := output.NewRegistry()
 	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
-		return &mockPlugin{mode: output.DeliveryRecord}, nil
+		return &mockRecordPlugin{mode: output.DeliveryRecord, filePath: cfg.OutputFilePath}, nil
 	})
 
 	return RecordingDeps{
@@ -31,12 +53,22 @@ func newTestRecordingDeps(t *testing.T) RecordingDeps {
 	}
 }
 
+func addRecordPluginToSession(sess *session.Session) *mockRecordPlugin {
+	rp := &mockRecordPlugin{
+		mode:     output.DeliveryRecord,
+		filePath: filepath.Join(sess.OutputDir, "source.ts"),
+	}
+	sess.FanOut.Add(rp)
+	return rp
+}
+
 func TestStartRecording_ActiveSession(t *testing.T) {
 	deps := newTestRecordingDeps(t)
 	defer deps.SessionMgr.StopAll()
 
 	ctx := context.Background()
-	deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	addRecordPluginToSession(sess)
 
 	err := StartRecording(ctx, deps, "stream-1", "My Recording", "user-1", false)
 	if err != nil {
@@ -54,7 +86,7 @@ func TestStartRecording_ActiveSession(t *testing.T) {
 		t.Errorf("expected title 'My Recording', got %s", recs[0].Title)
 	}
 
-	sess := deps.SessionMgr.Get("stream-1")
+	sess = deps.SessionMgr.Get("stream-1")
 	if !sess.IsRecorded() {
 		t.Error("expected session to be marked as recorded")
 	}
@@ -75,10 +107,12 @@ func TestStopRecording_WithFileMove(t *testing.T) {
 
 	ctx := context.Background()
 	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	rp := addRecordPluginToSession(sess)
 
 	os.MkdirAll(sess.OutputDir, 0755)
 	sourcePath := filepath.Join(sess.OutputDir, "source.ts")
 	os.WriteFile(sourcePath, []byte("fake video data for testing"), 0644)
+	rp.filePath = sourcePath
 
 	err := StartRecording(ctx, deps, "stream-1", "My Recording", "user-1", false)
 	if err != nil {
@@ -121,7 +155,8 @@ func TestStopRecording_NoSourceFile(t *testing.T) {
 	defer deps.SessionMgr.StopAll()
 
 	ctx := context.Background()
-	deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	addRecordPluginToSession(sess)
 
 	err := StartRecording(ctx, deps, "stream-1", "My Recording", "user-1", false)
 	if err != nil {
@@ -187,6 +222,7 @@ func TestStartRecording_WritesIntentFile(t *testing.T) {
 
 	ctx := context.Background()
 	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	addRecordPluginToSession(sess)
 
 	err := StartRecording(ctx, deps, "stream-1", "My Recording", "user-1", false)
 	if err != nil {
@@ -220,6 +256,7 @@ func TestStopRecording_RemovesIntentFile(t *testing.T) {
 
 	ctx := context.Background()
 	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-1", "http://example.com/stream", "Test")
+	addRecordPluginToSession(sess)
 
 	StartRecording(ctx, deps, "stream-1", "My Recording", "user-1", false)
 
@@ -272,7 +309,8 @@ func TestRecoverRecordings_ActiveIntent(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	deps.SessionMgr.GetOrCreate(ctx, "stream-active", "http://example.com/stream", "Active")
+	sess, _, _ := deps.SessionMgr.GetOrCreate(ctx, "stream-active", "http://example.com/stream", "Active")
+	addRecordPluginToSession(sess)
 
 	sessionDir := filepath.Join(dir, "stream-active")
 	os.MkdirAll(sessionDir, 0755)

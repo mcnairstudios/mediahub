@@ -3,8 +3,8 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -13,7 +13,6 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
-	"github.com/mcnairstudios/mediahub/pkg/output/hls"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
@@ -187,38 +186,11 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 	applySourceProfile(ctx, deps, stream, &pipeCfg)
 
-	if deps.SettingsStore != nil {
-		if v, err := deps.SettingsStore.Get(ctx, "subprocess_transcode"); err == nil && v == "true" {
-			pipeCfg.UseSubprocess = true
-		}
-	}
-
-	if !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && needsSubprocessFallback(pipeCfg.OutputCodec) {
-		pipeCfg.UseSubprocess = true
-	}
-
 	runner := deps.PipelineRunner
 	if runner == nil {
-		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-			runner = deps.SessionMgr.RunSubprocessPipelineMethod
-		} else {
-			runner = deps.SessionMgr.RunPipeline
-		}
+		runner = deps.SessionMgr.RunPipeline
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
-	if err != nil && !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && session.IsEncoderInitError(err) {
-		deps.SessionMgr.Stop(stream.ID)
-		sess, _, err = deps.SessionMgr.GetOrCreate(ctx, stream.ID, stream.URL, stream.Name)
-		if err != nil {
-			return nil, fmt.Errorf("get or create session for subprocess fallback: %w", err)
-		}
-		pipeCfg.UseSubprocess = true
-		fallbackRunner := deps.PipelineRunner
-		if fallbackRunner == nil {
-			fallbackRunner = deps.SessionMgr.RunSubprocessPipelineMethod
-		}
-		pipelineResult, err = fallbackRunner(sess, pipeCfg)
-	}
 	if err != nil {
 		if deps.ProbeCache != nil && cachedProbe != nil {
 			_ = deps.ProbeCache.Delete(stream.URL)
@@ -237,25 +209,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
 		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
 	}
-	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-		delivery = output.DeliveryHLS
-	}
 	sess.Delivery = string(delivery)
-
-	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-		plugin, plugErr := createSubprocessHLSPlugin(sess.OutputDir)
-		if plugErr != nil {
-			deps.SessionMgr.Stop(stream.ID)
-			return nil, fmt.Errorf("create subprocess HLS plugin: %w", plugErr)
-		}
-		sess.FanOut.Add(plugin)
-		result.Plugin = plugin
-		result.Delivery = string(delivery)
-		if sp, ok := plugin.(output.ServablePlugin); ok {
-			result.Servable = sp
-		}
-		return result, nil
-	}
 
 	pluginCfg := output.PluginConfig{
 		OutputDir: sess.OutputDir,
@@ -306,17 +260,17 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 	func() {
 		defer func() {
-			recover() //nolint:errcheck
+			if r := recover(); r != nil {
+				log.Printf("record plugin panic: %v", r)
+			}
 		}()
-		return
 		recCfg := pluginCfg
 		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
 		recCfg.OutputFormat = "mpegts"
 		recPlugin, recErr := deps.OutputReg.Create(output.DeliveryRecord, recCfg)
 		if recErr != nil {
-			return
-		}
-		if recPlugin != nil {
+			log.Printf("record plugin: %v", recErr)
+		} else if recPlugin != nil {
 			sess.FanOut.Add(recPlugin)
 		}
 	}()
@@ -429,38 +383,11 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		DecoderName:         decoderName,
 	}
 
-	if deps.SettingsStore != nil {
-		if v, err := deps.SettingsStore.Get(ctx, "subprocess_transcode"); err == nil && v == "true" {
-			pipeCfg.UseSubprocess = true
-		}
-	}
-
-	if !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && needsSubprocessFallback(pipeCfg.OutputCodec) {
-		pipeCfg.UseSubprocess = true
-	}
-
 	runner := deps.PipelineRunner
 	if runner == nil {
-		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-			runner = deps.SessionMgr.RunSubprocessPipelineMethod
-		} else {
-			runner = deps.SessionMgr.RunPipeline
-		}
+		runner = deps.SessionMgr.RunPipeline
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
-	if err != nil && !pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode && session.IsEncoderInitError(err) {
-		deps.SessionMgr.Stop(sessionKey)
-		sess, _, err = deps.SessionMgr.GetOrCreate(ctx, sessionKey, filePath, title)
-		if err != nil {
-			return nil, fmt.Errorf("get or create session for subprocess fallback: %w", err)
-		}
-		pipeCfg.UseSubprocess = true
-		fallbackRunner := deps.PipelineRunner
-		if fallbackRunner == nil {
-			fallbackRunner = deps.SessionMgr.RunSubprocessPipelineMethod
-		}
-		pipelineResult, err = fallbackRunner(sess, pipeCfg)
-	}
 	if err != nil {
 		deps.SessionMgr.Stop(sessionKey)
 		return nil, fmt.Errorf("pipeline failed for recording %q (%s): %w", title, filePath, err)
@@ -472,25 +399,7 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
 		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
 	}
-	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-		delivery = output.DeliveryHLS
-	}
 	sess.Delivery = string(delivery)
-
-	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
-		plugin, plugErr := createSubprocessHLSPlugin(sess.OutputDir)
-		if plugErr != nil {
-			deps.SessionMgr.Stop(sessionKey)
-			return nil, fmt.Errorf("create subprocess HLS plugin: %w", plugErr)
-		}
-		sess.FanOut.Add(plugin)
-		result.Plugin = plugin
-		result.Delivery = string(delivery)
-		if sp, ok := plugin.(output.ServablePlugin); ok {
-			result.Servable = sp
-		}
-		return result, nil
-	}
 
 	pluginCfg := output.PluginConfig{
 		OutputDir:        sess.OutputDir,
@@ -623,14 +532,3 @@ func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 	return nil
 }
 
-func createSubprocessHLSPlugin(outputDir string) (output.OutputPlugin, error) {
-	return hls.NewSubprocessPlugin(outputDir)
-}
-
-func needsSubprocessFallback(outputCodec string) bool {
-	if runtime.GOARCH != "arm64" {
-		return false
-	}
-	codec := strings.ToLower(outputCodec)
-	return codec == "h265" || codec == "hevc"
-}

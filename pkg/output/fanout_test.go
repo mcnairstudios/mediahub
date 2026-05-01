@@ -294,8 +294,8 @@ func TestFanOutPanicInPushVideoDoesNotKillOtherPlugins(t *testing.T) {
 	fan := NewFanOut(p1, p2)
 
 	err := fan.PushVideo([]byte("frame"), 1000, 1000, true)
-	if err == nil {
-		t.Fatal("expected error from panicking plugin")
+	if err != nil {
+		t.Fatalf("record plugin error should be swallowed, got: %v", err)
 	}
 
 	if p2.videoPackets != 1 {
@@ -309,8 +309,8 @@ func TestFanOutPanicInPushAudioDoesNotKillOtherPlugins(t *testing.T) {
 	fan := NewFanOut(p1, p2)
 
 	err := fan.PushAudio([]byte("audio"), 2000, 2000)
-	if err == nil {
-		t.Fatal("expected error from panicking plugin")
+	if err != nil {
+		t.Fatalf("record plugin error should be swallowed, got: %v", err)
 	}
 
 	if p2.audioPackets != 1 {

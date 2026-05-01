@@ -10,6 +10,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
 	"github.com/mcnairstudios/mediahub/pkg/av/decode"
 	"github.com/mcnairstudios/mediahub/pkg/av/encode"
+	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/filter"
 	"github.com/mcnairstudios/mediahub/pkg/av/resample"
 	"github.com/mcnairstudios/mediahub/pkg/av/scale"
@@ -45,21 +46,23 @@ type Config struct {
 }
 
 type Bridge struct {
-	downstream    av.PacketSink
-	videoDec      *decode.Decoder
-	videoEnc      *encode.Encoder
-	deint         *filter.Deinterlacer
-	scaler        *scale.Scaler
-	audioDec      *decode.Decoder
-	audioResample *resample.Resampler
-	audioEnc      *encode.Encoder
-	audioFifo     *encode.AudioFIFO
-	videoTB       astiav.Rational
-	audioTB       astiav.Rational
-	audioLatched  bool
-	stopped       bool
-	mu            sync.Mutex
-	log           zerolog.Logger
+	downstream           av.PacketSink
+	videoDec             *decode.Decoder
+	videoEnc             *encode.Encoder
+	deint                *filter.Deinterlacer
+	scaler               *scale.Scaler
+	audioDec             *decode.Decoder
+	audioResample        *resample.Resampler
+	audioEnc             *encode.Encoder
+	audioFifo            *encode.AudioFIFO
+	videoTB              astiav.Rational
+	audioTB              astiav.Rational
+	audioLatched         bool
+	stopped              bool
+	videoEncoderExtradata []byte
+	extractedExtradata   bool
+	mu                   sync.Mutex
+	log                  zerolog.Logger
 }
 
 func New(cfg Config) (*Bridge, error) {
@@ -216,6 +219,11 @@ func New(cfg Config) (*Bridge, error) {
 }
 
 func (b *Bridge) VideoEncoderExtradata() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.videoEncoderExtradata) > 0 {
+		return b.videoEncoderExtradata
+	}
 	if b.videoEnc == nil {
 		return nil
 	}
@@ -309,6 +317,11 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
 			isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
 			encPkt.Free()
+
+			if !b.extractedExtradata && isKey && b.videoEnc != nil {
+				b.extractVideoExtradata(encData)
+			}
+
 			if err := b.downstream.PushVideo(encData, encPTS, encDTS, isKey); err != nil {
 				for _, f := range frames[i+1:] {
 					f.Free()
@@ -481,6 +494,36 @@ func (b *Bridge) closeAll() {
 	}
 	if b.audioDec != nil {
 		b.audioDec.Close()
+	}
+}
+
+func (b *Bridge) extractVideoExtradata(packetData []byte) {
+	b.extractedExtradata = true
+
+	if ed := b.videoEnc.Extradata(); len(ed) > 0 {
+		b.videoEncoderExtradata = make([]byte, len(ed))
+		copy(b.videoEncoderExtradata, ed)
+		return
+	}
+
+	codecID := b.videoEnc.CodecID()
+	if codecID != astiav.CodecIDHevc && codecID != astiav.CodecIDH264 {
+		return
+	}
+
+	codecName := "h264"
+	if codecID == astiav.CodecIDHevc {
+		codecName = "hevc"
+	}
+
+	converted, err := extradata.ToCodecData(codecName, packetData)
+	if err != nil {
+		b.log.Warn().Err(err).Str("codec", codecName).Msg("bridge: failed to extract extradata from first keyframe")
+		return
+	}
+	if len(converted) > 0 {
+		b.videoEncoderExtradata = converted
+		b.log.Info().Str("codec", codecName).Int("bytes", len(converted)).Msg("bridge: extracted encoder extradata from first keyframe")
 	}
 }
 

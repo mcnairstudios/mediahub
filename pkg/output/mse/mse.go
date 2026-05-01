@@ -42,6 +42,7 @@ type Plugin struct {
 	audioTB             astiav.Rational
 	needsAnnexBConvert  bool
 	hasAudio bool
+	deferredMuxOpts *mux.MuxOpts
 
 	audioDec      *decode.Decoder
 	audioResample *resample.Resampler
@@ -218,7 +219,16 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		}
 	}
 
-	if muxOpts.VideoCodecID != astiav.CodecIDNone || muxOpts.AudioCodecID != astiav.CodecIDNone {
+	needsDeferred := len(muxOpts.VideoExtradata) == 0 &&
+		muxOpts.VideoCodecID != astiav.CodecIDNone &&
+		(muxOpts.VideoCodecID == astiav.CodecIDHevc || muxOpts.VideoCodecID == astiav.CodecIDH264)
+
+	if needsDeferred {
+		p.needsAnnexBConvert = true
+		saved := muxOpts
+		p.deferredMuxOpts = &saved
+		log.Info().Str("codec_id", muxOpts.VideoCodecID.String()).Msg("mse: deferring muxer creation until first keyframe provides extradata")
+	} else if muxOpts.VideoCodecID != astiav.CodecIDNone || muxOpts.AudioCodecID != astiav.CodecIDNone {
 		m, err := mux.NewFragmentedMuxer(muxOpts)
 		if err != nil {
 			return nil, fmt.Errorf("mse: create muxer: %w", err)
@@ -229,6 +239,34 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	p.watcher = newWatcher(segDir)
 
 	return p, nil
+}
+
+func (p *Plugin) initDeferredMuxer(keyframeData []byte) error {
+	opts := p.deferredMuxOpts
+	p.deferredMuxOpts = nil
+
+	codecName := "hevc"
+	if opts.VideoCodecID == astiav.CodecIDH264 {
+		codecName = "h264"
+	}
+
+	converted, err := extradata.ToCodecData(codecName, keyframeData)
+	if err != nil {
+		return fmt.Errorf("extract extradata from keyframe: %w", err)
+	}
+	if len(converted) == 0 {
+		return fmt.Errorf("no extradata found in first %s keyframe", codecName)
+	}
+
+	opts.VideoExtradata = converted
+	p.log.Info().Str("codec", codecName).Int("extradata_bytes", len(converted)).Msg("mse: extracted extradata from first keyframe, creating muxer")
+
+	m, err := mux.NewFragmentedMuxer(*opts)
+	if err != nil {
+		return fmt.Errorf("create deferred muxer: %w", err)
+	}
+	p.muxer = m
+	return nil
 }
 
 func (p *Plugin) Mode() output.DeliveryMode {
@@ -243,7 +281,18 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		}
 	}()
 
-	if p.stopped.Load() || p.muxer == nil {
+	if p.stopped.Load() {
+		return nil
+	}
+
+	if p.deferredMuxOpts != nil && keyframe {
+		if err := p.initDeferredMuxer(data); err != nil {
+			p.log.Error().Err(err).Msg("mse: failed to init deferred muxer")
+			return nil
+		}
+	}
+
+	if p.muxer == nil {
 		return nil
 	}
 

@@ -38,16 +38,19 @@ func (f *FanOut) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 		return errFanOutStopped
 	}
 
-	var firstErr error
+	var deliveryErr error
 	for _, p := range f.plugins {
-		if err := safePushVideo(p, data, pts, dts, keyframe); err != nil && firstErr == nil {
-			firstErr = err
+		if err := safePushVideo(p, data, pts, dts, keyframe); err != nil {
+			if p.Mode() == DeliveryRecord {
+				log.Warn().Err(err).Msg("fanout: record plugin error (non-fatal)")
+			} else if deliveryErr == nil {
+				deliveryErr = err
+			}
 		}
 	}
-	return firstErr
+	return deliveryErr
 }
 
-// PushAudio sends an audio packet to all plugins.
 func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -56,13 +59,17 @@ func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
 		return errFanOutStopped
 	}
 
-	var firstErr error
+	var deliveryErr error
 	for _, p := range f.plugins {
-		if err := safePushAudio(p, data, pts, dts); err != nil && firstErr == nil {
-			firstErr = err
+		if err := safePushAudio(p, data, pts, dts); err != nil {
+			if p.Mode() == DeliveryRecord {
+				log.Warn().Err(err).Msg("fanout: record plugin error (non-fatal)")
+			} else if deliveryErr == nil {
+				deliveryErr = err
+			}
 		}
 	}
-	return firstErr
+	return deliveryErr
 }
 
 func (f *FanOut) SetSubtitleCollector(c *subtitle.Collector) {
