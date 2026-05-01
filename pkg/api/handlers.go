@@ -245,20 +245,7 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deps := orchestrator.PlaybackDeps{
-		StreamStore:       s.deps.StreamStore,
-		SettingsStore:     s.deps.SettingsStore,
-		SourceConfigStore: s.deps.SourceConfigStore,
-		ConnRegistry:      s.deps.ConnRegistry,
-		WGService:         s.deps.WGService,
-		SessionMgr:        s.deps.SessionMgr,
-		Detector:          s.deps.Detector,
-		ClientStore:       s.deps.ClientStore,
-		OutputReg:         s.deps.OutputReg,
-		Strategy:          s.deps.Strategy,
-		ProbeCache:        s.deps.ProbeCache,
-		UserAgent:         s.deps.UserAgent,
-	}
+	deps := s.playbackDeps()
 
 	if profileName := r.URL.Query().Get("profile"); profileName != "" {
 		if s.deps.ClientStore != nil {
@@ -647,6 +634,23 @@ func (s *Server) recordingDeps() orchestrator.RecordingDeps {
 		deps.RecordDir = s.deps.Config.RecordDir
 	}
 	return deps
+}
+
+func (s *Server) playbackDeps() orchestrator.PlaybackDeps {
+	return orchestrator.PlaybackDeps{
+		StreamStore:       s.deps.StreamStore,
+		SettingsStore:     s.deps.SettingsStore,
+		SourceConfigStore: s.deps.SourceConfigStore,
+		ConnRegistry:      s.deps.ConnRegistry,
+		WGService:         s.deps.WGService,
+		SessionMgr:        s.deps.SessionMgr,
+		Detector:          s.deps.Detector,
+		ClientStore:       s.deps.ClientStore,
+		OutputReg:         s.deps.OutputReg,
+		Strategy:          s.deps.Strategy,
+		ProbeCache:        s.deps.ProbeCache,
+		UserAgent:         s.deps.UserAgent,
+	}
 }
 
 func (s *Server) filterChannelsByUser(r *http.Request, channels []channel.Channel) []channel.Channel {

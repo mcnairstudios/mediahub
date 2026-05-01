@@ -208,21 +208,8 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 		headers[key] = r.Header.Get(key)
 	}
 
-	deps := orchestrator.PlaybackDeps{
-		StreamStore:       s.deps.StreamStore,
-		SettingsStore:     s.deps.SettingsStore,
-		SourceConfigStore: s.deps.SourceConfigStore,
-		ConnRegistry:      s.deps.ConnRegistry,
-		WGService:         s.deps.WGService,
-		SessionMgr:        s.deps.SessionMgr,
-		Detector:          s.deps.Detector,
-		ClientStore:       s.deps.ClientStore,
-		OutputReg:         s.deps.OutputReg,
-		Strategy:          s.deps.Strategy,
-		ProbeCache:        s.deps.ProbeCache,
-		UserAgent:         s.deps.UserAgent,
-		ClientOverrideID:  ch.StreamProfileID,
-	}
+	deps := s.playbackDeps()
+	deps.ClientOverrideID = ch.StreamProfileID
 
 	result, err := orchestrator.StartPlayback(r.Context(), deps, streamID, 0, headers)
 	if err != nil {

@@ -384,7 +384,9 @@ func main() {
 	}
 	detector := client.NewDetector(detectorClients)
 
-	sessionMgr := session.NewManager(cfg.RecordDir)
+	sessionTmpDir := filepath.Join(os.TempDir(), "mediahub-sessions")
+	os.MkdirAll(sessionTmpDir, 0755)
+	sessionMgr := session.NewManager(sessionTmpDir)
 
 	scheduler := worker.NewScheduler(func(name string, err error) {
 		log.Printf("worker %s error: %v", name, err)

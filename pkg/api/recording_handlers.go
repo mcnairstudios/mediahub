@@ -96,16 +96,7 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deps := orchestrator.PlaybackDeps{
-		StreamStore:   s.deps.StreamStore,
-		SettingsStore: s.deps.SettingsStore,
-		SessionMgr:    s.deps.SessionMgr,
-		Detector:      s.deps.Detector,
-		OutputReg:     s.deps.OutputReg,
-		Strategy:      s.deps.Strategy,
-		ProbeCache:    s.deps.ProbeCache,
-		UserAgent:     s.deps.UserAgent,
-	}
+	deps := s.playbackDeps()
 
 	title := rec.Title
 	if title == "" {
