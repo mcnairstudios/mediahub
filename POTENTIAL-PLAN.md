@@ -680,7 +680,7 @@ Endpoints mediahub has that tvproxy does NOT:
 2. WG pool with per-session proxy
 3. Per-device HDHR servers
 4. Invite system for user onboarding
-5. Rich encoder settings per HW platform
+5. ~~Rich encoder settings per HW platform~~ — DONE (default_hwaccel, default_decode_hwaccel, per-codec encoder_h264/decoder_h264/etc)
 6. Recording status flow tracking (status page)
 7. Logo service (EPG logo extraction, logo management page) — caching proxy exists
 8. In-process H.265 encoder fix (CGO crash on ARM64, works on amd64)
