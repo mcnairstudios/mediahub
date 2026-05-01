@@ -676,7 +676,7 @@ Endpoints mediahub has that tvproxy does NOT:
 - Library per-source browsing with category drill-in for large sources
 
 ### MEDIUM (nice to have for production)
-1. Multi-profile WireGuard with failover
+1. Multi-profile WireGuard with automatic failover — health check active tunnel periodically, if it fails try next profile in order, activate first one that works
 2. WG pool with per-session proxy
 3. Per-device HDHR servers
 4. Invite system for user onboarding
