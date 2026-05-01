@@ -167,7 +167,9 @@ func New(cfg Config) (*Bridge, error) {
 			return nil, fmt.Errorf("bridge: video encoder: %w", err)
 		}
 
+		cfg.Log.Info().Int("width", outW).Int("height", outH).Int("fps", videoFPS).Str("codec", outCodec).Str("hwaccel", cfg.HWAccel).Msg("bridge: video encoder created")
 		if ed := b.videoEnc.Extradata(); len(ed) > 0 {
+			cfg.Log.Info().Int("extradata_len", len(ed)).Str("first20", fmt.Sprintf("%x", ed[:min(20, len(ed))])).Msg("bridge: raw encoder extradata")
 			codecName := "h264"
 			if b.videoEnc.CodecID() == astiav.CodecIDHevc {
 				codecName = "hevc"

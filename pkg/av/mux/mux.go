@@ -195,6 +195,9 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 			tm.close()
 			return nil, fmt.Errorf("set extradata: %w", err)
 		}
+		if codecID == astiav.CodecIDHevc && extradata[0] == 0x01 {
+			cp.SetCodecTag(0x31637668) // hvc1
+		}
 	}
 
 	opts := astiav.NewDictionary()
