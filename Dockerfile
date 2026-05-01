@@ -89,6 +89,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         gosu \
         dtv-scan-tables \
+        git \
         ca-certificates \
         libx264-164 \
         libx265-199 \
@@ -139,6 +140,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
       && (apt-get install -y --no-install-recommends libmfx1 2>/dev/null || true) \
       && rm -rf /var/lib/apt/lists/*; \
     fi
+
+RUN git clone --depth 1 https://git.linuxtv.org/dtv-scan-tables.git /tmp/dtv-scan-tables \
+    && rm -rf /usr/share/dvb/dvb-s /usr/share/dvb/dvb-t /usr/share/dvb/dvb-c \
+    && cp -R /tmp/dtv-scan-tables/dvb-s /usr/share/dvb/ \
+    && cp -R /tmp/dtv-scan-tables/dvb-t /usr/share/dvb/ \
+    && cp -R /tmp/dtv-scan-tables/dvb-c /usr/share/dvb/ \
+    && rm -rf /tmp/dtv-scan-tables \
+    && apt-get purge -y git && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /mediahub /usr/local/bin/mediahub
 COPY --from=builder /usr/local/lib/libav*.so* /usr/local/lib/

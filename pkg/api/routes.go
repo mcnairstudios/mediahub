@@ -48,6 +48,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/play/{streamID}/seek", s.authenticated(s.handleSeek))
 	s.mux.Handle("POST /api/play/{streamID}/record", s.authenticated(s.handleStartRecording))
 	s.mux.Handle("DELETE /api/play/{streamID}/record", s.authenticated(s.handleStopRecording))
+	s.mux.Handle("GET /api/play/{streamID}/subtitles", s.authenticated(s.handleSubtitles))
 	s.mux.Handle("GET /api/play/{streamID}/hls/{path...}", s.authenticated(s.handlePlaybackServe))
 	s.mux.Handle("GET /api/play/{streamID}/mse/{path...}", s.authenticated(s.handlePlaybackServe))
 
@@ -110,8 +111,15 @@ func (s *Server) registerRoutes() {
 
 	s.mux.Handle("GET /api/streams/{id}/detail", s.authenticated(s.handleStreamDetail))
 	s.mux.Handle("GET /api/vod/library", s.authenticated(s.handleVODLibrary))
+	s.mux.Handle("GET /api/vod/categories", s.authenticated(s.handleVODCategories))
 	s.mux.HandleFunc("GET /api/tmdb/image", s.handleTMDBImage)
+	s.mux.Handle("GET /api/tmdb/detail/{tmdbID}", s.authenticated(s.handleTMDBDetail))
+	s.mux.Handle("GET /api/tmdb/queue", s.authenticated(s.handleTMDBQueue))
 	s.mux.Handle("GET /api/tmdb/sync", s.authenticated(s.handleTMDBSyncStatus))
+
+	if s.deps.TMDBImageServer != nil {
+		s.mux.HandleFunc("GET /api/tmdb/i/{path...}", s.deps.TMDBImageServer.ServeHTTP)
+	}
 
 	s.mux.Handle("GET /api/clients", s.authenticated(s.handleListClients))
 	s.mux.Handle("GET /api/clients/{id}", s.authenticated(s.handleGetClient))

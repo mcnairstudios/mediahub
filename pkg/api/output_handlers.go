@@ -21,6 +21,7 @@ func (s *Server) handleOutputM3U(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
 		return
 	}
+	channels = s.filterChannelsByUser(r, channels)
 
 	groups, err := s.deps.GroupStore.List(r.Context())
 	if err != nil {
@@ -75,6 +76,7 @@ func (s *Server) handleOutputEPG(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
 		return
 	}
+	channels = s.filterChannelsByUser(r, channels)
 
 	programs, err := s.deps.ProgramStore.ListAll(r.Context())
 	if err != nil {
@@ -213,10 +215,12 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 		ConnRegistry:      s.deps.ConnRegistry,
 		SessionMgr:        s.deps.SessionMgr,
 		Detector:          s.deps.Detector,
+		ClientStore:       s.deps.ClientStore,
 		OutputReg:         s.deps.OutputReg,
 		Strategy:          s.deps.Strategy,
 		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
+		ClientOverrideID:  ch.StreamProfileID,
 	}
 
 	result, err := orchestrator.StartPlayback(r.Context(), deps, streamID, 0, headers)

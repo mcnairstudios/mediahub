@@ -1247,7 +1247,7 @@ func TestSettingsStore_SeedDefaults(t *testing.T) {
 
 	defaults := map[string]string{
 		"default_hwaccel":        "none",
-		"default_video_codec":    "copy",
+		"recording_video_codec":  "copy",
 		"default_decode_hwaccel": "",
 		"dlna_enabled":           "true",
 		"delivery":               "mse",

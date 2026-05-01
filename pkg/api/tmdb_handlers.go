@@ -1,13 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
-	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
@@ -44,86 +42,132 @@ func (s *Server) handleStreamDetail(w http.ResponseWriter, r *http.Request) {
 		"is_active": stream.IsActive,
 	}
 
-	if s.deps.TMDBClient == nil {
-		httputil.RespondJSON(w, http.StatusOK, result)
-		return
-	}
-
-	mediaType := stream.VODType
-	if mediaType == "" || mediaType == "episode" {
-		if stream.Season > 0 || stream.Episode > 0 {
-			mediaType = "series"
-		} else {
-			mediaType = "movie"
-		}
-	}
-
-	if stream.TMDBID != "" {
+	if s.deps.TMDBStore != nil && stream.TMDBID != "" {
 		tmdbID, err := strconv.Atoi(stream.TMDBID)
 		if err == nil && tmdbID > 0 {
-			if mediaType == "movie" {
-				movie, err := s.deps.TMDBClient.MovieDetail(tmdbID)
-				if err == nil && movie != nil {
-					enrichMovieResult(result, movie)
-					httputil.RespondJSON(w, http.StatusOK, result)
-					return
-				}
-			} else {
-				series, err := s.deps.TMDBClient.TVDetail(tmdbID)
-				if err == nil && series != nil {
-					enrichSeriesResult(result, series)
-					httputil.RespondJSON(w, http.StatusOK, result)
-					return
-				}
+			blob, err := s.deps.TMDBStore.GetBlob(tmdbID)
+			if err == nil && blob != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write(blob)
+				return
 			}
-		}
-	}
-
-	clean, yearStr := vodCleanName(stream.Name)
-	year := 0
-	if yearStr != "" {
-		year, _ = strconv.Atoi(yearStr)
-	} else if stream.Year != "" {
-		year, _ = strconv.Atoi(stream.Year)
-	}
-
-	if mediaType == "movie" {
-		movie, err := s.deps.TMDBClient.SearchMovie(clean, year)
-		if err == nil && movie != nil {
-			enrichMovieResult(result, movie)
-		}
-	} else {
-		series, err := s.deps.TMDBClient.SearchTV(stream.Name)
-		if err == nil && series != nil {
-			enrichSeriesResult(result, series)
 		}
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTMDBDetail(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("tmdbID")
+	tmdbID, err := strconv.Atoi(idStr)
+	if err != nil || tmdbID <= 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid TMDB ID")
+		return
+	}
+
+	if s.deps.TMDBStore == nil {
+		httputil.RespondError(w, http.StatusNotFound, "TMDB store not configured")
+		return
+	}
+
+	blob, err := s.deps.TMDBStore.GetBlob(tmdbID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if blob == nil {
+		httputil.RespondError(w, http.StatusNotFound, "no metadata for this TMDB ID")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(blob)
+}
+
+func (s *Server) handleTMDBQueue(w http.ResponseWriter, r *http.Request) {
+	var metaCount, imageCount int
+	if s.deps.TMDBStore != nil {
+		metaCount, _ = s.deps.TMDBStore.QueueCount()
+		imageCount, _ = s.deps.TMDBStore.ImageQueueCount()
+	}
+	httputil.RespondJSON(w, http.StatusOK, map[string]int{
+		"metadata": metaCount,
+		"images":   imageCount,
+	})
+}
+
+func (s *Server) handleVODCategories(w http.ResponseWriter, r *http.Request) {
 	vodType := r.URL.Query().Get("type")
 	sourceID := r.URL.Query().Get("source_id")
 
-	cacheKey := "vod:" + vodType + ":" + sourceID
-	if entry, ok := s.vodCache.Load(cacheKey); ok {
-		if ce, ok := entry.(*vodCacheEntry); ok {
-			if result, ok := ce.data.(map[string]any); ok {
-				if s.deps.TMDBClient != nil {
-					st := s.deps.TMDBClient.Status()
-					result["sync"] = st
-					if st.Syncing {
-						s.vodCache.Delete(cacheKey)
-					}
-				}
-			}
-			httputil.RespondJSON(w, http.StatusOK, ce.data)
-			return
+	var streams []media.Stream
+	var err error
+	if sourceID != "" && s.deps.SourceConfigStore != nil {
+		if sc, scErr := s.deps.SourceConfigStore.Get(r.Context(), sourceID); scErr == nil && sc != nil {
+			streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
 		}
 	}
+	if streams == nil && err == nil {
+		streams, err = s.deps.StreamStore.List(r.Context())
+	}
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list streams")
+		return
+	}
 
-	streams, err := s.deps.StreamStore.List(r.Context())
+	counts := make(map[string]int)
+	for _, st := range streams {
+		if st.VODType == "" {
+			continue
+		}
+		if vodType != "" {
+			if vodType == "series" {
+				if st.VODType != "series" && st.VODType != "episode" {
+					continue
+				}
+			} else if st.VODType != vodType {
+				continue
+			}
+		}
+		g := st.Group
+		if g == "" {
+			g = "Uncategorized"
+		}
+		counts[g]++
+	}
+
+	type cat struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	var cats []cat
+	for name, count := range counts {
+		cats = append(cats, cat{Name: name, Count: count})
+	}
+	if cats == nil {
+		cats = []cat{}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, cats)
+}
+
+func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
+	vodType := r.URL.Query().Get("type")
+	sourceID := r.URL.Query().Get("source_id")
+	groupFilter := r.URL.Query().Get("group")
+
+	var streams []media.Stream
+	var err error
+	if sourceID != "" && s.deps.SourceConfigStore != nil {
+		if sc, scErr := s.deps.SourceConfigStore.Get(r.Context(), sourceID); scErr == nil && sc != nil {
+			streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
+		}
+	}
+	if streams == nil && err == nil {
+		streams, err = s.deps.StreamStore.List(r.Context())
+	}
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list streams")
 		return
@@ -146,10 +190,22 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		if vodType == "series" && st.Season == 0 && st.Episode == 0 && st.IsLocal {
 			continue
 		}
-		if sourceID != "" && st.SourceID != sourceID {
+		if groupFilter != "" && st.Group != groupFilter {
 			continue
 		}
 		filtered = append(filtered, st)
+	}
+
+	type slimItem struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		TMDBID  string `json:"tmdb_id,omitempty"`
+		VODType string `json:"vod_type"`
+		Group   string `json:"group,omitempty"`
+		Series  string `json:"series,omitempty"`
+		Season  int    `json:"season,omitempty"`
+		Episode int    `json:"episode,omitempty"`
+		Year    string `json:"year,omitempty"`
 	}
 
 	type vodAlt struct {
@@ -160,116 +216,82 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type vodItem struct {
-		ID                 string   `json:"id"`
-		Name               string   `json:"name"`
-		PosterURL          string   `json:"poster_url,omitempty"`
-		BackdropURL        string   `json:"backdrop_url,omitempty"`
-		Overview           string   `json:"overview,omitempty"`
-		Rating             float64  `json:"rating,omitempty"`
-		Year               string   `json:"year,omitempty"`
-		Genres             []string `json:"genres,omitempty"`
-		Certification      string   `json:"certification,omitempty"`
-		VODType            string   `json:"vod_type"`
-		Group              string   `json:"group,omitempty"`
-		Series             string   `json:"series,omitempty"`
-		CollectionName     string   `json:"collection_name,omitempty"`
-		CollectionID       int      `json:"collection_id,omitempty"`
-		CollectionPoster   string   `json:"collection_poster,omitempty"`
-		CollectionBackdrop string   `json:"collection_backdrop,omitempty"`
-		Season             int      `json:"season,omitempty"`
-		Episode            int      `json:"episode,omitempty"`
-		EpisodeName        string   `json:"episode_name,omitempty"`
-		EpisodeOverview    string   `json:"episode_overview,omitempty"`
-		EpisodeStill       string   `json:"episode_still,omitempty"`
-		SourceID           string   `json:"source_id,omitempty"`
-		SourceType         string   `json:"source_type,omitempty"`
-		Tags               []string `json:"tags,omitempty"`
-		Alternates         []vodAlt `json:"alternates,omitempty"`
+		ID             string   `json:"id"`
+		Name           string   `json:"name"`
+		TMDBID         string   `json:"tmdb_id,omitempty"`
+		PosterURL      string   `json:"poster_url,omitempty"`
+		Rating         float64  `json:"rating,omitempty"`
+		Year           string   `json:"year,omitempty"`
+		Genres         []string `json:"genres,omitempty"`
+		Certification  string   `json:"certification,omitempty"`
+		VODType        string   `json:"vod_type"`
+		Group          string   `json:"group,omitempty"`
+		Series         string   `json:"series,omitempty"`
+		CollectionName string   `json:"collection_name,omitempty"`
+		CollectionID   int      `json:"collection_id,omitempty"`
+		Season         int      `json:"season,omitempty"`
+		SeasonName     string   `json:"vod_season_name,omitempty"`
+		Episode        int      `json:"episode,omitempty"`
+		EpisodeName    string   `json:"episode_name,omitempty"`
+		SourceID       string   `json:"source_id,omitempty"`
+		SourceType     string   `json:"source_type,omitempty"`
+		Tags           []string `json:"tags,omitempty"`
+		Alternates     []vodAlt `json:"alternates,omitempty"`
 	}
 
-	type cachedLookup struct {
-		movie  *tmdbcache.Movie
-		series *tmdbcache.Series
-	}
-
-	lookupCache := make(map[string]*cachedLookup)
-	var uncached []tmdb.SyncItem
-
-	lookupTMDB := func(st media.Stream) *cachedLookup {
-		mediaType := st.VODType
-		if mediaType == "" || mediaType == "episode" {
-			if st.Season > 0 || st.Episode > 0 {
-				mediaType = "series"
-			} else {
-				mediaType = "movie"
+	fields := r.URL.Query().Get("fields")
+	if fields == "slim" {
+		var slim []slimItem
+		genres := make(map[string]bool)
+		decades := make(map[string]bool)
+		for _, st := range filtered {
+			si := slimItem{
+				ID:      st.ID,
+				Name:    st.Name,
+				TMDBID:  st.TMDBID,
+				VODType: st.VODType,
+				Group:   st.Group,
+				Series:  st.SeriesName,
+				Season:  st.Season,
+				Episode: st.Episode,
+				Year:    st.Year,
+			}
+			slim = append(slim, si)
+			if st.Year != "" && len(st.Year) == 4 {
+				decades[st.Year[:3]+"0s"] = true
 			}
 		}
-
-		lookupName := st.Name
-		if mediaType == "series" {
-			if st.SeriesName != "" {
-				lookupName = st.SeriesName
-			} else if st.Group != "" {
-				lookupName = st.Group
-			}
+		if slim == nil {
+			slim = []slimItem{}
 		}
-
-		cacheKey := lookupName + "_" + mediaType
-		if cached, ok := lookupCache[cacheKey]; ok {
-			return cached
+		decadeList := make([]string, 0, len(decades))
+		for d := range decades {
+			decadeList = append(decadeList, d)
 		}
-
-		cached := &cachedLookup{}
-		lookupCache[cacheKey] = cached
-
-		if s.deps.TMDBCache == nil {
-			return cached
+		genreList := make([]string, 0, len(genres))
+		for g := range genres {
+			genreList = append(genreList, g)
 		}
-
-		clean, yearStr := vodCleanName(lookupName)
-		year := 0
-		if yearStr != "" {
-			year, _ = strconv.Atoi(yearStr)
-		} else if st.Year != "" {
-			year, _ = strconv.Atoi(st.Year)
-		}
-
-		if mediaType == "movie" {
-			movieCacheKey := "search_movie_" + clean
-			if year > 0 {
-				movieCacheKey += "_" + strconv.Itoa(year)
-			}
-			if m, ok := s.deps.TMDBCache.GetMovie(movieCacheKey); ok {
-				cached.movie = m
-			} else {
-				uncached = append(uncached, tmdb.SyncItem{Name: lookupName, MediaType: mediaType, TMDBID: st.TMDBID})
-			}
-		} else {
-			seriesCacheKey := "search_tv_" + lookupName
-			if _, ok := s.deps.TMDBCache.GetSeries(seriesCacheKey); !ok {
-				seriesCacheKey = "search_tv_" + clean
-			}
-			if sr, ok := s.deps.TMDBCache.GetSeries(seriesCacheKey); ok {
-				cached.series = sr
-			} else {
-				uncached = append(uncached, tmdb.SyncItem{Name: lookupName, MediaType: mediaType, TMDBID: st.TMDBID})
-			}
-		}
-
-		return cached
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{
+			"items":   slim,
+			"total":   len(slim),
+			"decades": decadeList,
+			"genres":  genreList,
+		})
+		return
 	}
 
 	var items []vodItem
 	for _, st := range filtered {
-		cached := lookupTMDB(st)
-
 		item := vodItem{
 			ID:          st.ID,
 			Name:        st.Name,
+			TMDBID:      st.TMDBID,
 			VODType:     st.VODType,
 			Group:       st.Group,
 			Series:      st.SeriesName,
 			Season:      st.Season,
+			SeasonName:  st.SeasonName,
 			Episode:     st.Episode,
 			EpisodeName: st.EpisodeName,
 			SourceID:    st.SourceID,
@@ -286,79 +308,20 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 			item.CollectionID = cid
 		}
 
-		if cached.movie != nil {
-			m := cached.movie
-			item.Overview = m.Overview
-			item.Rating = m.Rating
-			item.Genres = m.Genres
-			item.Certification = m.Certification
-			if m.ReleaseDate != "" && len(m.ReleaseDate) >= 4 {
-				item.Year = m.ReleaseDate[:4]
-			}
-			if m.PosterPath != "" {
-				item.PosterURL = "/api/tmdb/image?size=w500&path=" + m.PosterPath
-			}
-			if m.BackdropPath != "" {
-				item.BackdropURL = "/api/tmdb/image?size=w1280&path=" + m.BackdropPath
-			}
-			if m.CollectionID > 0 {
-				item.CollectionID = m.CollectionID
-				item.CollectionName = m.CollectionName
-			}
-		} else if cached.series != nil {
-			sr := cached.series
-			item.Overview = sr.Overview
-			item.Rating = sr.Rating
-			item.Genres = sr.Genres
-			if sr.FirstAirDate != "" && len(sr.FirstAirDate) >= 4 {
-				item.Year = sr.FirstAirDate[:4]
-			}
-			if sr.PosterPath != "" {
-				item.PosterURL = "/api/tmdb/image?size=w500&path=" + sr.PosterPath
-			}
-			if sr.BackdropPath != "" {
-				item.BackdropURL = "/api/tmdb/image?size=w1280&path=" + sr.BackdropPath
-			}
-			if st.Season > 0 && st.Episode > 0 {
-				for _, sn := range sr.Seasons {
-					if sn.SeasonNumber == st.Season {
-						for _, ep := range sn.Episodes {
-							if ep.EpisodeNumber == st.Episode {
-								if ep.Name != "" && item.EpisodeName == "" {
-									item.EpisodeName = ep.Name
-								}
-								if ep.Overview != "" {
-									item.EpisodeOverview = ep.Overview
-								}
-								if ep.StillPath != "" {
-									item.EpisodeStill = "/api/tmdb/image?size=w300&path=" + ep.StillPath
-								}
-								break
-							}
-						}
-						break
-					}
-				}
+		if st.TMDBID != "" {
+			tmdbID, err := strconv.Atoi(st.TMDBID)
+			if err == nil && tmdbID > 0 {
+				item.PosterURL = fmt.Sprintf("/api/tmdb/i/%d/poster.jpg", tmdbID)
 			}
 		}
 
 		items = append(items, item)
 	}
 
-	if s.deps.TMDBClient != nil && len(uncached) > 0 {
-		s.deps.TMDBClient.SyncBatch(uncached)
-	}
-
 	scoreItem := func(item vodItem) int {
 		score := 0
 		if item.PosterURL != "" {
 			score += 5
-		}
-		if item.Overview != "" {
-			score += 3
-		}
-		if item.Rating > 0 {
-			score += 2
 		}
 		if item.Year != "" {
 			score += 1
@@ -396,27 +359,18 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 		items = []vodItem{}
 	}
 
-	cached := 0
-	for _, item := range items {
-		if item.PosterURL != "" {
-			cached++
-		}
-	}
-
-	var syncStatus *tmdb.SyncStatus
-	if s.deps.TMDBClient != nil {
-		st := s.deps.TMDBClient.Status()
-		syncStatus = &st
+	var queue map[string]int
+	if s.deps.TMDBStore != nil {
+		metaCount, _ := s.deps.TMDBStore.QueueCount()
+		imageCount, _ := s.deps.TMDBStore.ImageQueueCount()
+		queue = map[string]int{"metadata": metaCount, "images": imageCount}
 	}
 
 	result := map[string]any{
-		"items":  items,
-		"total":  len(items),
-		"cached": cached,
-		"sync":   syncStatus,
+		"items": items,
+		"total": len(items),
+		"queue": queue,
 	}
-
-	s.vodCache.Store(cacheKey, &vodCacheEntry{data: result, createdAt: time.Now()})
 
 	httputil.RespondJSON(w, http.StatusOK, result)
 }
@@ -437,119 +391,3 @@ func (s *Server) handleTMDBImage(w http.ResponseWriter, r *http.Request) {
 	s.deps.TMDBImages.ServeHTTP(w, r)
 }
 
-func enrichMovieResult(result map[string]any, m *tmdbcache.Movie) {
-	result["media_type"] = "movie"
-	result["title"] = m.Title
-	result["overview"] = m.Overview
-	result["poster_path"] = m.PosterPath
-	result["backdrop_path"] = m.BackdropPath
-	result["release_date"] = m.ReleaseDate
-	result["rating"] = m.Rating
-	result["runtime"] = m.Runtime
-	result["genres"] = m.Genres
-	result["certification"] = m.Certification
-	result["collection_id"] = m.CollectionID
-	result["collection_name"] = m.CollectionName
-
-	if m.PosterPath != "" {
-		result["poster_url"] = "/api/tmdb/image?size=w500&path=" + m.PosterPath
-	}
-	if m.BackdropPath != "" {
-		result["backdrop_url"] = "/api/tmdb/image?size=w1280&path=" + m.BackdropPath
-	}
-
-	cast := make([]map[string]any, 0, len(m.Cast))
-	for _, c := range m.Cast {
-		entry := map[string]any{
-			"name":      c.Name,
-			"character": c.Character,
-			"tmdb_id":   c.TMDBID,
-		}
-		if c.ProfilePath != "" {
-			entry["profile_path"] = c.ProfilePath
-			entry["profile_url"] = "/api/tmdb/image?size=w185&path=" + c.ProfilePath
-		}
-		cast = append(cast, entry)
-	}
-	result["cast"] = cast
-
-	crew := make([]map[string]any, 0, len(m.Crew))
-	for _, c := range m.Crew {
-		entry := map[string]any{
-			"name":       c.Name,
-			"job":        c.Job,
-			"department": c.Department,
-			"tmdb_id":    c.TMDBID,
-		}
-		if c.ProfilePath != "" {
-			entry["profile_path"] = c.ProfilePath
-			entry["profile_url"] = "/api/tmdb/image?size=w185&path=" + c.ProfilePath
-		}
-		crew = append(crew, entry)
-	}
-	result["crew"] = crew
-}
-
-func enrichSeriesResult(result map[string]any, s *tmdbcache.Series) {
-	result["media_type"] = "series"
-	result["title"] = s.Name
-	result["overview"] = s.Overview
-	result["poster_path"] = s.PosterPath
-	result["backdrop_path"] = s.BackdropPath
-	result["first_air_date"] = s.FirstAirDate
-	result["rating"] = s.Rating
-	result["genres"] = s.Genres
-
-	if s.PosterPath != "" {
-		result["poster_url"] = "/api/tmdb/image?size=w500&path=" + s.PosterPath
-	}
-	if s.BackdropPath != "" {
-		result["backdrop_url"] = "/api/tmdb/image?size=w1280&path=" + s.BackdropPath
-	}
-
-	seasons := make([]map[string]any, 0, len(s.Seasons))
-	for _, sn := range s.Seasons {
-		entry := map[string]any{
-			"season_number": sn.SeasonNumber,
-			"name":          sn.Name,
-			"overview":      sn.Overview,
-			"episode_count": sn.EpisodeCount,
-		}
-		if sn.PosterPath != "" {
-			entry["poster_path"] = sn.PosterPath
-			entry["poster_url"] = "/api/tmdb/image?size=w342&path=" + sn.PosterPath
-		}
-		eps := make([]map[string]any, 0, len(sn.Episodes))
-		for _, ep := range sn.Episodes {
-			epEntry := map[string]any{
-				"episode_number": ep.EpisodeNumber,
-				"name":           ep.Name,
-				"overview":       ep.Overview,
-				"air_date":       ep.AirDate,
-				"runtime":        ep.Runtime,
-			}
-			if ep.StillPath != "" {
-				epEntry["still_path"] = ep.StillPath
-				epEntry["still_url"] = "/api/tmdb/image?size=w300&path=" + ep.StillPath
-			}
-			eps = append(eps, epEntry)
-		}
-		entry["episodes"] = eps
-		seasons = append(seasons, entry)
-	}
-	result["seasons"] = seasons
-}
-
-var vodYearParen = regexp.MustCompile(`\((\d{4})\)`)
-var vodEditionTag = regexp.MustCompile(`\{edition-[^}]*\}`)
-
-func vodCleanName(name string) (string, string) {
-	year := ""
-	cleaned := name
-	cleaned = vodEditionTag.ReplaceAllString(cleaned, "")
-	if m := vodYearParen.FindStringSubmatch(cleaned); len(m) > 1 {
-		year = m[1]
-		cleaned = vodYearParen.ReplaceAllString(cleaned, "")
-	}
-	return strings.TrimSpace(cleaned), year
-}

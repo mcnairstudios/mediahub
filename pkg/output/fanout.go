@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mcnairstudios/mediahub/pkg/av/subtitle"
 	"github.com/rs/zerolog/log"
 )
 
@@ -14,9 +15,10 @@ var errFanOutStopped = errors.New("fanout is stopped")
 // plugins are collected but do not prevent delivery to other plugins. Plugins
 // can be added and removed at runtime (e.g., recording starts mid-stream).
 type FanOut struct {
-	plugins []OutputPlugin
-	mu      sync.RWMutex
-	stopped bool
+	plugins    []OutputPlugin
+	mu         sync.RWMutex
+	stopped    bool
+	subtitleFn func(data []byte, pts int64, duration int64)
 }
 
 // NewFanOut creates a FanOut with the given initial plugins.
@@ -63,13 +65,24 @@ func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
 	return firstErr
 }
 
-// PushSubtitle sends a subtitle packet to all plugins.
+func (f *FanOut) SetSubtitleCollector(c *subtitle.Collector) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c != nil {
+		f.subtitleFn = c.Push
+	}
+}
+
 func (f *FanOut) PushSubtitle(data []byte, pts int64, duration int64) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
 	if f.stopped {
 		return errFanOutStopped
+	}
+
+	if f.subtitleFn != nil {
+		f.subtitleFn(data, pts, duration)
 	}
 
 	var firstErr error

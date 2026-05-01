@@ -22,6 +22,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/defaults"
 	"github.com/mcnairstudios/mediahub/pkg/logocache"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/cache"
 	tmdbcache "github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
@@ -174,6 +175,7 @@ func main() {
 				}
 				scUpd.Config["etag"] = etag
 				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
+				scUpd.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
 				sourceConfigStore.Update(ctx, scUpd)
 			},
 		}
@@ -214,6 +216,7 @@ func main() {
 				}
 				scUpd.Config["etag"] = etag
 				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
+				scUpd.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
 				sourceConfigStore.Update(ctx, scUpd)
 			},
 			OnEnrolled: func(sourceID string) error {
@@ -314,6 +317,10 @@ func main() {
 				maxStreams = n
 			}
 		}
+		diseqcSource := 0
+		if ds := sc.Config["diseqc_source"]; ds != "" {
+			fmt.Sscanf(ds, "%d", &diseqcSource)
+		}
 		satipCfg := satipsource.Config{
 			ID:              sc.ID,
 			Name:            sc.Name,
@@ -322,6 +329,7 @@ func main() {
 			IsEnabled:       sc.IsEnabled,
 			MaxStreams:       maxStreams,
 			TransmitterFile: sc.Config["transmitter_file"],
+			DiSEqCSource:    diseqcSource,
 			StreamStore:     streamStore,
 		}
 		return satipsource.New(satipCfg), nil
@@ -417,6 +425,13 @@ func main() {
 	}, tmdbCache)
 	tmdbImages := tmdb.NewImageCache(filepath.Join(cfg.DataDir, "tmdb_images"))
 
+	tmdbImageDir := filepath.Join(cfg.DataDir, "tmdb_images")
+	tmdbStore, err := tmdb.NewStore(db.BoltDB())
+	if err != nil {
+		log.Fatalf("tmdb store: %v", err)
+	}
+	tmdbImageServer := tmdb.NewImageServer(tmdbImageDir)
+
 	apiServer := api.NewServer(api.OrchestratorDeps{
 		StreamStore:       streamStore,
 		ChannelStore:      channelStore,
@@ -441,6 +456,8 @@ func main() {
 		TMDBClient:        tmdbClient,
 		TMDBCache:         tmdbCache,
 		TMDBImages:        tmdbImages,
+		TMDBStore:         tmdbStore,
+		TMDBImageServer:   tmdbImageServer,
 		SourceProfileStore: sourceProfileStore,
 		ProbeCache:         probeCache,
 		Config:            cfg,
@@ -512,13 +529,21 @@ func main() {
 		LogoCache:  logoCache,
 		Log:        zlog,
 	})
-	go func() {
-		addr := fmt.Sprintf(":%d", cfg.JellyfinPort)
-		log.Printf("jellyfin emulation on %s", addr)
-		if err := jellyfinServer.ListenAndServe(addr); err != nil {
-			errCh <- fmt.Errorf("jellyfin server: %w", err)
-		}
-	}()
+	jellyfinEnabled := true
+	if val, err := settingsStore.Get(ctx, "jellyfin_enabled"); err == nil && (val == "false" || val == "0") {
+		jellyfinEnabled = false
+	}
+	if jellyfinEnabled {
+		go func() {
+			addr := fmt.Sprintf(":%d", cfg.JellyfinPort)
+			log.Printf("jellyfin emulation on %s", addr)
+			if err := jellyfinServer.ListenAndServe(addr); err != nil {
+				errCh <- fmt.Errorf("jellyfin server: %w", err)
+			}
+		}()
+	} else {
+		log.Printf("jellyfin emulation disabled via settings")
+	}
 
 	hdhrDiscovery := hdhr.NewDiscoveryResponder(cfg.BaseURL, zlog)
 	go func() {
@@ -542,6 +567,119 @@ func main() {
 
 	log.Printf("hdhr endpoints on %s (/discover.json, /lineup.json, /device.xml)", cfg.ListenAddr)
 	log.Printf("dlna endpoints on %s (/dlna/*)", cfg.ListenAddr)
+
+	metadataWorker := tmdb.NewMetadataWorker(tmdbStore, func() string {
+		key, _ := settingsStore.Get(ctx, "tmdb_api_key")
+		return key
+	}, tmdbImageDir)
+	go func() {
+		log.Printf("tmdb metadata worker starting")
+		metadataWorker.Run(ctx)
+	}()
+
+	imageWorker := tmdb.NewImageWorker(tmdbStore, tmdbImageDir)
+	go func() {
+		log.Printf("tmdb image worker starting")
+		imageWorker.Run(ctx)
+	}()
+
+	enqueueTMDBStreams := func() {
+		streams, err := streamStore.List(ctx)
+		if err != nil {
+			log.Printf("tmdb enqueue: list streams: %v", err)
+			return
+		}
+		enqueued := 0
+		var toResolve []tmdb.StreamToResolve
+		for _, st := range streams {
+			if st.VODType == "" {
+				continue
+			}
+			mediaType := "movie"
+			if st.VODType == "series" || st.VODType == "episode" {
+				mediaType = "series"
+			}
+
+			if st.TMDBID != "" {
+				tmdbID := 0
+				fmt.Sscanf(st.TMDBID, "%d", &tmdbID)
+				if tmdbID <= 0 {
+					continue
+				}
+				lookupName := st.SeriesName
+				if lookupName == "" {
+					lookupName = st.Name
+				}
+				if lookupName != "" {
+					tmdbStore.SetName(lookupName, tmdbID, mediaType)
+				}
+				if has, _ := tmdbStore.HasBlob(tmdbID); has {
+					continue
+				}
+				if err := tmdbStore.EnqueueMetadata(tmdb.QueueEntry{
+					TMDBID:    tmdbID,
+					MediaType: mediaType,
+					Status:    "resolving",
+					CreatedAt: time.Now().Unix(),
+				}); err == nil {
+					enqueued++
+				}
+			} else {
+				lookupName := st.SeriesName
+				if lookupName == "" {
+					lookupName = st.Name
+				}
+				toResolve = append(toResolve, tmdb.StreamToResolve{
+					StreamID:  st.ID,
+					Name:      lookupName,
+					Year:      st.Year,
+					MediaType: mediaType,
+				})
+			}
+		}
+		if enqueued > 0 {
+			log.Printf("tmdb enqueue: queued %d items for metadata resolution", enqueued)
+		}
+
+		if len(toResolve) > 0 {
+			log.Printf("tmdb resolver: resolving %d streams without TMDB IDs", len(toResolve))
+			resolved := metadataWorker.ResolveStreams(ctx, toResolve)
+			if len(resolved) > 0 {
+				streamMap := make(map[string]*media.Stream)
+				for i := range streams {
+					streamMap[streams[i].ID] = &streams[i]
+				}
+				var updated []media.Stream
+				for _, r := range resolved {
+					if st, ok := streamMap[r.StreamID]; ok {
+						st.TMDBID = strconv.Itoa(r.TMDBID)
+						updated = append(updated, *st)
+					}
+				}
+				if len(updated) > 0 {
+					if err := streamStore.BulkUpsert(ctx, updated); err != nil {
+						log.Printf("tmdb resolver: update streams: %v", err)
+					} else {
+						log.Printf("tmdb resolver: updated %d streams with TMDB IDs", len(updated))
+					}
+				}
+			}
+		}
+	}
+	go enqueueTMDBStreams()
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				enqueueTMDBStreams()
+			}
+		}
+	}()
 
 	select {
 	case sig := <-sigCh:

@@ -49,6 +49,9 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 			}
 			resp.LastError = info.LastError
 		}
+		if resp.LastRefreshed == "" {
+			resp.LastRefreshed = cfg.Config["last_refreshed"]
+		}
 
 		result = append(result, resp)
 	}

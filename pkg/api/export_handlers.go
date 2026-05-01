@@ -30,13 +30,14 @@ type ExportData struct {
 }
 
 type ExportChannel struct {
-	Name      string   `json:"name"`
-	Number    int      `json:"number"`
-	GroupName string   `json:"group_name,omitempty"`
-	LogoURL   string   `json:"logo_url,omitempty"`
-	TvgID     string   `json:"tvg_id,omitempty"`
-	IsEnabled bool     `json:"is_enabled"`
-	StreamIDs []string `json:"stream_ids,omitempty"`
+	Name            string   `json:"name"`
+	Number          int      `json:"number"`
+	GroupName       string   `json:"group_name,omitempty"`
+	LogoURL         string   `json:"logo_url,omitempty"`
+	TvgID           string   `json:"tvg_id,omitempty"`
+	StreamProfileID string   `json:"stream_profile_id,omitempty"`
+	IsEnabled       bool     `json:"is_enabled"`
+	StreamIDs       []string `json:"stream_ids,omitempty"`
 }
 
 type ExportUser struct {
@@ -78,12 +79,13 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 
 	for _, ch := range channels {
 		ec := ExportChannel{
-			Name:      ch.Name,
-			Number:    ch.Number,
-			LogoURL:   ch.LogoURL,
-			TvgID:     ch.TvgID,
-			IsEnabled: ch.IsEnabled,
-			StreamIDs: ch.StreamIDs,
+			Name:            ch.Name,
+			Number:          ch.Number,
+			LogoURL:         ch.LogoURL,
+			TvgID:           ch.TvgID,
+			StreamProfileID: ch.StreamProfileID,
+			IsEnabled:       ch.IsEnabled,
+			StreamIDs:       ch.StreamIDs,
 		}
 		if ch.GroupID != "" {
 			ec.GroupName = groupNameMap[ch.GroupID]
@@ -194,13 +196,14 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ch := &channel.Channel{
-			ID:        generateID(),
-			Name:      ec.Name,
-			Number:    ec.Number,
-			LogoURL:   ec.LogoURL,
-			TvgID:     ec.TvgID,
-			IsEnabled: ec.IsEnabled,
-			StreamIDs: ec.StreamIDs,
+			ID:              generateID(),
+			Name:            ec.Name,
+			Number:          ec.Number,
+			LogoURL:         ec.LogoURL,
+			TvgID:           ec.TvgID,
+			StreamProfileID: ec.StreamProfileID,
+			IsEnabled:       ec.IsEnabled,
+			StreamIDs:       ec.StreamIDs,
 		}
 		if ec.GroupName != "" {
 			if gid, ok := groupNameToID[ec.GroupName]; ok {

@@ -11,6 +11,7 @@ type Stream struct {
 	TvgName    string `json:"tvg_name"`
 	TvgLogo    string `json:"tvg_logo"`
 	IsActive   bool   `json:"is_active"`
+	Encrypted  bool   `json:"encrypted,omitempty"`
 
 	VideoCodec string `json:"video_codec,omitempty"`
 	AudioCodec string `json:"audio_codec,omitempty"`
@@ -29,6 +30,7 @@ type Stream struct {
 	Episode        int    `json:"episode,omitempty"`
 	EpisodeName    string `json:"episode_name,omitempty"`
 	SeriesName     string `json:"series_name,omitempty"`
+	SeasonName     string `json:"season_name,omitempty"`
 	CollectionName string `json:"collection_name,omitempty"`
 	CollectionID   string `json:"collection_id,omitempty"`
 	IsLocal        bool     `json:"is_local,omitempty"`

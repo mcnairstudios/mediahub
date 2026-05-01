@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -139,7 +140,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		seen[id] = struct{}{}
 		keepIDs = append(keepIDs, id)
 
-		streams = append(streams, media.Stream{
+		st := media.Stream{
 			ID:         id,
 			SourceType: "m3u",
 			SourceID:   s.cfg.ID,
@@ -150,7 +151,51 @@ func (s *Source) Refresh(ctx context.Context) error {
 			TvgName:    entry.TvgName,
 			TvgLogo:    entry.TvgLogo,
 			IsActive:   true,
-		})
+		}
+
+		if tvpType := entry.Attributes["tvp-type"]; tvpType != "" {
+			st.VODType = tvpType
+			st.IsLocal = true
+		}
+		if tvpSeries := entry.Attributes["tvp-series"]; tvpSeries != "" {
+			st.SeriesName = tvpSeries
+		}
+		if tvpCollection := entry.Attributes["tvp-collection"]; tvpCollection != "" {
+			st.CollectionName = tvpCollection
+		}
+		if tvpCollectionID := entry.Attributes["tvp-collection-id"]; tvpCollectionID != "" {
+			st.CollectionID = tvpCollectionID
+		}
+		if tvpSeason := entry.Attributes["tvp-season"]; tvpSeason != "" {
+			if v, err := strconv.Atoi(tvpSeason); err == nil {
+				st.Season = v
+			}
+		}
+		if tvpEpisode := entry.Attributes["tvp-episode"]; tvpEpisode != "" {
+			if v, err := strconv.Atoi(tvpEpisode); err == nil {
+				st.Episode = v
+			}
+		}
+		st.SeasonName = entry.Attributes["tvp-season-name"]
+		st.EpisodeName = entry.Attributes["tvp-episode-name"]
+		st.Year = entry.Attributes["tvp-year"]
+
+		var tags []string
+		for _, tagKey := range []string{"tvp-vcodec", "tvp-acodec", "tvp-resolution", "tvp-audio"} {
+			if v := entry.Attributes[tagKey]; v != "" {
+				tags = append(tags, v)
+			}
+		}
+		for k, v := range entry.Attributes {
+			if len(k) > 8 && k[:8] == "edition-" {
+				tags = append(tags, v)
+			}
+		}
+		if len(tags) > 0 {
+			st.Tags = tags
+		}
+
+		streams = append(streams, st)
 	}
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {

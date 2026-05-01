@@ -798,9 +798,10 @@
       displayName = se + (s.episode_name ? ' - ' + s.episode_name : ' - ' + s.name);
     }
     var groupLabel = s.group ? ' <span style="color:var(--text-muted);font-size:12px">' + esc(s.group) + '</span>' : '';
+    var encLabel = s.encrypted ? ' <span style="background:#ef4444;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600">ENC</span>' : '';
     return '<tr>' +
       '<td>' + logo + '</td>' +
-      '<td>' + esc(displayName) + badges + groupLabel + '</td>' +
+      '<td>' + esc(displayName) + (badges || '') + encLabel + groupLabel + '</td>' +
       '<td style="width:100px"><div style="display:flex;gap:4px;justify-content:flex-end">' +
       '<button class="stream-fav-btn' + favClass + '" data-fav="1" data-sid="' + esc(s.id) + '" style="color:' + favColor + '">' + favChar + '</button>' +
       '<button class="stream-add-btn" data-qadd="1" data-sid="' + esc(s.id) + '" data-sname="' + esc(s.name) + '" title="Add to channel">+</button>' +
@@ -5219,570 +5220,289 @@
     }, 5000);
   }
 
+  var LibData = (function() {
+    function cacheKey(prefix, sourceID) { return 'mh_' + prefix + '_' + (sourceID || 'all'); }
+    function loadCache(key) { try { var r = localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch(e) { return null; } }
+    function saveCache(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {} }
+
+    async function getCategories(sourceID, vodType) {
+      var ck = cacheKey('cats_' + vodType, sourceID);
+      var cached = loadCache(ck);
+      if (cached) {
+        api.get('/api/vod/categories?type=' + vodType + '&source_id=' + encodeURIComponent(sourceID)).then(function(r) { return r.json(); }).then(function(fresh) { saveCache(ck, fresh); }).catch(function(){});
+        return cached;
+      }
+      var resp = await api.get('/api/vod/categories?type=' + vodType + '&source_id=' + encodeURIComponent(sourceID));
+      var data = await resp.json();
+      if (!Array.isArray(data)) data = [];
+      saveCache(ck, data);
+      return data;
+    }
+
+    async function getItems(sourceID, vodType, group) {
+      var sfx = '&source_id=' + encodeURIComponent(sourceID);
+      if (group) sfx += '&group=' + encodeURIComponent(group);
+      var ck = cacheKey(vodType + (group ? '_' + group : ''), sourceID);
+      var cached = loadCache(ck);
+      if (cached && cached.items) {
+        api.get('/api/vod/library?type=' + vodType + '&fields=slim' + sfx).then(function(r) { return r.json(); }).then(function(fresh) { if (fresh && fresh.items) saveCache(ck, fresh); }).catch(function(){});
+        return cached.items;
+      }
+      var resp = await api.get('/api/vod/library?type=' + vodType + '&fields=slim' + sfx);
+      var data = await resp.json();
+      var items = (data && data.items) || [];
+      saveCache(ck, data);
+      return items;
+    }
+
+    return { getCategories: getCategories, getItems: getItems };
+  })();
+
+  var LibProcessor = (function() {
+    function addPosterUrls(items) {
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].tmdb_id && !items[i].poster_url) {
+          items[i].poster_url = '/api/tmdb/i/' + items[i].tmdb_id + '/poster.jpg';
+        }
+      }
+      return items;
+    }
+
+    function groupMovies(items) {
+      var collections = {};
+      var movies = [];
+      var genericGroups = { movies:1, films:1, vod:1, video:1, movie:1, film:1, all:1, uncategorized:1 };
+      for (var i = 0; i < items.length; i++) {
+        var m = items[i];
+        var g = m.group || '';
+        if (g && !genericGroups[g.toLowerCase()]) {
+          var count = 0;
+          for (var j = 0; j < items.length; j++) { if (items[j].group === g) count++; }
+          if (count > 1) {
+            if (!collections[g]) collections[g] = { name: g, movies: [], poster_url: m.poster_url || '' };
+            collections[g].movies.push(m);
+            if (m.poster_url && !collections[g].poster_url) collections[g].poster_url = m.poster_url;
+            continue;
+          }
+        }
+        movies.push(m);
+      }
+      var colList = [];
+      for (var k in collections) colList.push(collections[k]);
+      return { movies: movies, collections: colList };
+    }
+
+    function groupSeries(items) {
+      var map = {};
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var key = item.series || item.name;
+        if (!map[key]) {
+          map[key] = { name: key, episodes: [], seasons: {}, poster_url: '', year: item.year || '' };
+        }
+        map[key].episodes.push(item);
+        if (!map[key].poster_url && item.poster_url) map[key].poster_url = item.poster_url;
+        var sk = item.season > 0 ? item.season : null;
+        if (sk !== null) {
+          if (!map[key].seasons[sk]) map[key].seasons[sk] = [];
+          map[key].seasons[sk].push(item);
+        }
+      }
+      var list = [];
+      for (var k in map) {
+        var show = map[k];
+        if (Object.keys(show.seasons).length === 0 && show.episodes.length > 0) show.seasons[1] = show.episodes;
+        list.push(show);
+      }
+      list.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      return list;
+    }
+
+    return { addPosterUrls: addPosterUrls, groupMovies: groupMovies, groupSeries: groupSeries };
+  })();
+
+  var LibGrid = (function() {
+    function renderPosterGrid(container, items, onItemClick) {
+      if (!items || items.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No items found</p></div>';
+        return;
+      }
+      var html = '<div class="poster-grid">';
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        html += '<div class="poster-card" data-idx="' + i + '">';
+        if (item.poster_url) {
+          html += '<img class="poster-img" src="' + esc(item.poster_url) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+          html += '<div class="poster-placeholder" style="display:none">' + esc(item.name) + '</div>';
+        } else {
+          html += '<div class="poster-placeholder">' + esc(item.name) + '</div>';
+        }
+        html += '<div class="poster-info"><div class="poster-title">' + esc(item.name) + '</div>';
+        if (item.year) html += '<div class="poster-meta"><span class="poster-year">' + esc(item.year) + '</span></div>';
+        if (item.badge) html += '<div class="poster-badge">' + esc(item.badge) + '</div>';
+        html += '</div></div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.querySelectorAll('.poster-card[data-idx]').forEach(function(card) {
+        card.onmouseenter = function() { card.style.transform = 'scale(1.03)'; card.style.boxShadow = '0 8px 30px rgba(0,0,0,0.3)'; };
+        card.onmouseleave = function() { card.style.transform = ''; card.style.boxShadow = ''; };
+        card.onclick = function() { onItemClick(items[parseInt(card.dataset.idx, 10)]); };
+      });
+    }
+
+    function renderCategoryList(container, categories, onCategoryClick) {
+      if (!categories || categories.length === 0) {
+        container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No categories found</p></div>';
+        return;
+      }
+      categories.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;">';
+      for (var i = 0; i < categories.length; i++) {
+        var cat = categories[i];
+        html += '<div class="cat-item" data-idx="' + i + '" style="padding:12px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background 0.15s;">';
+        html += '<span style="font-size:14px;font-weight:500;color:var(--text-primary)">' + esc(cat.name) + '</span>';
+        html += '<span style="font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:10px;">' + cat.count + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.querySelectorAll('.cat-item').forEach(function(el) {
+        el.onmouseenter = function() { el.style.background = 'rgba(255,255,255,0.05)'; };
+        el.onmouseleave = function() { el.style.background = 'var(--bg-card)'; };
+        el.onclick = function() { onCategoryClick(categories[parseInt(el.dataset.idx, 10)]); };
+      });
+    }
+
+    return { renderPosterGrid: renderPosterGrid, renderCategoryList: renderCategoryList };
+  })();
+
   async function renderLibrary(el) {
     el.innerHTML = '<h1 class="page-title">Library</h1>' +
-      '<div id="lib-sync-info"></div>' +
+      '<div id="lib-bar" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap"></div>' +
       '<div id="lib-content"><div class="skeleton" style="height:400px"></div></div>';
 
     try {
       await loadFavorites();
 
-      var movieResp = await api.get('/api/vod/library?type=movie');
-      var movieData = await movieResp.json();
-      var movieItems = (movieData && movieData.items) || [];
-      var movieSync = movieData && movieData.sync;
-
-      var seriesResp = await api.get('/api/vod/library?type=series');
-      var seriesData = await seriesResp.json();
-      var seriesItems = (seriesData && seriesData.items) || [];
-      var seriesSync = seriesData && seriesData.sync;
-
-      var collections = {};
-      var movies = [];
-      for (var ci = 0; ci < movieItems.length; ci++) {
-        var mi = movieItems[ci];
-        var groupKey = mi.group || '';
-        var isCollection = false;
-        if (groupKey) {
-          var genericGroups = ['movies', 'films', 'vod', 'video', 'movie', 'film', 'all'];
-          var isGenericGroup = genericGroups.indexOf(groupKey.toLowerCase()) >= 0;
-          if (!isGenericGroup) {
-            var groupMovies = movieItems.filter(function(m) { return m.group === groupKey; });
-            if (groupMovies.length > 1) isCollection = true;
-          }
-        }
-        if (isCollection) {
-          if (!collections[groupKey]) {
-            collections[groupKey] = {
-              name: groupKey,
-              movies: [],
-              poster_url: mi.collection_poster || mi.poster_url || '',
-              backdrop_url: mi.collection_backdrop || mi.backdrop_url || ''
-            };
-          }
-          collections[groupKey].movies.push(mi);
-          if (mi.collection_poster) collections[groupKey].poster_url = mi.collection_poster;
-          if (mi.collection_backdrop) collections[groupKey].backdrop_url = mi.collection_backdrop;
-        } else {
-          movies.push(mi);
-        }
-      }
-      var collectionList = Object.keys(collections).sort().map(function(k) { return collections[k]; });
-
-      var seriesMap = {};
-      for (var si = 0; si < seriesItems.length; si++) {
-        var item = seriesItems[si];
-        var key = item.series || item.group || item.name;
-        if (!seriesMap[key]) {
-          seriesMap[key] = {
-            name: key,
-            collection: item.collection_name || '',
-            episodes: [],
-            seasons: {},
-            poster_url: '',
-            backdrop_url: '',
-            overview: item.overview || '',
-            rating: item.rating || 0,
-            year: item.year || '',
-            genres: item.genres || []
-          };
-        }
-        seriesMap[key].episodes.push(item);
-        if (!seriesMap[key].poster_url && item.poster_url) seriesMap[key].poster_url = item.poster_url;
-        if (!seriesMap[key].backdrop_url && item.backdrop_url) seriesMap[key].backdrop_url = item.backdrop_url;
-        var seasonKey = item.season > 0 ? item.season : null;
-        if (seasonKey !== null) {
-          if (!seriesMap[key].seasons[seasonKey]) seriesMap[key].seasons[seasonKey] = [];
-          seriesMap[key].seasons[seasonKey].push(item);
-        }
-      }
-
-      Object.keys(seriesMap).forEach(function(k) {
-        var show = seriesMap[k];
-        if (Object.keys(show.seasons).length === 0 && show.episodes.length > 0) {
-          show.seasons[1] = show.episodes;
-        }
+      var sourcesResp = await api.get('/api/sources');
+      var allSources = await sourcesResp.json();
+      if (!Array.isArray(allSources)) allSources = [];
+      var vodSources = allSources.filter(function(s) {
+        return s.type === 'tvpstreams' || s.type === 'xtream';
+      }).sort(function(a, b) {
+        var order = { tvpstreams: 0, xtream: 1 };
+        return (order[a.type] || 9) - (order[b.type] || 9) || a.name.localeCompare(b.name);
       });
-      var allSeries = Object.keys(seriesMap).sort().map(function(k) { return seriesMap[k]; });
-
-      var tvCollections = {};
-      var standaloneSeries = [];
-      allSeries.forEach(function(show) {
-        if (show.collection) {
-          if (!tvCollections[show.collection]) tvCollections[show.collection] = { name: show.collection, shows: [] };
-          tvCollections[show.collection].shows.push(show);
-        } else {
-          standaloneSeries.push(show);
-        }
-      });
-
-      var seriesList = [];
-      standaloneSeries.forEach(function(show) { seriesList.push({ type: 'series', show: show, name: show.name }); });
-      Object.values(tvCollections).forEach(function(col) {
-        col.shows.sort(function(a, b) { return a.name.localeCompare(b.name); });
-        seriesList.push({ type: 'tv-collection', collection: col, name: col.name });
-      });
-      seriesList.sort(function(a, b) { return a.name.localeCompare(b.name); });
-
-      var allGenres = {};
-      var allDecades = {};
-      var allTags = {};
-      var allItems = movieItems.concat(seriesItems);
-      for (var gi = 0; gi < allItems.length; gi++) {
-        var mg = allItems[gi];
-        if (mg.genres) {
-          for (var gj = 0; gj < mg.genres.length; gj++) {
-            allGenres[mg.genres[gj]] = true;
-          }
-        }
-        if (mg.year) {
-          var decade = Math.floor(parseInt(mg.year) / 10) * 10;
-          if (decade > 1900) allDecades[decade] = true;
-        }
-        if (mg.tags) {
-          for (var tj = 0; tj < mg.tags.length; tj++) {
-            allTags[mg.tags[tj]] = true;
-          }
-        }
-      }
-
-      var activeTab = 'movies';
-      var searchTerm = '';
-      var filterGenre = '';
-      var filterDecade = '';
-      var filterTag = '';
-      var searchTimer = null;
-      var genreOpts = Object.keys(allGenres).sort();
-      var decadeOpts = Object.keys(allDecades).sort().reverse();
-      var tagOpts = Object.keys(allTags).sort();
 
       var content = document.getElementById('lib-content');
       if (!content) return;
 
-      function buildFilterBar() {
-        var html = '<div class="filter-bar">' +
-          '<input class="form-input" id="lib-search" type="text" placeholder="Search..." style="flex:1;min-width:200px;max-width:320px;padding:8px 12px;font-size:13px">' +
-          '<select class="filter-select" id="lib-genre"><option value="">All Genres</option>' +
-          genreOpts.map(function(g) { return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('') +
-          '</select>' +
-          '<select class="filter-select" id="lib-decade"><option value="">All Decades</option>' +
-          decadeOpts.map(function(d) { return '<option value="' + d + '">' + d + 's</option>'; }).join('') +
-          '</select>';
-        if (tagOpts.length > 0) {
-          html += '<select class="filter-select" id="lib-tag"><option value="">All Tags</option>' +
-            tagOpts.map(function(t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') +
-            '</select>';
-        }
-        html += '</div>';
-        return html;
-      }
-
-      function matchMovieFilter(item) {
-        if (searchTerm && (item.name || '').toLowerCase().indexOf(searchTerm) === -1) return false;
-        if (filterGenre && (!item.genres || item.genres.indexOf(filterGenre) === -1)) return false;
-        if (filterDecade && (!item.year || item.year.indexOf(String(filterDecade)) !== 0)) return false;
-        if (filterTag && (!item.tags || item.tags.indexOf(filterTag) === -1)) return false;
-        return true;
-      }
-
-      function matchCollectionFilter(col) {
-        if (searchTerm && col.name.toLowerCase().indexOf(searchTerm) === -1) return false;
-        if (filterGenre) {
-          var anyGenre = col.movies.some(function(m) { return m.genres && m.genres.indexOf(filterGenre) >= 0; });
-          if (!anyGenre) return false;
-        }
-        if (filterDecade) {
-          var anyDecade = col.movies.some(function(m) { return m.year && m.year.indexOf(String(filterDecade)) === 0; });
-          if (!anyDecade) return false;
-        }
-        if (filterTag) {
-          var anyTag = col.movies.some(function(m) { return m.tags && m.tags.indexOf(filterTag) >= 0; });
-          if (!anyTag) return false;
-        }
-        return true;
-      }
-
-      function matchSeriesFilter(di) {
-        var displayName = di.name;
-        if (searchTerm && displayName.toLowerCase().indexOf(searchTerm) === -1) return false;
-        if (di.type === 'tv-collection') {
-          if (filterGenre) {
-            var anyGenre = di.collection.shows.some(function(s) {
-              return s.episodes.some(function(ep) { return ep.genres && ep.genres.indexOf(filterGenre) >= 0; });
-            });
-            if (!anyGenre) return false;
-          }
-          if (filterDecade) {
-            var anyDecade = di.collection.shows.some(function(s) {
-              return s.episodes.some(function(ep) { return ep.year && ep.year.indexOf(String(filterDecade)) === 0; });
-            });
-            if (!anyDecade) return false;
-          }
-          if (filterTag) {
-            var anyTag = di.collection.shows.some(function(s) {
-              return s.episodes.some(function(ep) { return ep.tags && ep.tags.indexOf(filterTag) >= 0; });
-            });
-            if (!anyTag) return false;
-          }
-        } else {
-          var show = di.show;
-          if (filterGenre && (!show.genres || show.genres.indexOf(filterGenre) === -1)) return false;
-          if (filterDecade && (!show.year || show.year.indexOf(String(filterDecade)) !== 0)) return false;
-          if (filterTag) {
-            var anyEpTag = show.episodes.some(function(ep) { return ep.tags && ep.tags.indexOf(filterTag) >= 0; });
-            if (!anyEpTag) return false;
-          }
-        }
-        return true;
-      }
-
-      function ratingHtml(rating) {
-        if (!rating || rating <= 0) return '';
-        var color = rating >= 7 ? '#22c55e' : rating >= 5 ? '#eab308' : '#ef4444';
-        return '<span class="poster-rating" style="color:' + color + '">\u2605 ' + rating.toFixed(1) + '</span>';
-      }
-
-      function renderMovieGrid() {
-        var filtered = movies.filter(matchMovieFilter);
-        var filteredCollections = collectionList.filter(matchCollectionFilter);
-        var combined = [];
-        for (var fi = 0; fi < filteredCollections.length; fi++) {
-          combined.push({ type: 'collection', collection: filteredCollections[fi], name: filteredCollections[fi].name });
-        }
-        for (var fj = 0; fj < filtered.length; fj++) {
-          combined.push({ type: 'movie', item: filtered[fj], name: filtered[fj].name });
-        }
-        combined.sort(function(a, b) { return a.name.localeCompare(b.name); });
-
-        var grid = document.getElementById('lib-grid');
-        if (!grid) return;
-
-        if (combined.length === 0) {
-          grid.innerHTML = '<div class="empty-state">' + icons.empty + '<p>' + (searchTerm || filterGenre || filterDecade || filterTag ? 'No movies match your filters' : 'No movies found') + '</p></div>';
-          return;
-        }
-
-        var html = '<div class="poster-grid">';
-        for (var i = 0; i < combined.length; i++) {
-          var di = combined[i];
-          if (di.type === 'collection') {
-            var col = di.collection;
-            var colPoster = col.poster_url || (col.movies[0] && col.movies[0].poster_url) || '';
-            html += '<div class="poster-card" data-col-key="' + esc(col.name) + '" data-sort-name="' + esc(col.name.toUpperCase()) + '">';
-            if (colPoster) {
-              html += '<img class="poster-img" src="' + esc(colPoster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-              html += '<div class="poster-placeholder" style="display:none">' + esc(col.name) + '</div>';
-            } else {
-              html += '<div class="poster-placeholder">' + esc(col.name) + '</div>';
-            }
-            html += '<div class="poster-badge">' + col.movies.length + ' films</div>';
-            html += '<div class="poster-info"><div class="poster-title">' + esc(col.name) + '</div>' +
-              '<div class="poster-meta"><span class="poster-year">Collection</span></div></div></div>';
-          } else {
-            var m = di.item;
-            html += '<div class="poster-card" data-movie-id="' + esc(m.id) + '" data-sort-name="' + esc(m.name.toUpperCase()) + '">';
-            if (m.poster_url) {
-              html += '<img class="poster-img" src="' + esc(m.poster_url) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-              html += '<div class="poster-placeholder" style="display:none">' + esc(m.name) + '</div>';
-            } else {
-              html += '<div class="poster-placeholder">' + esc(m.name) + '</div>';
-            }
-            html += '<div class="poster-info"><div class="poster-title">' + esc(m.name) + '</div>' +
-              '<div class="poster-meta">';
-            if (m.year) html += '<span class="poster-year">' + esc(m.year) + '</span>';
-            if (m.rating > 0) html += ratingHtml(m.rating);
-            html += '</div>';
-            if (m.tags && m.tags.length) {
-              html += '<div class="poster-tags">';
-              for (var tg = 0; tg < m.tags.length; tg++) {
-                html += '<span class="poster-tag">' + esc(m.tags[tg]) + '</span>';
-              }
-              html += '</div>';
-            }
-            html += '</div></div>';
-          }
-        }
-        html += '</div>';
-        grid.innerHTML = html;
-
-        var summary = document.getElementById('lib-summary');
-        if (summary) summary.textContent = combined.length + ' title' + (combined.length !== 1 ? 's' : '');
-
-        grid.querySelectorAll('.poster-card[data-movie-id]').forEach(function(card) {
-          card.addEventListener('click', function() {
-            var mid = this.getAttribute('data-movie-id');
-            var item = movies.find(function(m) { return m.id === mid; });
-            if (item) showMovieModal(item);
-          });
-        });
-
-        grid.querySelectorAll('.poster-card[data-col-key]').forEach(function(card) {
-          card.addEventListener('click', function() {
-            var key = this.getAttribute('data-col-key');
-            var col = collections[key];
-            if (col) showCollectionModal(col);
-          });
-        });
-
-        setupAlphabetBar(grid);
-      }
-
-      function getSeriesPoster(show) {
-        var p = show.poster_url || '';
-        if (!p) show.episodes.some(function(ep) { if (ep.poster_url) { p = ep.poster_url; return true; } return false; });
-        return p;
-      }
-
-      function getCollectionPoster(col) {
-        var p = '';
-        col.shows.some(function(s) {
-          var sp = getSeriesPoster(s);
-          if (sp) { p = sp; return true; }
-          return false;
-        });
-        return p;
-      }
-
-      function showTvCollectionModal(col) {
-        var overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
-        overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-        document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } });
-        var modal = document.createElement('div');
-        modal.style.cssText = 'width:90%;max-width:1080px;max-height:92vh;background:var(--bg-card, #1a1d23);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);';
-        var backdrop = document.createElement('div');
-        backdrop.style.cssText = 'width:100%;height:280px;background:linear-gradient(135deg,#1a1a2e,#0f3460);position:relative;overflow:hidden;flex-shrink:0;';
-        backdrop.innerHTML = '<div style="position:absolute;bottom:0;left:0;right:0;height:150px;background:linear-gradient(transparent,var(--bg-card, #1a1d23));"></div>';
-        var closeBtn = document.createElement('button');
-        closeBtn.textContent = '\u2715';
-        closeBtn.style.cssText = 'position:absolute;top:16px;right:16px;background:rgba(0,0,0,0.6);border:none;color:#fff;font-size:18px;width:40px;height:40px;border-radius:50%;cursor:pointer;z-index:3;';
-        closeBtn.onclick = function() { overlay.remove(); };
-        backdrop.appendChild(closeBtn);
-        var titleBlock = document.createElement('div');
-        titleBlock.style.cssText = 'position:absolute;bottom:24px;left:32px;z-index:1;';
-        titleBlock.innerHTML = '<div style="font-size:32px;font-weight:800;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,0.7)">' + esc(col.name) + '</div>' +
-          '<div style="color:rgba(255,255,255,0.7);font-size:14px;margin-top:4px">' + col.shows.length + ' series</div>';
-        backdrop.appendChild(titleBlock);
-        modal.appendChild(backdrop);
-        var body = document.createElement('div');
-        body.style.cssText = 'padding:24px 32px;overflow-y:auto;flex:1;';
-        col.shows.forEach(function(show) {
-          var row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;gap:16px;padding:12px 16px;border-radius:8px;cursor:pointer;transition:background 0.15s;';
-          row.onmouseenter = function() { row.style.background = 'rgba(255,255,255,0.05)'; };
-          row.onmouseleave = function() { row.style.background = ''; };
-          var poster = getSeriesPoster(show);
-          if (poster) {
-            var img = document.createElement('img');
-            img.src = poster;
-            img.style.cssText = 'width:60px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;';
-            row.appendChild(img);
-          }
-          var info = document.createElement('div');
-          info.style.cssText = 'flex:1;min-width:0;';
-          var title = document.createElement('div');
-          title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary, #fff);';
-          title.textContent = show.name;
-          info.appendChild(title);
-          var sc = Object.keys(show.seasons).length;
-          var meta = [];
-          if (sc > 0) meta.push(sc + ' season' + (sc > 1 ? 's' : ''));
-          meta.push(show.episodes.length + ' episodes');
-          if (show.year) meta.push(show.year);
-          var metaEl = document.createElement('div');
-          metaEl.style.cssText = 'font-size:12px;color:var(--text-muted, #999);margin-top:2px;';
-          metaEl.textContent = meta.join(' \u2022 ');
-          info.appendChild(metaEl);
-          row.appendChild(info);
-          row.onclick = function() { overlay.remove(); showSeriesModal(show); };
-          body.appendChild(row);
-        });
-        modal.appendChild(body);
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-      }
-
-      function renderSeriesGrid() {
-        var filtered = seriesList.filter(matchSeriesFilter);
-        var grid = document.getElementById('lib-grid');
-        if (!grid) return;
-
-        if (filtered.length === 0) {
-          grid.innerHTML = '<div class="empty-state">' + icons.empty + '<p>' + (searchTerm ? 'No series match your search' : 'No TV series found') + '</p></div>';
-          return;
-        }
-
-        var html = '<div class="poster-grid">';
-        for (var i = 0; i < filtered.length; i++) {
-          var di = filtered[i];
-          var displayName = di.name;
-          if (di.type === 'tv-collection') {
-            var col = di.collection;
-            var colPoster = getCollectionPoster(col);
-            html += '<div class="poster-card" data-tvcol-key="' + esc(col.name) + '" data-sort-name="' + esc(col.name.toUpperCase()) + '">';
-            if (colPoster) {
-              html += '<img class="poster-img" src="' + esc(colPoster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-              html += '<div class="poster-placeholder" style="display:none">' + esc(col.name) + '</div>';
-            } else {
-              html += '<div class="poster-placeholder">' + esc(col.name) + '</div>';
-            }
-            html += '<div class="poster-badge">' + col.shows.length + ' series</div>';
-            html += '<div class="poster-info"><div class="poster-title">' + esc(col.name) + '</div>' +
-              '<div class="poster-meta"><span class="poster-year">Collection</span></div></div></div>';
-          } else {
-            var show = di.show;
-            var epCount = show.episodes.length;
-            var poster = getSeriesPoster(show);
-            html += '<div class="poster-card" data-series-key="' + esc(show.name) + '" data-sort-name="' + esc(show.name.toUpperCase()) + '">';
-            if (poster) {
-              html += '<img class="poster-img" src="' + esc(poster) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-              html += '<div class="poster-placeholder" style="display:none">' + esc(show.name) + '</div>';
-            } else {
-              html += '<div class="poster-placeholder">' + esc(show.name) + '</div>';
-            }
-            html += '<div class="poster-badge">' + epCount + ' ep' + (epCount !== 1 ? 's' : '') + '</div>';
-            html += '<div class="poster-info"><div class="poster-title">' + esc(show.name) + '</div>' +
-              '<div class="poster-meta">';
-            if (show.year) html += '<span class="poster-year">' + esc(show.year) + '</span>';
-            if (show.rating > 0) html += ratingHtml(show.rating);
-            html += '</div></div></div>';
-          }
-        }
-        html += '</div>';
-        grid.innerHTML = html;
-
-        var summary = document.getElementById('lib-summary');
-        if (summary) summary.textContent = filtered.length + ' title' + (filtered.length !== 1 ? 's' : '');
-
-        grid.querySelectorAll('.poster-card[data-series-key]').forEach(function(card) {
-          card.addEventListener('click', function() {
-            var key = this.getAttribute('data-series-key');
-            var show = seriesMap[key];
-            if (show) showSeriesModal(show);
-          });
-        });
-
-        grid.querySelectorAll('.poster-card[data-tvcol-key]').forEach(function(card) {
-          card.addEventListener('click', function() {
-            var key = this.getAttribute('data-tvcol-key');
-            var col = tvCollections[key];
-            if (col) showTvCollectionModal(col);
-          });
-        });
-
-        setupAlphabetBar(grid);
-      }
-
-      function renderActiveTab() {
-        if (activeTab === 'movies') renderMovieGrid();
-        else renderSeriesGrid();
-      }
-
-      if (movieItems.length === 0 && seriesList.length === 0) {
-        content.innerHTML = '<div class="empty-state" style="padding:80px 20px">' +
-          '<div style="font-size:48px;opacity:0.3;margin-bottom:16px">&#127916;</div>' +
-          '<p style="font-size:16px;color:var(--text-dim);margin-bottom:8px">Your library is empty</p>' +
-          '<p style="font-size:13px;color:var(--text-muted)">Add an M3U source with VOD content to populate your library.</p></div>';
+      if (vodSources.length === 0) {
+        content.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No VOD sources configured</p></div>';
         return;
       }
 
-      content.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px">' +
-        '<button class="btn btn-primary lib-tab" data-tab="movies">Movies (' + movieItems.length + ')</button>' +
-        '<button class="btn btn-ghost lib-tab" data-tab="series">TV Series (' + seriesList.length + ')</button>' +
-        '</div>' +
-        buildFilterBar() +
-        '<div style="margin-bottom:12px"><span id="lib-summary" style="font-size:13px;color:var(--text-dim)"></span></div>' +
-        '<div id="lib-grid"></div>';
+      var selectedSource = el._selectedSource || vodSources[0].id;
+      var selectedTab = el._selectedTab || 'movies';
+      var selectedGroup = el._selectedGroup || null;
 
-      function updateSyncForTab(tab) {
-        var syncContainer = document.getElementById('lib-sync-info');
-        if (!syncContainer) return;
-        var d = tab === 'series' ? seriesData : movieData;
-        var label = tab === 'series' ? 'TV Series' : 'Movies';
-        var c = (d && d.cached) || 0;
-        var t = (d && d.total) || 0;
-        var sy = d && d.sync;
-        var html = '';
-        if (sy && sy.syncing) {
-          var pct = t > 0 ? Math.round(c / t * 100) : 0;
-          html = '<div style="padding:10px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
-            '<span style="font-size:13px;color:var(--text-dim)">' + label + ': ' + c + '/' + t + ' enriched (' + pct + '%) — TMDB sync active</span></div>' +
-            '<div style="width:100%;height:4px;background:var(--border);border-radius:2px;overflow:hidden">' +
-            '<div style="width:' + pct + '%;height:100%;background:var(--accent);border-radius:2px;transition:width 0.5s"></div></div></div>';
-        } else if (t > 0 && c < t) {
-          html = '<div style="padding:8px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;font-size:13px;color:var(--text-dim)">' +
-            label + ': ' + c + '/' + t + ' enriched with TMDB data</div>';
-        }
-        syncContainer.innerHTML = html;
-      }
-      updateSyncForTab(activeTab);
-
-      content.querySelectorAll('.lib-tab').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          activeTab = this.dataset.tab;
-          content.querySelectorAll('.lib-tab').forEach(function(t) {
-            t.className = 'btn ' + (t.dataset.tab === activeTab ? 'btn-primary' : 'btn-ghost') + ' lib-tab';
+      var bar = document.getElementById('lib-bar');
+      if (bar) {
+        if (vodSources.length > 1) {
+          var srcSel = document.createElement('select');
+          srcSel.className = 'form-input';
+          srcSel.style.cssText = 'width:auto;padding:6px 10px;font-size:13px;';
+          vodSources.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            srcSel.appendChild(opt);
           });
-          searchTerm = '';
-          filterGenre = '';
-          filterDecade = '';
-          filterTag = '';
-          var si = document.getElementById('lib-search');
-          if (si) si.value = '';
-          var gi = document.getElementById('lib-genre');
-          if (gi) gi.value = '';
-          var di = document.getElementById('lib-decade');
-          if (di) di.value = '';
-          var ti = document.getElementById('lib-tag');
-          if (ti) ti.value = '';
-          updateSyncForTab(activeTab);
-          renderActiveTab();
-        });
-      });
+          srcSel.value = selectedSource;
+          srcSel.onchange = function() { el._selectedSource = srcSel.value; el._selectedGroup = null; el._selectedTab = 'movies'; renderLibrary(el); };
+          bar.appendChild(srcSel);
+        }
 
-      var searchEl = document.getElementById('lib-search');
-      if (searchEl) {
-        searchEl.addEventListener('input', function() {
-          clearTimeout(searchTimer);
-          var val = this.value.toLowerCase();
-          searchTimer = setTimeout(function() {
-            searchTerm = val;
-            renderActiveTab();
-          }, 300);
-        });
+        var moviesBtn = document.createElement('button');
+        moviesBtn.className = 'btn ' + (selectedTab === 'movies' ? 'btn-primary' : 'btn-ghost');
+        moviesBtn.textContent = 'Movies';
+        moviesBtn.onclick = function() { el._selectedTab = 'movies'; el._selectedGroup = null; renderLibrary(el); };
+        bar.appendChild(moviesBtn);
+
+        var seriesBtn = document.createElement('button');
+        seriesBtn.className = 'btn ' + (selectedTab === 'series' ? 'btn-primary' : 'btn-ghost');
+        seriesBtn.textContent = 'TV Series';
+        seriesBtn.onclick = function() { el._selectedTab = 'series'; el._selectedGroup = null; renderLibrary(el); };
+        bar.appendChild(seriesBtn);
+
+        if (selectedGroup) {
+          var backBtn = document.createElement('button');
+          backBtn.className = 'btn btn-ghost';
+          backBtn.textContent = '\u2190 Back to categories';
+          backBtn.onclick = function() { el._selectedGroup = null; renderLibrary(el); };
+          bar.appendChild(backBtn);
+          var groupLabel = document.createElement('span');
+          groupLabel.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);';
+          groupLabel.textContent = selectedGroup;
+          bar.appendChild(groupLabel);
+        }
       }
 
-      var genreEl = document.getElementById('lib-genre');
-      if (genreEl) {
-        genreEl.addEventListener('change', function() {
-          filterGenre = this.value;
-          renderActiveTab();
+      var srcInfo = vodSources.find(function(s) { return s.id === selectedSource; });
+      var isLargeSource = srcInfo && srcInfo.type === 'xtream';
+
+      if (isLargeSource && !selectedGroup) {
+        var cats = await LibData.getCategories(selectedSource, selectedTab === 'series' ? 'series' : 'movie');
+        LibGrid.renderCategoryList(content, cats, function(cat) {
+          el._selectedGroup = cat.name;
+          renderLibrary(el);
         });
+      } else {
+        var items = await LibData.getItems(selectedSource, selectedTab === 'series' ? 'series' : 'movie', selectedGroup);
+        items = LibProcessor.addPosterUrls(items);
+
+        if (selectedTab === 'series') {
+          var seriesList = LibProcessor.groupSeries(items);
+          var gridItems = seriesList.map(function(show) {
+            return { name: show.name, poster_url: show.poster_url, year: show.year, _show: show };
+          });
+          LibGrid.renderPosterGrid(content, gridItems, function(item) {
+            showSeriesModal(item._show);
+          });
+        } else {
+          if (selectedGroup) {
+            var movieItems = items.map(function(m) {
+              return { name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m };
+            });
+            movieItems.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            LibGrid.renderPosterGrid(content, movieItems, function(item) {
+              showMovieModal(item._movie);
+            });
+          } else {
+            var grouped = LibProcessor.groupMovies(items);
+            var combined = [];
+            grouped.collections.forEach(function(col) {
+              combined.push({ name: col.name, poster_url: col.poster_url, badge: col.movies.length + ' films', _collection: col });
+            });
+            grouped.movies.forEach(function(m) {
+              combined.push({ name: m.name, poster_url: m.poster_url, year: m.year, id: m.id, _movie: m });
+            });
+            combined.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            LibGrid.renderPosterGrid(content, combined, function(item) {
+              if (item._collection) showCollectionModal(item._collection);
+              else if (item._movie) showMovieModal(item._movie);
+            });
+          }
+        }
       }
 
-      var decadeEl = document.getElementById('lib-decade');
-      if (decadeEl) {
-        decadeEl.addEventListener('change', function() {
-          filterDecade = this.value;
-          renderActiveTab();
-        });
-      }
-
-      var tagEl = document.getElementById('lib-tag');
-      if (tagEl) {
-        tagEl.addEventListener('change', function() {
-          filterTag = this.value;
-          renderActiveTab();
-        });
-      }
-
-      renderActiveTab();
     } catch (e) {
       var ec = document.getElementById('lib-content');
       if (ec) ec.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load library</p></div>';
     }
   }
+
 
   function showMovieModal(item) {
     var overlay = document.createElement('div');

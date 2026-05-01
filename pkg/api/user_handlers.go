@@ -17,16 +17,17 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Username string    `json:"username"`
-		Email    string    `json:"email"`
-		Role     auth.Role `json:"role"`
+		Username        string    `json:"username"`
+		Email           string    `json:"email"`
+		Role            auth.Role `json:"role"`
+		ChannelGroupIDs []string  `json:"channel_group_ids"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	user, err := s.deps.AuthService.UpdateUser(r.Context(), id, req.Username, req.Email, req.Role)
+	user, err := s.deps.AuthService.UpdateUser(r.Context(), id, req.Username, req.Email, req.Role, req.ChannelGroupIDs)
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			httputil.RespondError(w, http.StatusNotFound, "user not found")

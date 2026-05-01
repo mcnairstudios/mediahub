@@ -17,6 +17,7 @@ import (
 	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
+	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/decode"
 	"github.com/mcnairstudios/mediahub/pkg/av/encode"
 	"github.com/mcnairstudios/mediahub/pkg/av/mux"
@@ -37,8 +38,9 @@ type Plugin struct {
 	stopped    atomic.Bool
 	eos        atomic.Bool
 
-	videoTB  astiav.Rational
-	audioTB  astiav.Rational
+	videoTB             astiav.Rational
+	audioTB             astiav.Rational
+	needsAnnexBConvert  bool
 	hasAudio bool
 
 	audioDec      *decode.Decoder
@@ -53,6 +55,7 @@ type Plugin struct {
 
 func New(cfg output.PluginConfig) (*Plugin, error) {
 	segDir := filepath.Join(cfg.OutputDir, "segments")
+	os.RemoveAll(segDir)
 	if err := os.MkdirAll(segDir, 0755); err != nil {
 		return nil, fmt.Errorf("mse: create segments dir: %w", err)
 	}
@@ -77,17 +80,34 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		muxOpts.VideoExtradata = cfg.VideoExtradata
 	}
 	if cfg.VideoCodecParams != nil {
-		vcp := cfg.VideoCodecParams.(*astiav.CodecParameters)
-		muxOpts.VideoCodecID = vcp.CodecID()
-		if len(muxOpts.VideoExtradata) == 0 {
-			muxOpts.VideoExtradata = vcp.ExtraData()
+		vcp, _ := cfg.VideoCodecParams.(*astiav.CodecParameters)
+		if vcp != nil {
+			muxOpts.VideoCodecID = vcp.CodecID()
+			if len(muxOpts.VideoExtradata) == 0 {
+				muxOpts.VideoExtradata = vcp.ExtraData()
+			}
+			if len(muxOpts.VideoExtradata) == 0 && cfg.Video != nil {
+				muxOpts.VideoExtradata = cfg.Video.Extradata
+			}
+			muxOpts.VideoWidth = vcp.Width()
+			muxOpts.VideoHeight = vcp.Height()
 		}
-		if len(muxOpts.VideoExtradata) == 0 && cfg.Video != nil {
-			muxOpts.VideoExtradata = cfg.Video.Extradata
+	}
+	if len(muxOpts.VideoExtradata) > 0 && muxOpts.VideoExtradata[0] != 0x01 {
+		p.needsAnnexBConvert = true
+		codecName := ""
+		if cfg.Video != nil {
+			codecName = cfg.Video.Codec
 		}
-		muxOpts.VideoWidth = vcp.Width()
-		muxOpts.VideoHeight = vcp.Height()
-	} else if cfg.Video != nil {
+		log.Printf("mse: converting extradata for codec=%s (first byte=0x%02x)", codecName, muxOpts.VideoExtradata[0])
+		if converted, cerr := extradata.ToCodecData(codecName, muxOpts.VideoExtradata); cerr == nil && len(converted) > 0 {
+			log.Printf("mse: converted extradata %d -> %d bytes (first byte=0x%02x)", len(muxOpts.VideoExtradata), len(converted), converted[0])
+			muxOpts.VideoExtradata = converted
+		} else if cerr != nil {
+			log.Printf("mse: extradata conversion failed: %v", cerr)
+		}
+	}
+	if muxOpts.VideoCodecID == 0 && cfg.Video != nil {
 		codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
 		if err != nil {
 			return nil, fmt.Errorf("mse: video codec: %w", err)
@@ -101,8 +121,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 
 	if len(cfg.AudioExtradata) > 0 {
-		if cfg.AudioCodecParams != nil {
-			acp := cfg.AudioCodecParams.(*astiav.CodecParameters)
+		acp, _ := cfg.AudioCodecParams.(*astiav.CodecParameters)
+		if acp != nil {
 			muxOpts.AudioCodecID = acp.CodecID()
 			muxOpts.AudioExtradata = cfg.AudioExtradata
 			muxOpts.AudioChannels = acp.ChannelLayout().Channels()
@@ -227,6 +247,9 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		return nil
 	}
 
+	if p.needsAnnexBConvert && len(data) > 4 && data[0] == 0 && data[1] == 0 {
+		data = annexBToAVCC(data)
+	}
 	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
 	avPkt, err := conv.ToAVPacket(pkt, p.videoTB)
 	if err != nil {
@@ -237,7 +260,11 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.bytesWritten += int64(len(data))
-	return p.muxer.WriteVideoPacket(avPkt)
+	if err := p.muxer.WriteVideoPacket(avPkt); err != nil {
+		log.Printf("mse: skip corrupt video packet (pts=%d dts=%d): %v", pts, dts, err)
+		return nil
+	}
+	return nil
 }
 
 func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
@@ -266,7 +293,11 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.bytesWritten += int64(len(data))
-	return p.muxer.WriteAudioPacket(avPkt)
+	if err := p.muxer.WriteAudioPacket(avPkt); err != nil {
+		log.Printf("mse: skip corrupt audio packet (pts=%d dts=%d): %v", pts, dts, err)
+		return nil
+	}
+	return nil
 }
 
 func (p *Plugin) pushAudioDecode(data []byte, pts, dts int64) error {
@@ -503,4 +534,72 @@ func (p *Plugin) serveDebug(w http.ResponseWriter) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(info)
+}
+
+func isH264IDR(data []byte) bool {
+	i := 0
+	for i < len(data)-4 {
+		naluLen := int(data[i])<<24 | int(data[i+1])<<16 | int(data[i+2])<<8 | int(data[i+3])
+		if naluLen <= 0 || i+4+naluLen > len(data) {
+			break
+		}
+		naluType := data[i+4] & 0x1f
+		if naluType == 5 {
+			return true
+		}
+		i += 4 + naluLen
+	}
+	return false
+}
+
+func annexBToAVCC(data []byte) []byte {
+	nalus := splitNALUs(data)
+	if len(nalus) == 0 {
+		return data
+	}
+	size := 0
+	for _, n := range nalus {
+		size += 4 + len(n)
+	}
+	out := make([]byte, 0, size)
+	for _, n := range nalus {
+		l := len(n)
+		out = append(out, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
+		out = append(out, n...)
+	}
+	return out
+}
+
+func splitNALUs(data []byte) [][]byte {
+	var result [][]byte
+	i := 0
+	for i < len(data) {
+		start := -1
+		scLen := 0
+		if i+3 < len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1 {
+			start = i + 4
+			scLen = 4
+		} else if i+2 < len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 1 {
+			start = i + 3
+			scLen = 3
+		}
+		if start < 0 {
+			i++
+			continue
+		}
+		end := len(data)
+		for j := start; j < len(data)-2; j++ {
+			if data[j] == 0 && data[j+1] == 0 && (data[j+2] == 1 || (j+3 < len(data) && data[j+2] == 0 && data[j+3] == 1)) {
+				end = j
+				break
+			}
+		}
+		nalu := data[start:end]
+		if len(nalu) > 0 {
+			result = append(result, nalu)
+		}
+		i = start + len(nalu)
+		_ = scLen
+	}
+	return result
 }

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
@@ -62,13 +64,18 @@ var testLiveStreams = []LiveStream{
 	},
 }
 
+var testVODCategories = []Category{
+	{ID: "10", Name: "Movies"},
+	{ID: "11", Name: "Documentaries"},
+}
+
 var testVODStreams = []VODStream{
 	{
 		Num:          1,
-		Name:         "The Matrix",
+		Name:         "The Matrix (1999)",
 		StreamType:   "movie",
 		StreamID:     5001,
-		StreamIcon:   "http://poster.example.com/matrix.jpg",
+		StreamIcon:   "https://image.tmdb.org/t/p/w600_and_h900_bestv2/abc.jpg",
 		CategoryID:   "10",
 		ContainerExt: "mp4",
 	},
@@ -83,13 +90,38 @@ var testVODStreams = []VODStream{
 	},
 }
 
+var testSeriesCategories = []Category{
+	{ID: "20", Name: "TV Drama"},
+}
+
 var testSeries = []Series{
 	{
 		Num:        1,
-		Name:       "Breaking Bad",
+		Name:       "Breaking Bad (2008)",
 		SeriesID:   3001,
 		Cover:      "http://poster.example.com/bb.jpg",
 		CategoryID: "20",
+	},
+}
+
+var testSeriesInfo = SeriesInfo{
+	Seasons: map[string][]SeriesEpisode{
+		"1": {
+			{
+				ID:           "90001",
+				EpisodeNum:   1,
+				Title:        "Pilot",
+				ContainerExt: "mkv",
+				Info:         SeriesEpisodeInfo{Season: 1},
+			},
+			{
+				ID:           "90002",
+				EpisodeNum:   2,
+				Title:        "Cat's in the Bag...",
+				ContainerExt: "mkv",
+				Info:         SeriesEpisodeInfo{Season: 1},
+			},
+		},
 	},
 }
 
@@ -120,10 +152,16 @@ func newTestServer(authOK bool) *httptest.Server {
 			json.NewEncoder(w).Encode(testCategories)
 		case "get_live_streams":
 			json.NewEncoder(w).Encode(testLiveStreams)
+		case "get_vod_categories":
+			json.NewEncoder(w).Encode(testVODCategories)
 		case "get_vod_streams":
 			json.NewEncoder(w).Encode(testVODStreams)
+		case "get_series_categories":
+			json.NewEncoder(w).Encode(testSeriesCategories)
 		case "get_series":
 			json.NewEncoder(w).Encode(testSeries)
+		case "get_series_info":
+			json.NewEncoder(w).Encode(testSeriesInfo)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -268,13 +306,13 @@ func TestRefreshLiveStreams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing streams: %v", err)
 	}
-	if len(streams) != 3 {
-		t.Fatalf("expected 3 live streams, got %d", len(streams))
+	if len(streams) != 5 {
+		t.Fatalf("expected 5 streams (3 live + 2 VOD), got %d", len(streams))
 	}
 
 	info := s.Info(context.Background())
-	if info.StreamCount != 3 {
-		t.Fatalf("expected StreamCount 3, got %d", info.StreamCount)
+	if info.StreamCount != 5 {
+		t.Fatalf("expected StreamCount 5, got %d", info.StreamCount)
 	}
 	if info.LastRefreshed == nil {
 		t.Fatal("expected LastRefreshed to be set")
@@ -475,8 +513,8 @@ func TestStreams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("streams failed: %v", err)
 	}
-	if len(ids) != 3 {
-		t.Fatalf("expected 3 stream IDs, got %d", len(ids))
+	if len(ids) != 5 {
+		t.Fatalf("expected 5 stream IDs (3 live + 2 VOD), got %d", len(ids))
 	}
 }
 
@@ -525,8 +563,8 @@ func TestClear(t *testing.T) {
 	_ = s.Refresh(context.Background())
 
 	info := s.Info(context.Background())
-	if info.StreamCount != 3 {
-		t.Fatalf("expected 3 streams before clear, got %d", info.StreamCount)
+	if info.StreamCount != 5 {
+		t.Fatalf("expected 5 streams before clear, got %d", info.StreamCount)
 	}
 
 	if err := s.Clear(context.Background()); err != nil {
@@ -639,6 +677,12 @@ func TestStaleStreamsRemoved(t *testing.T) {
 			} else {
 				json.NewEncoder(w).Encode(testLiveStreams[:1])
 			}
+		case "get_vod_categories", "get_series_categories":
+			json.NewEncoder(w).Encode([]Category{})
+		case "get_vod_streams":
+			json.NewEncoder(w).Encode([]VODStream{})
+		case "get_series":
+			json.NewEncoder(w).Encode([]Series{})
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -808,8 +852,8 @@ func TestFetchVODStreams(t *testing.T) {
 	if len(vod) != 2 {
 		t.Fatalf("expected 2 VOD streams, got %d", len(vod))
 	}
-	if vod[0].Name != "The Matrix" {
-		t.Fatalf("expected The Matrix, got %s", vod[0].Name)
+	if vod[0].Name != "The Matrix (1999)" {
+		t.Fatalf("expected The Matrix (1999), got %s", vod[0].Name)
 	}
 }
 
@@ -824,8 +868,211 @@ func TestFetchSeries(t *testing.T) {
 	if len(series) != 1 {
 		t.Fatalf("expected 1 series, got %d", len(series))
 	}
-	if series[0].Name != "Breaking Bad" {
-		t.Fatalf("expected Breaking Bad, got %s", series[0].Name)
+	if series[0].Name != "Breaking Bad (2008)" {
+		t.Fatalf("expected Breaking Bad (2008), got %s", series[0].Name)
+	}
+}
+
+func TestRefreshVODStreams(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:          "xt-1",
+		Name:        "Test",
+		Server:      ts.URL,
+		Username:    "testuser",
+		Password:    "testpass",
+		StreamStore: ss,
+		HTTPClient:  ts.Client(),
+	})
+
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	streams, _ := ss.ListBySource(context.Background(), "xtream", "xt-1")
+	var movies []media.Stream
+	for _, stream := range streams {
+		if stream.VODType == "movie" {
+			movies = append(movies, stream)
+		}
+	}
+	if len(movies) != 2 {
+		t.Fatalf("expected 2 movie streams, got %d", len(movies))
+	}
+
+	byName := make(map[string]media.Stream)
+	for _, m := range movies {
+		byName[m.Name] = m
+	}
+
+	matrix, ok := byName["The Matrix"]
+	if !ok {
+		t.Fatal("expected The Matrix movie stream")
+	}
+	if matrix.Year != "1999" {
+		t.Fatalf("expected year 1999, got %s", matrix.Year)
+	}
+	if matrix.VODType != "movie" {
+		t.Fatalf("expected VODType movie, got %s", matrix.VODType)
+	}
+	if matrix.Group != "Movies" {
+		t.Fatalf("expected group Movies, got %s", matrix.Group)
+	}
+	expectedURL := ts.URL + "/movie/testuser/testpass/5001.mp4"
+	if matrix.URL != expectedURL {
+		t.Fatalf("expected URL %s, got %s", expectedURL, matrix.URL)
+	}
+	if matrix.TvgLogo != "https://image.tmdb.org/t/p/w600_and_h900_bestv2/abc.jpg" {
+		t.Fatalf("expected TMDB logo URL, got %s", matrix.TvgLogo)
+	}
+
+	inception, ok := byName["Inception"]
+	if !ok {
+		t.Fatal("expected Inception movie stream")
+	}
+	if inception.Year != "" {
+		t.Fatalf("expected empty year for Inception, got %s", inception.Year)
+	}
+}
+
+func TestRefreshSeriesEpisodes(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	ss := store.NewMemoryStreamStore()
+	s := New(Config{
+		ID:          "xt-1",
+		Name:        "Test",
+		Server:      ts.URL,
+		Username:    "testuser",
+		Password:    "testpass",
+		StreamStore: ss,
+		HTTPClient:  ts.Client(),
+	})
+
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	streams, _ := ss.ListBySource(context.Background(), "xtream", "xt-1")
+	var episodes []media.Stream
+	for _, stream := range streams {
+		if stream.VODType == "series" {
+			episodes = append(episodes, stream)
+		}
+	}
+	if len(episodes) != 2 {
+		t.Fatalf("expected 2 series episode streams, got %d", len(episodes))
+	}
+
+	byName := make(map[string]media.Stream)
+	for _, ep := range episodes {
+		byName[ep.EpisodeName] = ep
+	}
+
+	pilot, ok := byName["Pilot"]
+	if !ok {
+		t.Fatal("expected Pilot episode")
+	}
+	if pilot.SeriesName != "Breaking Bad" {
+		t.Fatalf("expected SeriesName Breaking Bad, got %s", pilot.SeriesName)
+	}
+	if pilot.Season != 1 {
+		t.Fatalf("expected Season 1, got %d", pilot.Season)
+	}
+	if pilot.Episode != 1 {
+		t.Fatalf("expected Episode 1, got %d", pilot.Episode)
+	}
+	if pilot.Year != "2008" {
+		t.Fatalf("expected year 2008, got %s", pilot.Year)
+	}
+	if pilot.Name != "Breaking Bad - S01E01 - Pilot" {
+		t.Fatalf("expected formatted name, got %s", pilot.Name)
+	}
+	expectedURL := ts.URL + "/series/testuser/testpass/90001.mkv"
+	if pilot.URL != expectedURL {
+		t.Fatalf("expected URL %s, got %s", expectedURL, pilot.URL)
+	}
+}
+
+func TestParseNameAndYear(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantName string
+		wantYear string
+	}{
+		{"The Matrix (1999)", "The Matrix", "1999"},
+		{"Breaking Bad (2008)", "Breaking Bad", "2008"},
+		{"Inception", "Inception", ""},
+		{"No Year Here", "No Year Here", ""},
+		{"Title (2026)", "Title", "2026"},
+		{"Title (abc)", "Title (abc)", ""},
+	}
+
+	for _, tt := range tests {
+		name, year := parseNameAndYear(tt.input)
+		if name != tt.wantName {
+			t.Errorf("parseNameAndYear(%q) name = %q, want %q", tt.input, name, tt.wantName)
+		}
+		if year != tt.wantYear {
+			t.Errorf("parseNameAndYear(%q) year = %q, want %q", tt.input, year, tt.wantYear)
+		}
+	}
+}
+
+func TestSeriesEpisodeURLConstruction(t *testing.T) {
+	url := seriesEpisodeURL("http://example.com", "user", "pass", 90001, "mkv")
+	expected := "http://example.com/series/user/pass/90001.mkv"
+	if url != expected {
+		t.Fatalf("expected %s, got %s", expected, url)
+	}
+
+	url2 := seriesEpisodeURL("http://example.com", "user", "pass", 90002, "")
+	expected2 := "http://example.com/series/user/pass/90002.mkv"
+	if url2 != expected2 {
+		t.Fatalf("expected %s, got %s", expected2, url2)
+	}
+}
+
+func TestVODStreamIcon(t *testing.T) {
+	vs := VODStream{StreamIcon: "http://poster.example.com/test.jpg"}
+	if vs.Icon() != "http://poster.example.com/test.jpg" {
+		t.Fatalf("expected string icon, got %s", vs.Icon())
+	}
+
+	vs2 := VODStream{StreamIcon: nil}
+	if vs2.Icon() != "" {
+		t.Fatalf("expected empty icon for nil, got %s", vs2.Icon())
+	}
+
+	vs3 := VODStream{StreamIcon: float64(0)}
+	if vs3.Icon() != "" {
+		t.Fatalf("expected empty icon for non-string, got %s", vs3.Icon())
+	}
+}
+
+func TestFetchSeriesInfo(t *testing.T) {
+	ts := newTestServer(true)
+	defer ts.Close()
+
+	info, err := fetchSeriesInfo(context.Background(), ts.Client(), ts.URL, "testuser", "testpass", 3001)
+	if err != nil {
+		t.Fatalf("fetchSeriesInfo failed: %v", err)
+	}
+	episodes, ok := info.Seasons["1"]
+	if !ok {
+		t.Fatal("expected season 1")
+	}
+	if len(episodes) != 2 {
+		t.Fatalf("expected 2 episodes in season 1, got %d", len(episodes))
+	}
+	if episodes[0].Title != "Pilot" {
+		t.Fatalf("expected Pilot, got %s", episodes[0].Title)
 	}
 }
 

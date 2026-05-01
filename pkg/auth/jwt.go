@@ -21,11 +21,12 @@ const (
 
 type claims struct {
 	jwt.RegisteredClaims
-	UserID   string    `json:"user_id"`
-	Username string    `json:"username"`
-	Email    string    `json:"email,omitempty"`
-	Role     Role      `json:"role"`
-	Type     tokenType `json:"type"`
+	UserID          string    `json:"user_id"`
+	Username        string    `json:"username"`
+	Email           string    `json:"email,omitempty"`
+	Role            Role      `json:"role"`
+	Type            tokenType `json:"type"`
+	ChannelGroupIDs []string  `json:"channel_group_ids,omitempty"`
 }
 
 type JWTService struct {
@@ -82,11 +83,12 @@ func (s *JWTService) ValidateToken(_ context.Context, tokenString string) (*User
 	}
 
 	return &User{
-		ID:       c.UserID,
-		Username: c.Username,
-		Email:    c.Email,
-		Role:     c.Role,
-		IsAdmin:  c.Role == RoleAdmin,
+		ID:              c.UserID,
+		Username:        c.Username,
+		Email:           c.Email,
+		Role:            c.Role,
+		IsAdmin:         c.Role == RoleAdmin,
+		ChannelGroupIDs: c.ChannelGroupIDs,
 	}, nil
 }
 
@@ -101,11 +103,12 @@ func (s *JWTService) RefreshToken(_ context.Context, tokenString string) (string
 	}
 
 	user := &User{
-		ID:       c.UserID,
-		Username: c.Username,
-		Email:    c.Email,
-		Role:     c.Role,
-		IsAdmin:  c.Role == RoleAdmin,
+		ID:              c.UserID,
+		Username:        c.Username,
+		Email:           c.Email,
+		Role:            c.Role,
+		IsAdmin:         c.Role == RoleAdmin,
+		ChannelGroupIDs: c.ChannelGroupIDs,
 	}
 
 	return s.generateToken(user, tokenAccess, s.tokenTTL)
@@ -152,7 +155,7 @@ func (s *JWTService) ListUsers(ctx context.Context) ([]*User, error) {
 	return users, nil
 }
 
-func (s *JWTService) UpdateUser(ctx context.Context, id string, username, email string, role Role) (*User, error) {
+func (s *JWTService) UpdateUser(ctx context.Context, id string, username, email string, role Role, channelGroupIDs []string) (*User, error) {
 	user, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -165,6 +168,9 @@ func (s *JWTService) UpdateUser(ctx context.Context, id string, username, email 
 	if role != "" {
 		user.Role = role
 		user.IsAdmin = role == RoleAdmin
+	}
+	if channelGroupIDs != nil {
+		user.ChannelGroupIDs = channelGroupIDs
 	}
 
 	if err := s.store.Update(ctx, user); err != nil {
@@ -210,11 +216,12 @@ func (s *JWTService) generateToken(user *User, typ tokenType, ttl time.Duration)
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
-		UserID:   user.ID,
-		Username: user.Username,
-		Email:    user.Email,
-		Role:     user.Role,
-		Type:     typ,
+		UserID:          user.ID,
+		Username:        user.Username,
+		Email:           user.Email,
+		Role:            user.Role,
+		Type:            typ,
+		ChannelGroupIDs: user.ChannelGroupIDs,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)

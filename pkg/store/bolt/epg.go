@@ -154,19 +154,30 @@ func (s *ProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
 }
 
 func (s *ProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketEPGPrograms)
-		for _, p := range programs {
-			data, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if err := b.Put(programKey(p.ChannelID, p.StartTime), data); err != nil {
-				return err
-			}
+	const batchSize = 5000
+	for i := 0; i < len(programs); i += batchSize {
+		end := i + batchSize
+		if end > len(programs) {
+			end = len(programs)
 		}
-		return nil
-	})
+		batch := programs[i:end]
+		if err := s.db.Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket(bucketEPGPrograms)
+			for _, p := range batch {
+				data, err := json.Marshal(p)
+				if err != nil {
+					return err
+				}
+				if err := b.Put(programKey(p.ChannelID, p.StartTime), data); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ProgramStore) DeleteBySource(_ context.Context, sourceID string) error {

@@ -137,6 +137,7 @@ func parseTransponderEntry(fields map[string]string) (Transponder, bool) {
 			tp.SymbolRateKS = int(sr / 1e3)
 		}
 		tp.Polarization = normalisePolarization(fields["POLARIZATION"])
+		tp.FEC = normaliseFEC(fields["INNER_FEC"])
 		if tp.Modulation == "" {
 			tp.Modulation = "qpsk"
 		}
@@ -182,8 +183,40 @@ func normaliseModulation(s string) string {
 		return "16qam"
 	case "QPSK":
 		return "qpsk"
+	case "PSK/8", "8PSK":
+		return "8psk"
+	case "16APSK", "APSK/16":
+		return "16apsk"
+	case "32APSK", "APSK/32":
+		return "32apsk"
 	case "8VSB":
 		return "8vsb"
+	default:
+		return ""
+	}
+}
+
+func normaliseFEC(s string) string {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "1/2":
+		return "12"
+	case "2/3":
+		return "23"
+	case "3/4":
+		return "34"
+	case "3/5":
+		return "35"
+	case "4/5":
+		return "45"
+	case "5/6":
+		return "56"
+	case "7/8":
+		return "78"
+	case "8/9":
+		return "89"
+	case "9/10":
+		return "910"
 	default:
 		return ""
 	}

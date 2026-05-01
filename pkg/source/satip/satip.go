@@ -25,7 +25,9 @@ type Config struct {
 	IsEnabled       bool
 	MaxStreams      int
 	TransmitterFile string
+	DiSEqCSource    int
 	StreamStore     store.StreamStore
+	OnScanProgress  func(done, total, channels int)
 }
 
 type Source struct {
@@ -41,6 +43,10 @@ func New(cfg Config) *Source {
 		cfg.HTTPPort = defaultHTTPPort
 	}
 	return &Source{cfg: cfg}
+}
+
+func (s *Source) SetScanProgress(fn func(done, total, channels int)) {
+	s.cfg.OnScanProgress = fn
 }
 
 func (s *Source) Type() source.SourceType {
@@ -76,9 +82,15 @@ func (s *Source) Refresh(ctx context.Context) error {
 		SeedTimeout:     60 * time.Second,
 		MuxTimeout:      60 * time.Second,
 		Timeout:         60 * time.Second,
-		Parallel:        4,
+		Parallel:        s.cfg.MaxStreams,
 		TransmitterFile: s.cfg.TransmitterFile,
+		DiSEqCSource:    s.cfg.DiSEqCSource,
 		Log:             log.With().Str("source", s.cfg.ID).Logger(),
+		OnMuxScanned: func(done, total int) {
+			if s.cfg.OnScanProgress != nil {
+				s.cfg.OnScanProgress(done, total, 0)
+			}
+		},
 	}
 
 	result, err := scan.Scan(host, s.cfg.HTTPPort, cfg)
@@ -100,6 +112,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 			URL:        rtspURL,
 			Group:      streamGroup(ch.ServiceType),
 			IsActive:   !ch.Encrypted,
+			Encrypted:  ch.Encrypted,
 		}
 		streams = append(streams, stream)
 	}

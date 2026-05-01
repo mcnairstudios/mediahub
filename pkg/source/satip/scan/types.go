@@ -15,7 +15,9 @@ type Transponder struct {
 	BandwidthMHz int
 	SymbolRateKS int
 	Polarization string
+	FEC          string
 	PLPID        int
+	Source       int
 }
 
 func (t Transponder) String() string {
@@ -46,6 +48,9 @@ func (t Transponder) RTSPURL(host, pids string) string {
 		}
 	case "dvbs", "dvbs2":
 		fmt.Fprintf(&b, "&pol=%s&sr=%d", t.Polarization, t.SymbolRateKS)
+		if t.Source > 0 {
+			fmt.Fprintf(&b, "&src=%d", t.Source)
+		}
 	case "dvbc", "dvbc2":
 		fmt.Fprintf(&b, "&sr=%d", t.SymbolRateKS)
 	}
@@ -105,6 +110,7 @@ type Config struct {
 	Verbose         bool
 	Satellite       string
 	TransmitterFile string
+	DiSEqCSource    int
 	Log             zerolog.Logger
 	OnMuxScanned    func(done, total int)
 }

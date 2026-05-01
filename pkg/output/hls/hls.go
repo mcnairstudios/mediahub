@@ -302,7 +302,7 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasSuffix(path, ".ts") {
+	if strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".m4s") || strings.HasSuffix(path, ".mp4") {
 		p.serveSegment(w, r, path)
 		return
 	}
@@ -367,7 +367,12 @@ func (p *Plugin) serveSegment(w http.ResponseWriter, _ *http.Request, path strin
 		return
 	}
 
-	w.Header().Set("Content-Type", "video/mp2t")
+	contentType := "video/mp2t"
+	if strings.HasSuffix(name, ".m4s") || strings.HasSuffix(name, ".mp4") {
+		contentType = "video/mp4"
+	}
+
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(data) //nolint:errcheck

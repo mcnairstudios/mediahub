@@ -11,11 +11,12 @@ const (
 )
 
 type User struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email,omitempty"`
-	IsAdmin  bool   `json:"is_admin"`
-	Role     Role   `json:"role"`
+	ID              string   `json:"id"`
+	Username        string   `json:"username"`
+	Email           string   `json:"email,omitempty"`
+	IsAdmin         bool     `json:"is_admin"`
+	Role            Role     `json:"role"`
+	ChannelGroupIDs []string `json:"channel_group_ids,omitempty"`
 }
 
 type Service interface {
@@ -24,7 +25,7 @@ type Service interface {
 	RefreshToken(ctx context.Context, token string) (newToken string, err error)
 	CreateUser(ctx context.Context, username, password, email string, role Role) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
-	UpdateUser(ctx context.Context, id string, username, email string, role Role) (*User, error)
+	UpdateUser(ctx context.Context, id string, username, email string, role Role, channelGroupIDs []string) (*User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ChangePassword(ctx context.Context, id, newPassword string) error
 }

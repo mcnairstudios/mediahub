@@ -47,7 +47,7 @@ func (m *mockService) CreateUser(_ context.Context, _, _, _ string, _ Role) (*Us
 	return nil, nil
 }
 func (m *mockService) ListUsers(_ context.Context) ([]*User, error)                             { return nil, nil }
-func (m *mockService) UpdateUser(_ context.Context, _ string, _, _ string, _ Role) (*User, error) { return nil, nil }
+func (m *mockService) UpdateUser(_ context.Context, _ string, _, _ string, _ Role, _ []string) (*User, error) { return nil, nil }
 func (m *mockService) DeleteUser(_ context.Context, _ string) error                          { return nil }
 func (m *mockService) ChangePassword(_ context.Context, _, _ string) error                   { return nil }
 

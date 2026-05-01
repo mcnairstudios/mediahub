@@ -33,5 +33,11 @@ func SelectAudio(tracks []media.AudioTrack, prefs AudioPrefs) int {
 		}
 	}
 
+	for _, t := range candidates {
+		if t.Channels <= 2 {
+			return t.Index
+		}
+	}
+
 	return candidates[0].Index
 }

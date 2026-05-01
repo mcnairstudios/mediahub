@@ -3,15 +3,16 @@ package channel
 import "context"
 
 type Channel struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Number     int      `json:"number"`
-	GroupID    string   `json:"group_id,omitempty"`
-	StreamIDs  []string `json:"stream_ids,omitempty"`
-	LogoURL    string   `json:"logo_url,omitempty"`
-	TvgID      string   `json:"tvg_id,omitempty"`
-	IsEnabled  bool     `json:"is_enabled"`
-	IsFavorite bool     `json:"is_favorite"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Number          int      `json:"number"`
+	GroupID         string   `json:"group_id,omitempty"`
+	StreamIDs       []string `json:"stream_ids,omitempty"`
+	LogoURL         string   `json:"logo_url,omitempty"`
+	TvgID           string   `json:"tvg_id,omitempty"`
+	StreamProfileID string   `json:"stream_profile_id,omitempty"`
+	IsEnabled       bool     `json:"is_enabled"`
+	IsFavorite      bool     `json:"is_favorite"`
 }
 
 type Group struct {

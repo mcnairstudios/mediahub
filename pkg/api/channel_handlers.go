@@ -12,13 +12,14 @@ import (
 
 func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string   `json:"name"`
-		Number    int      `json:"number"`
-		GroupID   string   `json:"group_id"`
-		StreamIDs []string `json:"stream_ids"`
-		LogoURL   string   `json:"logo_url"`
-		TvgID     string   `json:"tvg_id"`
-		IsEnabled *bool    `json:"is_enabled"`
+		Name            string   `json:"name"`
+		Number          int      `json:"number"`
+		GroupID         string   `json:"group_id"`
+		StreamIDs       []string `json:"stream_ids"`
+		LogoURL         string   `json:"logo_url"`
+		TvgID           string   `json:"tvg_id"`
+		StreamProfileID string   `json:"stream_profile_id"`
+		IsEnabled       *bool    `json:"is_enabled"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -42,14 +43,15 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ch := &channel.Channel{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		Number:    req.Number,
-		GroupID:   req.GroupID,
-		StreamIDs: req.StreamIDs,
-		LogoURL:   req.LogoURL,
-		TvgID:     req.TvgID,
-		IsEnabled: enabled,
+		ID:              uuid.New().String(),
+		Name:            req.Name,
+		Number:          req.Number,
+		GroupID:         req.GroupID,
+		StreamIDs:       req.StreamIDs,
+		LogoURL:         req.LogoURL,
+		TvgID:           req.TvgID,
+		StreamProfileID: req.StreamProfileID,
+		IsEnabled:       enabled,
 	}
 
 	if err := s.deps.ChannelStore.Create(r.Context(), ch); err != nil {
@@ -78,13 +80,14 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name      *string  `json:"name"`
-		Number    *int     `json:"number"`
-		GroupID   *string  `json:"group_id"`
-		StreamIDs []string `json:"stream_ids"`
-		LogoURL   *string  `json:"logo_url"`
-		TvgID     *string  `json:"tvg_id"`
-		IsEnabled *bool    `json:"is_enabled"`
+		Name            *string  `json:"name"`
+		Number          *int     `json:"number"`
+		GroupID         *string  `json:"group_id"`
+		StreamIDs       []string `json:"stream_ids"`
+		LogoURL         *string  `json:"logo_url"`
+		TvgID           *string  `json:"tvg_id"`
+		StreamProfileID *string  `json:"stream_profile_id"`
+		IsEnabled       *bool    `json:"is_enabled"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
@@ -114,6 +117,9 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TvgID != nil {
 		existing.TvgID = *req.TvgID
+	}
+	if req.StreamProfileID != nil {
+		existing.StreamProfileID = *req.StreamProfileID
 	}
 	if req.IsEnabled != nil {
 		existing.IsEnabled = *req.IsEnabled

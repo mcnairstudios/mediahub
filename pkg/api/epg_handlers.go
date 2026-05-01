@@ -336,6 +336,7 @@ func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
 		return
 	}
+	channels = s.filterChannelsByUser(r, channels)
 
 	type nowEntry struct {
 		ChannelID   string `json:"channel_id"`
@@ -505,6 +506,7 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 
 	channels, err := s.deps.ChannelStore.List(r.Context())
 	if err == nil {
+		channels = s.filterChannelsByUser(r, channels)
 		stats["total_channels"] = len(channels)
 	}
 

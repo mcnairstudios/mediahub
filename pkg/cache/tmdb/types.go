@@ -13,8 +13,10 @@ type Movie struct {
 	Certification  string       `json:"certification,omitempty"`
 	Cast           []CastMember `json:"cast,omitempty"`
 	Crew           []CrewMember `json:"crew,omitempty"`
-	CollectionID   int          `json:"collection_id,omitempty"`
-	CollectionName string       `json:"collection_name,omitempty"`
+	CollectionID           int          `json:"collection_id,omitempty"`
+	CollectionName         string       `json:"collection_name,omitempty"`
+	CollectionPosterPath   string       `json:"collection_poster_path,omitempty"`
+	CollectionBackdropPath string       `json:"collection_backdrop_path,omitempty"`
 }
 
 type Series struct {

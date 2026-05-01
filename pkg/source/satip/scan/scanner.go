@@ -3,12 +3,19 @@ package scan
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 func Scan(host string, httpPort int, cfg Config) (*ScanResult, error) {
 	muxes, networkName, err := resolveMuxes(host, httpPort, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.DiSEqCSource > 0 {
+		for i := range muxes {
+			muxes[i].Source = cfg.DiSEqCSource
+		}
 	}
 
 	if len(muxes) == 0 {
@@ -63,13 +70,30 @@ func DiscoverMuxes(host string, httpPort int, cfg Config) ([]Transponder, string
 
 func resolveMuxes(host string, httpPort int, cfg Config) ([]Transponder, string, error) {
 	if cfg.TransmitterFile != "" {
-		cfg.Log.Info().Str("file", cfg.TransmitterFile).Msg("loading muxes from transmitter file")
-		muxes, err := ParseTransmitterFile(cfg.TransmitterFile)
-		if err != nil {
-			return nil, "", err
+		files := strings.Split(cfg.TransmitterFile, ",")
+		var allMuxes []Transponder
+		seen := map[string]bool{}
+		for _, f := range files {
+			f = strings.TrimSpace(f)
+			if f == "" {
+				continue
+			}
+			cfg.Log.Info().Str("file", f).Msg("loading muxes from transmitter file")
+			muxes, err := ParseTransmitterFile(f)
+			if err != nil {
+				return nil, "", err
+			}
+			for _, m := range muxes {
+				k := muxKey(m)
+				if !seen[k] {
+					seen[k] = true
+					allMuxes = append(allMuxes, m)
+				}
+			}
+			cfg.Log.Info().Int("count", len(muxes)).Msg("loaded muxes from transmitter file")
 		}
-		cfg.Log.Info().Int("count", len(muxes)).Msg("loaded muxes from transmitter file")
-		return muxes, "", nil
+		cfg.Log.Info().Int("total", len(allMuxes)).Msg("total unique muxes from all files")
+		return allMuxes, "", nil
 	}
 
 	return discoverMuxesViaNIT(host, httpPort, cfg)

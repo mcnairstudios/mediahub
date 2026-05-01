@@ -10,6 +10,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
 	"github.com/mcnairstudios/mediahub/pkg/av/demuxloop"
 	"github.com/mcnairstudios/mediahub/pkg/av/selector"
+	"github.com/mcnairstudios/mediahub/pkg/av/subtitle"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output/bridge"
 	"github.com/rs/zerolog"
@@ -43,6 +44,7 @@ type PipelineConfig struct {
 	TimeoutSec        int
 	IsLive            bool
 	CachedStreamInfo  *media.ProbeResult
+	UseSubprocess     bool
 }
 
 type demuxCloser struct {
@@ -108,6 +110,10 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		d.Close()
 		return nil, fmt.Errorf("pipeline: probe returned no stream info for %q", cfg.StreamURL)
 	}
+	if info.Video == nil && len(info.AudioTracks) == 0 {
+		d.Close()
+		return nil, fmt.Errorf("pipeline: no video or audio streams detected in %q", cfg.StreamURL)
+	}
 
 	if info.Video != nil {
 		if vcp := d.VideoCodecParameters(); vcp != nil {
@@ -157,11 +163,31 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		log.Info().Int("selected_audio_index", audioIdx).Msg("selected audio track")
 	}
 
+	if len(info.SubTracks) > 0 {
+		st := info.SubTracks[0]
+		collector := subtitle.NewCollector(subtitle.TrackInfo{
+			Index:    st.Index,
+			Codec:    st.Codec,
+			Language: st.Language,
+		})
+		sess.Subtitles = collector
+		sess.FanOut.SetSubtitleCollector(collector)
+		log.Info().Str("codec", st.Codec).Str("language", st.Language).Int("index", st.Index).Msg("subtitle track detected")
+	}
+
 	sess.AddCloser(&demuxCloser{d: d})
 
 	sess.SetSeekFunc(func(posMs int64) {
 		d.RequestSeek(posMs)
 	})
+
+	if !cfg.NeedsAudioTranscode && cfg.OutputAudioCodec != "" && cfg.OutputAudioCodec != "copy" && audioIdx >= 0 && audioIdx < len(info.AudioTracks) {
+		probed := info.AudioTracks[audioIdx].Codec
+		if probed != "" && probed != cfg.OutputAudioCodec && probed != "aac" {
+			cfg.NeedsAudioTranscode = true
+			log.Info().Str("probed_audio", probed).Str("output_audio", cfg.OutputAudioCodec).Msg("forcing audio transcode after probe")
+		}
+	}
 
 	var sink av.PacketSink = sess.FanOut
 	var videoExtradata, audioExtradata []byte
@@ -176,6 +202,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			Downstream:       sess.FanOut,
 			Info:             info,
 			AudioIndex:       audioIdx,
+			VideoCodecParams: d.VideoCodecParameters(),
+			AudioCodecParams: d.AudioCodecParameters(),
 			HWAccel:          cfg.HWAccel,
 			DecodeHWAccel:    cfg.DecodeHWAccel,
 			OutputCodec:      cfg.OutputCodec,
@@ -274,10 +302,27 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			Str("stream_id", cfg.StreamID).Msg("pipeline: all retries failed")
 	}()
 
+	var videoCP any = d.VideoCodecParameters()
+	var audioCP any = d.AudioCodecParameters()
+	if cfg.NeedsTranscode || cfg.NeedsAudioTranscode {
+		if sink != sess.FanOut {
+			if bc, ok := sink.(interface{ VideoCodecParameters() any }); ok {
+				if vcp := bc.VideoCodecParameters(); vcp != nil {
+					videoCP = vcp
+				}
+			}
+			if bc, ok := sink.(interface{ AudioCodecParameters() any }); ok {
+				if acp := bc.AudioCodecParameters(); acp != nil {
+					audioCP = acp
+				}
+			}
+		}
+	}
+
 	return &PipelineResult{
 		Info:             info,
-		VideoCodecParams: d.VideoCodecParameters(),
-		AudioCodecParams: d.AudioCodecParameters(),
+		VideoCodecParams: videoCP,
+		AudioCodecParams: audioCP,
 		VideoExtradata:   videoExtradata,
 		AudioExtradata:   audioExtradata,
 	}, nil
@@ -343,6 +388,109 @@ func (m *Manager) openDemuxAndSink(sess *Session, cfg PipelineConfig, log zerolo
 	}
 
 	return d, sink, nil
+}
+
+func (m *Manager) RunSubprocessPipelineMethod(sess *Session, cfg PipelineConfig) (*PipelineResult, error) {
+	log := zerolog.New(os.Stderr).With().
+		Str("session", sess.StreamID).
+		Str("stream", sess.StreamName).
+		Logger()
+
+	if cfg.StreamURL == "" {
+		return nil, fmt.Errorf("subprocess pipeline: stream URL is empty")
+	}
+
+	if err := os.MkdirAll(sess.OutputDir, 0755); err != nil {
+		return nil, fmt.Errorf("subprocess pipeline: create output dir: %w", err)
+	}
+
+	subCfg := SubprocessConfig{
+		InputURL:     cfg.StreamURL,
+		OutputDir:    sess.OutputDir,
+		VideoCodec:   cfg.OutputCodec,
+		AudioCodec:   cfg.OutputAudioCodec,
+		VideoBitrate: cfg.Bitrate,
+		HWAccel:      cfg.HWAccel,
+		OutputHeight: cfg.OutputHeight,
+		Deinterlace:  cfg.Deinterlace,
+		IsLive:       cfg.IsLive,
+	}
+
+	go func() {
+		defer sess.MarkDone()
+		defer func() {
+			if r := recover(); r != nil {
+				pErr := fmt.Errorf("subprocess pipeline panic: %v", r)
+				sess.SetError(pErr)
+				log.Error().Interface("panic", r).Msg("subprocess pipeline: PANIC")
+			}
+		}()
+
+		err := RunSubprocessPipeline(sess.Context(), subCfg, log)
+		if err == nil {
+			log.Info().Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: ended cleanly")
+			return
+		}
+
+		if sess.Context().Err() != nil {
+			return
+		}
+
+		if !cfg.IsLive {
+			sess.SetError(err)
+			log.Error().Err(err).Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: ended with error")
+			return
+		}
+
+		for attempt := 1; attempt <= maxLiveRetries; attempt++ {
+			select {
+			case <-sess.Context().Done():
+				return
+			default:
+			}
+
+			wait := liveRetryBaseWait * time.Duration(1<<(attempt-1))
+			log.Warn().Err(err).Int("attempt", attempt).Int("max", maxLiveRetries).Dur("backoff", wait).
+				Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: live stream failed, retrying")
+
+			select {
+			case <-sess.Context().Done():
+				return
+			case <-time.After(wait):
+			}
+
+			sess.FanOut.ResetForSeek()
+			sess.ClearFinished()
+
+			err = RunSubprocessPipeline(sess.Context(), subCfg, log)
+			if err == nil {
+				log.Info().Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: ended cleanly after retry")
+				return
+			}
+		}
+
+		sess.SetError(err)
+		log.Error().Err(err).Int("retries_exhausted", maxLiveRetries).
+			Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: all retries failed")
+	}()
+
+	info := &media.ProbeResult{}
+	if cfg.OutputCodec != "" && cfg.OutputCodec != "copy" {
+		info.Video = &media.VideoInfo{
+			Codec: cfg.OutputCodec,
+		}
+	}
+	if cfg.OutputAudioCodec != "" && cfg.OutputAudioCodec != "copy" {
+		info.AudioTracks = []media.AudioTrack{{
+			Codec:      cfg.OutputAudioCodec,
+			Channels:   2,
+			SampleRate: 48000,
+		}}
+	}
+
+	return &PipelineResult{
+		Info: info,
+	}, nil
 }
 
 type bridgeCloser struct {

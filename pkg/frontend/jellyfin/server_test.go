@@ -50,7 +50,7 @@ func (m *mockAuthService) ListUsers(_ context.Context) ([]*auth.User, error) {
 	return m.users, nil
 }
 
-func (m *mockAuthService) UpdateUser(_ context.Context, id string, username, email string, role auth.Role) (*auth.User, error) {
+func (m *mockAuthService) UpdateUser(_ context.Context, id string, username, email string, role auth.Role, channelGroupIDs []string) (*auth.User, error) {
 	return nil, nil
 }
 

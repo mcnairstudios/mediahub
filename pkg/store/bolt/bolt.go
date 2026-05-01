@@ -18,6 +18,9 @@ var (
 	bucketClients        = []byte("clients")
 	bucketSourceProfiles = []byte("source_profiles")
 	bucketProbeCache     = []byte("probe_cache")
+	bucketTMDBQueue      = []byte("tmdb_queue")
+	bucketTMDBBlobs      = []byte("tmdb_blobs")
+	bucketImageQueue     = []byte("image_queue")
 )
 
 type DB struct {
@@ -35,6 +38,7 @@ func Open(path string) (*DB, error) {
 		bucketEPGSources, bucketEPGPrograms, bucketRecordings, bucketUsers,
 		bucketSourceConfigs, bucketFavorites, bucketClients,
 		bucketSourceProfiles, bucketProbeCache,
+		bucketTMDBQueue, bucketTMDBBlobs, bucketImageQueue,
 	}
 
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -55,6 +59,10 @@ func Open(path string) (*DB, error) {
 
 func (d *DB) Close() error {
 	return d.db.Close()
+}
+
+func (d *DB) BoltDB() *bbolt.DB {
+	return d.db
 }
 
 func (d *DB) StreamStore() *StreamStore {
@@ -125,7 +133,7 @@ func (d *DB) ClearAll() error {
 		"streams", "settings", "channels", "groups",
 		"epg_sources", "epg_programs", "recordings", "users",
 		"source_configs", "favorites", "clients", "source_profiles",
-		"probe_cache",
+		"probe_cache", "tmdb_queue", "tmdb_blobs", "image_queue",
 	}
 	return d.db.Update(func(tx *bbolt.Tx) error {
 		for _, name := range buckets {

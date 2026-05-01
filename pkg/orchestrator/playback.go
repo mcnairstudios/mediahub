@@ -11,6 +11,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
+	"github.com/mcnairstudios/mediahub/pkg/output/hls"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
@@ -28,11 +29,13 @@ type PlaybackDeps struct {
 	ConnRegistry       *connectivity.Registry
 	SessionMgr         *session.Manager
 	Detector           *client.Detector
+	ClientStore        client.Store
 	OutputReg          *output.Registry
 	Strategy           func(strategy.Input, strategy.Output) strategy.Decision
 	ProbeCache         store.ProbeCache
 	UserAgent          string
 	PipelineRunner     PipelineRunner
+	ClientOverrideID   string
 }
 
 type PlaybackResult struct {
@@ -70,25 +73,31 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	var detectedClient *client.Client
-	if deps.Detector != nil {
+	if deps.ClientOverrideID != "" && deps.ClientStore != nil {
+		overrideClient, lookupErr := deps.ClientStore.Get(ctx, deps.ClientOverrideID)
+		if lookupErr == nil && overrideClient != nil {
+			detectedClient = overrideClient
+		}
+	}
+	if detectedClient == nil && deps.Detector != nil {
 		detectedClient = deps.Detector.Detect(port, headers)
-		if detectedClient != nil {
-			p := detectedClient.Profile
-			if p.VideoCodec != "" {
-				out.VideoCodec = p.VideoCodec
-			}
-			if p.AudioCodec != "" {
-				out.AudioCodec = p.AudioCodec
-			}
-			if p.Container != "" {
-				out.Container = p.Container
-			}
-			if p.HWAccel != "" {
-				out.HWAccel = p.HWAccel
-			}
-			if p.OutputHeight > 0 {
-				out.OutputHeight = p.OutputHeight
-			}
+	}
+	if detectedClient != nil {
+		p := detectedClient.Profile
+		if p.VideoCodec != "" {
+			out.VideoCodec = p.VideoCodec
+		}
+		if p.AudioCodec != "" {
+			out.AudioCodec = p.AudioCodec
+		}
+		if p.Container != "" {
+			out.Container = p.Container
+		}
+		if p.HWAccel != "" {
+			out.HWAccel = p.HWAccel
+		}
+		if p.OutputHeight > 0 {
+			out.OutputHeight = p.OutputHeight
 		}
 	}
 
@@ -137,7 +146,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	var cachedProbe *media.ProbeResult
-	if deps.ProbeCache != nil {
+	if deps.ProbeCache != nil && !strings.HasPrefix(stream.URL, "rtsp://") {
 		cachedProbe, _ = deps.ProbeCache.Get(stream.URL)
 	}
 
@@ -167,9 +176,19 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 
 	applySourceProfile(ctx, deps, stream, &pipeCfg)
 
+	if deps.SettingsStore != nil {
+		if v, err := deps.SettingsStore.Get(ctx, "subprocess_transcode"); err == nil && v == "true" {
+			pipeCfg.UseSubprocess = true
+		}
+	}
+
 	runner := deps.PipelineRunner
 	if runner == nil {
-		runner = deps.SessionMgr.RunPipeline
+		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+			runner = deps.SessionMgr.RunSubprocessPipelineMethod
+		} else {
+			runner = deps.SessionMgr.RunPipeline
+		}
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
 	if err != nil {
@@ -190,25 +209,57 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
 		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
 	}
+	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+		delivery = output.DeliveryHLS
+	}
 	sess.Delivery = string(delivery)
 
+	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+		plugin, plugErr := createSubprocessHLSPlugin(sess.OutputDir)
+		if plugErr != nil {
+			deps.SessionMgr.Stop(stream.ID)
+			return nil, fmt.Errorf("create subprocess HLS plugin: %w", plugErr)
+		}
+		sess.FanOut.Add(plugin)
+		result.Plugin = plugin
+		result.Delivery = string(delivery)
+		if sp, ok := plugin.(output.ServablePlugin); ok {
+			result.Servable = sp
+		}
+		return result, nil
+	}
+
 	pluginCfg := output.PluginConfig{
-		OutputDir:        sess.OutputDir,
-		IsLive:           true,
-		VideoCodecParams: pipelineResult.VideoCodecParams,
-		AudioCodecParams: pipelineResult.AudioCodecParams,
+		OutputDir: sess.OutputDir,
+		IsLive:    true,
+	}
+	if !decision.NeedsTranscode {
+		pluginCfg.VideoCodecParams = pipelineResult.VideoCodecParams
+	}
+	if !decision.NeedsAudioTranscode {
+		pluginCfg.AudioCodecParams = pipelineResult.AudioCodecParams
 	}
 	if len(pipelineResult.VideoExtradata) > 0 {
 		pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
+	} else if info != nil && info.Video != nil && len(info.Video.Extradata) > 0 {
+		pluginCfg.VideoExtradata = info.Video.Extradata
 	}
 	if len(pipelineResult.AudioExtradata) > 0 {
 		pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
 	}
-	if info.Video != nil {
-		pluginCfg.Video = info.Video
+	if info != nil && info.Video != nil {
+		v := *info.Video
+		if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
+			v.Codec = string(decision.VideoCodec)
+		}
+		pluginCfg.Video = &v
 	}
-	if len(info.AudioTracks) > 0 {
-		pluginCfg.Audio = &info.AudioTracks[0]
+	if info != nil && len(info.AudioTracks) > 0 {
+		a := info.AudioTracks[0]
+		if decision.NeedsAudioTranscode && string(decision.AudioCodec) != "" {
+			a.Codec = string(decision.AudioCodec)
+		}
+		pluginCfg.Audio = &a
 	}
 
 	plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
@@ -229,6 +280,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		defer func() {
 			recover() //nolint:errcheck
 		}()
+		if strings.HasPrefix(stream.URL, "rtsp://") {
+			return
+		}
 		recCfg := pluginCfg
 		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
 		recCfg.OutputFormat = "mpegts"
@@ -349,9 +403,19 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		DecoderName:         decoderName,
 	}
 
+	if deps.SettingsStore != nil {
+		if v, err := deps.SettingsStore.Get(ctx, "subprocess_transcode"); err == nil && v == "true" {
+			pipeCfg.UseSubprocess = true
+		}
+	}
+
 	runner := deps.PipelineRunner
 	if runner == nil {
-		runner = deps.SessionMgr.RunPipeline
+		if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+			runner = deps.SessionMgr.RunSubprocessPipelineMethod
+		} else {
+			runner = deps.SessionMgr.RunPipeline
+		}
 	}
 	pipelineResult, err := runner(sess, pipeCfg)
 	if err != nil {
@@ -365,7 +429,25 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
 		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
 	}
+	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+		delivery = output.DeliveryHLS
+	}
 	sess.Delivery = string(delivery)
+
+	if pipeCfg.UseSubprocess && pipeCfg.NeedsTranscode {
+		plugin, plugErr := createSubprocessHLSPlugin(sess.OutputDir)
+		if plugErr != nil {
+			deps.SessionMgr.Stop(sessionKey)
+			return nil, fmt.Errorf("create subprocess HLS plugin: %w", plugErr)
+		}
+		sess.FanOut.Add(plugin)
+		result.Plugin = plugin
+		result.Delivery = string(delivery)
+		if sp, ok := plugin.(output.ServablePlugin); ok {
+			result.Servable = sp
+		}
+		return result, nil
+	}
 
 	pluginCfg := output.PluginConfig{
 		OutputDir:        sess.OutputDir,
@@ -496,4 +578,8 @@ func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 	}
 	sess.SeekTo(positionMs)
 	return nil
+}
+
+func createSubprocessHLSPlugin(outputDir string) (output.OutputPlugin, error) {
+	return hls.NewSubprocessPlugin(outputDir)
 }

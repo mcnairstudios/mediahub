@@ -30,6 +30,29 @@ type scanResult struct {
 	programs    map[uint16]uint16
 }
 
+type SingleResult struct {
+	Channels    []Channel
+	NITMuxes    []Transponder
+	NetworkID   uint16
+	NetworkName string
+	Err         error
+}
+
+func ScanSingleTransponder(host string, tp Transponder, timeout time.Duration, log zerolog.Logger) SingleResult {
+	return ScanTransponderWithPids(host, tp, timeout, "all", log)
+}
+
+func ScanTransponderWithPids(host string, tp Transponder, timeout time.Duration, pids string, log zerolog.Logger) SingleResult {
+	r := scanTransponder(context.Background(), host, tp, timeout, pids, log)
+	return SingleResult{
+		Channels:    r.channels,
+		NITMuxes:    r.nitMuxes,
+		NetworkID:   r.networkID,
+		NetworkName: r.networkName,
+		Err:         r.err,
+	}
+}
+
 func scanTransponder(parentCtx context.Context, host string, tp Transponder, timeout time.Duration, pids string, log zerolog.Logger) (result scanResult) {
 	start := time.Now()
 	result.tp = tp
@@ -72,10 +95,13 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	}
 
 	session := resp.headers["session"]
-	resp, err = c.send("SETUP", controlURL, map[string]string{
-		"Session":   session,
+	setupHeaders := map[string]string{
 		"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
-	}, nil)
+	}
+	if session != "" {
+		setupHeaders["Session"] = session
+	}
+	resp, err = c.send("SETUP", controlURL, setupHeaders, nil)
 	if err != nil {
 		result.err = err
 		return result
@@ -88,7 +114,7 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 		session = strings.SplitN(s, ";", 2)[0]
 	}
 
-	resp, err = c.send("PLAY", rtspURL, map[string]string{
+	resp, err = c.send("PLAY", controlURL, map[string]string{
 		"Session": session,
 		"Range":   "npt=0.000-",
 	}, nil)

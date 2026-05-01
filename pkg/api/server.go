@@ -3,8 +3,6 @@ package api
 import (
 	"io/fs"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
@@ -53,6 +51,8 @@ type OrchestratorDeps struct {
 	TMDBClient        *tmdb.Client
 	TMDBCache         *tmdbcache.Cache
 	TMDBImages        *tmdb.ImageCache
+	TMDBStore         *tmdb.Store
+	TMDBImageServer   *tmdb.ImageServer
 	SourceProfileStore sourceprofile.Store
 	ProbeCache         store.ProbeCache
 	Config            *config.Config
@@ -63,16 +63,10 @@ type OrchestratorDeps struct {
 	DBClearer         any
 }
 
-type vodCacheEntry struct {
-	data      any
-	createdAt time.Time
-}
-
 type Server struct {
 	mux        *http.ServeMux
 	middleware *middleware.AuthMiddleware
 	deps       OrchestratorDeps
-	vodCache   sync.Map
 }
 
 func NewServer(deps OrchestratorDeps) *Server {

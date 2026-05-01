@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/av/subtitle"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
 
@@ -21,6 +22,8 @@ type Session struct {
 	FanOut     *output.FanOut
 	CreatedAt  time.Time
 	Delivery   string
+
+	Subtitles *subtitle.Collector
 
 	mu       sync.Mutex
 	ctx      context.Context

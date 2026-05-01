@@ -1,6 +1,6 @@
 {
   "default_hwaccel": "none",
-  "default_video_codec": "copy",
+  "recording_video_codec": "copy",
   "default_decode_hwaccel": "",
   "default_max_bit_depth": "",
   "encoder_h264": "",

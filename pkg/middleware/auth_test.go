@@ -31,7 +31,7 @@ func (m *mockAuthService) CreateUser(ctx context.Context, username, password, em
 }
 
 func (m *mockAuthService) ListUsers(ctx context.Context) ([]*auth.User, error) { return nil, nil }
-func (m *mockAuthService) UpdateUser(ctx context.Context, id string, username, email string, role auth.Role) (*auth.User, error) {
+func (m *mockAuthService) UpdateUser(ctx context.Context, id string, username, email string, role auth.Role, channelGroupIDs []string) (*auth.User, error) {
 	return nil, nil
 }
 func (m *mockAuthService) DeleteUser(ctx context.Context, id string) error { return nil }

@@ -169,6 +169,11 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	satipScanMu.Lock()
+	if st, ok := satipScanStatus[id]; ok && st.State == "scanning" {
+		satipScanMu.Unlock()
+		httputil.RespondError(w, http.StatusConflict, "scan already in progress")
+		return
+	}
 	satipScanStatus[id] = source.RefreshStatus{State: "scanning", Message: "Starting scan..."}
 	satipScanMu.Unlock()
 
@@ -179,6 +184,20 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 			satipScanStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
 			satipScanMu.Unlock()
 			return
+		}
+
+		type progressSetter interface {
+			SetScanProgress(fn func(done, total, channels int))
+		}
+		if ps, ok := src.(progressSetter); ok {
+			ps.SetScanProgress(func(done, total, channels int) {
+				satipScanMu.Lock()
+				satipScanStatus[id] = source.RefreshStatus{
+					State:   "scanning",
+					Message: fmt.Sprintf("Scanning mux %d/%d", done, total),
+				}
+				satipScanMu.Unlock()
+			})
 		}
 
 		if err := src.Refresh(context.Background()); err != nil {

@@ -322,7 +322,8 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 		Season:         season,
 		Episode:        episode,
 		EpisodeName:    attrs["tvp-episode-name"],
-		SeriesName:     attrs["tvp-series"],
+		SeriesName:     resolveSeries(attrs["tvp-series"], entry.Group, vodType),
+		SeasonName:     attrs["tvp-season-name"],
 		CollectionName: attrs["tvp-collection"],
 		CollectionID:   attrs["tvp-collection-id"],
 		IsLocal:        attrs["tvp-local"] == "true",
@@ -418,6 +419,16 @@ func resolveGroup(vodType, original string) string {
 	default:
 		return original
 	}
+}
+
+func resolveSeries(tvpSeries, group, vodType string) string {
+	if tvpSeries != "" {
+		return tvpSeries
+	}
+	if (vodType == "series" || vodType == "episode") && group != "" {
+		return group
+	}
+	return ""
 }
 
 func deterministicStreamID(sourceID, url string) string {

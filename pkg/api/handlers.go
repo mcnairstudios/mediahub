@@ -9,6 +9,7 @@ import (
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	"github.com/mcnairstudios/mediahub/pkg/channel"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/middleware"
@@ -127,13 +128,14 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondJSON(w, http.StatusOK, []any{})
 		return
 	}
+	channels = s.filterChannelsByUser(r, channels)
 	httputil.RespondJSON(w, http.StatusOK, channels)
 }
 
 var apiSettableKeys = map[string]bool{
 	"base_url":               true,
 	"default_hwaccel":        true,
-	"default_video_codec":    true,
+	"recording_video_codec":  true,
 	"default_decode_hwaccel": true,
 	"encoder_h264":           true,
 	"encoder_h265":           true,
@@ -154,6 +156,7 @@ var apiSettableKeys = map[string]bool{
 	"google_client_secret":   true,
 	"audio_language":         true,
 	"subtitle_language":      true,
+	"subprocess_transcode":   true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -237,10 +240,23 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		ConnRegistry:      s.deps.ConnRegistry,
 		SessionMgr:        s.deps.SessionMgr,
 		Detector:          s.deps.Detector,
+		ClientStore:       s.deps.ClientStore,
 		OutputReg:         s.deps.OutputReg,
 		Strategy:          s.deps.Strategy,
 		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
+	}
+
+	if profileName := r.URL.Query().Get("profile"); profileName != "" {
+		if s.deps.ClientStore != nil {
+			clients, _ := s.deps.ClientStore.List(r.Context())
+			for _, c := range clients {
+				if c.Name == profileName {
+					deps.ClientOverrideID = c.ID
+					break
+				}
+			}
+		}
 	}
 
 	headers := make(map[string]string)
@@ -308,22 +324,41 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 				"language":    a.Language,
 			}
 		}
+		if len(result.ProbeInfo.SubTracks) > 0 {
+			subs := make([]map[string]any, 0, len(result.ProbeInfo.SubTracks))
+			for _, st := range result.ProbeInfo.SubTracks {
+				subs = append(subs, map[string]any{
+					"index":    st.Index,
+					"codec":    st.Codec,
+					"language": st.Language,
+				})
+			}
+			probeMap["subtitles"] = subs
+		}
 		resp["probe_info"] = probeMap
 	}
 
 	base := "/api/play/" + streamID
 	switch result.Delivery {
 	case "hls":
-		resp["endpoints"] = map[string]string{
+		endpoints := map[string]string{
 			"playlist": base + "/hls/playlist.m3u8",
 		}
+		if sess := s.deps.SessionMgr.Get(streamID); sess != nil && sess.Subtitles != nil {
+			endpoints["subtitles"] = base + "/subtitles"
+		}
+		resp["endpoints"] = endpoints
 	case "mse":
-		resp["endpoints"] = map[string]string{
+		endpoints := map[string]string{
 			"video_init":    base + "/mse/video/init",
 			"audio_init":    base + "/mse/audio/init",
 			"video_segment": base + "/mse/video/segment",
 			"audio_segment": base + "/mse/audio/segment",
 		}
+		if sess := s.deps.SessionMgr.Get(streamID); sess != nil && sess.Subtitles != nil {
+			endpoints["subtitles"] = base + "/subtitles"
+		}
+		resp["endpoints"] = endpoints
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, resp)
@@ -360,6 +395,30 @@ func (s *Server) handlePlaybackServe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.NotFound(w, r)
+}
+
+func (s *Server) handleSubtitles(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if sess.Subtitles == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Write(sess.Subtitles.WebVTT())
 }
 
 func (s *Server) handleStopPlayback(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +635,25 @@ func (s *Server) recordingDeps() orchestrator.RecordingDeps {
 	}
 	return deps
 }
+
+func (s *Server) filterChannelsByUser(r *http.Request, channels []channel.Channel) []channel.Channel {
+	user := middleware.UserFromContext(r.Context())
+	if user == nil || user.IsAdmin || len(user.ChannelGroupIDs) == 0 {
+		return channels
+	}
+	allowed := make(map[string]bool, len(user.ChannelGroupIDs))
+	for _, gid := range user.ChannelGroupIDs {
+		allowed[gid] = true
+	}
+	filtered := make([]channel.Channel, 0, len(channels))
+	for _, ch := range channels {
+		if allowed[ch.GroupID] {
+			filtered = append(filtered, ch)
+		}
+	}
+	return filtered
+}
+
 
 func (s *Server) resolveStreamLogos(streams []media.Stream) {
 	if s.deps.LogoCache == nil {

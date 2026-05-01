@@ -183,6 +183,10 @@ func (c *Client) MovieDetail(tmdbID int) (*tmdbcache.Movie, error) {
 	if raw.BelongsToCollection.ID > 0 {
 		movie.CollectionID = raw.BelongsToCollection.ID
 		movie.CollectionName = raw.BelongsToCollection.Name
+		if colPoster, colBackdrop := c.fetchCollectionImages(raw.BelongsToCollection.ID); colPoster != "" || colBackdrop != "" {
+			movie.CollectionPosterPath = colPoster
+			movie.CollectionBackdropPath = colBackdrop
+		}
 	}
 
 	movie.Certification = extractMovieCertification(raw.ReleaseDates, "GB", "US")
@@ -227,7 +231,16 @@ func (c *Client) TVDetail(tmdbID int) (*tmdbcache.Series, error) {
 
 	cacheKey := "detail_tv_" + strconv.Itoa(tmdbID)
 	if s, ok := c.cache.GetSeries(cacheKey); ok {
-		return s, nil
+		hasEpisodes := false
+		for _, sn := range s.Seasons {
+			if len(sn.Episodes) > 0 {
+				hasEpisodes = true
+				break
+			}
+		}
+		if hasEpisodes || len(s.Seasons) == 0 {
+			return s, nil
+		}
 	}
 
 	u := fmt.Sprintf("https://api.themoviedb.org/3/tv/%d?api_key=%s&language=en-GB&append_to_response=credits,content_ratings",
@@ -263,13 +276,20 @@ func (c *Client) TVDetail(tmdbID int) (*tmdbcache.Series, error) {
 	}
 
 	for _, s := range raw.Seasons {
-		series.Seasons = append(series.Seasons, tmdbcache.Season{
+		season := tmdbcache.Season{
 			SeasonNumber: s.SeasonNumber,
 			Name:         s.Name,
 			Overview:     s.Overview,
 			PosterPath:   s.PosterPath,
 			EpisodeCount: s.EpisodeCount,
-		})
+		}
+		if s.SeasonNumber > 0 {
+			if sd, err := c.SeasonDetail(tmdbID, s.SeasonNumber); err == nil && sd != nil {
+				season.Episodes = sd.Episodes
+				time.Sleep(250 * time.Millisecond)
+			}
+		}
+		series.Seasons = append(series.Seasons, season)
 	}
 
 	c.cache.SetSeries(cacheKey, series)
@@ -325,6 +345,30 @@ func (c *Client) SeasonDetail(tvID, seasonNum int) (*tmdbcache.Season, error) {
 	}
 
 	return season, nil
+}
+
+func (c *Client) fetchCollectionImages(collectionID int) (poster, backdrop string) {
+	key := c.apiKey()
+	if key == "" {
+		return "", ""
+	}
+	u := fmt.Sprintf("https://api.themoviedb.org/3/collection/%d?api_key=%s&language=en-GB", collectionID, url.QueryEscape(key))
+	resp, err := c.httpClient.Get(u)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", ""
+	}
+	defer resp.Body.Close()
+	var raw struct {
+		PosterPath   string `json:"poster_path"`
+		BackdropPath string `json:"backdrop_path"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&raw) == nil {
+		return raw.PosterPath, raw.BackdropPath
+	}
+	return "", ""
 }
 
 func (c *Client) PersonProfilePath(tmdbID string) string {
