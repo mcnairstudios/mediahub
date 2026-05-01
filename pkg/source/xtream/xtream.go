@@ -471,11 +471,14 @@ type Series struct {
 }
 
 type SeriesInfo struct {
-	RawSeasons json.RawMessage `json:"episodes"`
-	Seasons    map[string][]SeriesEpisode
+	RawSeasons json.RawMessage            `json:"episodes"`
+	Seasons    map[string][]SeriesEpisode `json:"-"`
 }
 
 func (si *SeriesInfo) ParseSeasons() {
+	if len(si.Seasons) > 0 {
+		return
+	}
 	si.Seasons = make(map[string][]SeriesEpisode)
 	if len(si.RawSeasons) == 0 {
 		return
@@ -483,6 +486,21 @@ func (si *SeriesInfo) ParseSeasons() {
 	if err := json.Unmarshal(si.RawSeasons, &si.Seasons); err != nil {
 		si.Seasons = make(map[string][]SeriesEpisode)
 	}
+}
+
+func (si SeriesInfo) MarshalJSON() ([]byte, error) {
+	if len(si.Seasons) > 0 {
+		data, err := json.Marshal(si.Seasons)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Episodes json.RawMessage `json:"episodes"`
+		}{Episodes: data})
+	}
+	return json.Marshal(struct {
+		Episodes json.RawMessage `json:"episodes"`
+	}{Episodes: si.RawSeasons})
 }
 
 type SeriesEpisode struct {
