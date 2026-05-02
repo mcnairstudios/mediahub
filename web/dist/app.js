@@ -1295,21 +1295,23 @@
     } catch (e) { channels = []; }
 
     var html = '<div class="modal-overlay" id="add-channel-modal">' +
-      '<div class="modal-content">' +
+      '<div class="modal-content" style="max-width:480px">' +
       '<div class="modal-header">Add "' + esc(streamName) + '" to Channel</div>' +
-      '<div class="modal-body">';
+      '<div class="modal-body">' +
+      '<button class="btn btn-primary" id="create-new-ch-btn" style="width:100%;margin-bottom:16px;padding:10px">+ Create New Channel with this Stream</button>';
 
-    if (channels.length === 0) {
-      html += '<p>No channels available. Create a channel first.</p>';
-    } else {
-      html += '<div class="channel-pick-list">';
+    if (channels.length > 0) {
+      html += '<div style="color:var(--text-muted);font-size:12px;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Or add to existing channel</div>';
+      html += '<input class="form-input" id="channel-pick-search" placeholder="Search channels..." style="margin-bottom:8px">';
+      html += '<div class="channel-pick-list" id="channel-pick-list">';
       for (var i = 0; i < channels.length; i++) {
         var ch = channels[i];
         var alreadyAssigned = (ch.stream_ids || []).indexOf(streamID) >= 0;
         var badge = alreadyAssigned ? ' <span class="badge badge-live">assigned</span>' : '';
-        html += '<div class="channel-pick-item' + (alreadyAssigned ? ' disabled' : '') + '" data-channel-id="' + esc(ch.id) + '"' +
+        var logoImg = ch.logo_url ? '<img src="' + esc(ch.logo_url) + '" style="width:24px;height:24px;object-fit:contain;border-radius:2px;flex-shrink:0" onerror="this.style.display=\'none\'">' : '';
+        html += '<div class="channel-pick-item' + (alreadyAssigned ? ' disabled' : '') + '" data-channel-id="' + esc(ch.id) + '" data-name="' + esc(ch.name) + '"' +
           (alreadyAssigned ? '' : ' style="cursor:pointer"') + '>' +
-          esc(ch.name) + ' (#' + ch.number + ')' + badge + '</div>';
+          logoImg + '<span style="flex:1">' + esc(ch.name) + ' <span style="color:var(--text-muted)">(#' + ch.number + ')</span></span>' + badge + '</div>';
       }
       html += '</div>';
     }
@@ -1319,6 +1321,22 @@
       '</div></div></div>';
 
     document.body.insertAdjacentHTML('beforeend', html);
+
+    document.getElementById('create-new-ch-btn').addEventListener('click', function() {
+      document.getElementById('add-channel-modal').remove();
+      openStandaloneChannelModal({ preStreamID: streamID, preStreamName: streamName });
+    });
+
+    var pickSearch = document.getElementById('channel-pick-search');
+    if (pickSearch) {
+      pickSearch.addEventListener('input', function() {
+        var q = this.value.toLowerCase();
+        document.querySelectorAll('.channel-pick-item').forEach(function(item) {
+          var name = (item.getAttribute('data-name') || '').toLowerCase();
+          item.style.display = name.indexOf(q) >= 0 ? '' : 'none';
+        });
+      });
+    }
 
     document.getElementById('close-channel-modal').addEventListener('click', function() {
       document.getElementById('add-channel-modal').remove();
@@ -1347,6 +1365,253 @@
   var channelGroups = [];
   var channelStreams = null;
   var epgChannelIDs = null;
+  var logoCache = null;
+
+  var channelFormBody =
+    '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
+    '<div style="display:flex;gap:12px"><div class="form-group" style="flex:1"><label class="form-label">Number</label><input class="form-input" id="ch-number" type="number" min="0" placeholder="1"></div>' +
+    '<div class="form-group" style="flex:1"><label class="form-label">Group</label><select class="form-input" id="ch-group"><option value="">None</option></select></div></div>' +
+    '<div class="form-group"><label class="form-label">Logo</label>' +
+    '<div id="ch-logo-picker" style="position:relative">' +
+    '<div id="ch-logo-display" style="display:none;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius)">' +
+    '<img id="ch-logo-img" style="width:28px;height:28px;object-fit:contain;border-radius:2px;background:var(--bg-hover)">' +
+    '<span id="ch-logo-name" style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
+    '<button type="button" id="ch-logo-change" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Change</button>' +
+    '<button type="button" id="ch-logo-clear" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">&times;</button></div>' +
+    '<input class="form-input" id="ch-logo-search" placeholder="Search logos or paste URL..." autocomplete="off">' +
+    '<input type="hidden" id="ch-logo" value="">' +
+    '<div id="ch-logo-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div></div>' +
+    '<div class="form-group"><label class="form-label">EPG ID (tvg_id)</label>' +
+    '<div style="position:relative"><input class="form-input" id="ch-tvgid" placeholder="Type to search EPG channels..." autocomplete="off">' +
+    '<div id="ch-tvgid-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div></div>' +
+    '<div class="form-group"><label class="form-label">Streams</label>' +
+    '<div style="position:relative"><input class="form-input" id="ch-stream-search" placeholder="Search streams..." autocomplete="off">' +
+    '<div id="ch-stream-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div>' +
+    '<div id="ch-selected-streams" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div></div>' +
+    '<div class="form-group"><label class="form-label"><input type="checkbox" id="ch-enabled" checked> Enabled</label></div>';
+
+  var chFormSelectedStreamIDs = [];
+
+  function chFormOpenModal(title, saveLabel) {
+    var modal = showFormModal(title, channelFormBody, { id: 'channel-modal', saveLabel: saveLabel, maxWidth: '600px' });
+    modal.querySelector('.modal-save-btn').id = 'save-channel-btn';
+    return modal;
+  }
+
+  async function chFormLoadEPGChannelIDs() {
+    if (epgChannelIDs) return epgChannelIDs;
+    try { var r = await api.get('/api/epg/channel-ids'); epgChannelIDs = await r.json(); if (!Array.isArray(epgChannelIDs)) epgChannelIDs = []; } catch (e) { epgChannelIDs = []; }
+    return epgChannelIDs;
+  }
+
+  async function chFormLoadStreams() {
+    if (channelStreams) return channelStreams;
+    try { var r = await api.get('/api/streams?fields=slim'); channelStreams = await r.json(); if (!Array.isArray(channelStreams)) channelStreams = []; } catch (e) { channelStreams = []; }
+    return channelStreams;
+  }
+
+  async function chFormLoadLogos() {
+    if (logoCache) return logoCache;
+    var logos = [];
+    try {
+      var epgIds = await chFormLoadEPGChannelIDs();
+      for (var i = 0; i < epgIds.length; i++) {
+        if (epgIds[i].icon) logos.push({ url: epgIds[i].icon, name: epgIds[i].name || epgIds[i].id });
+      }
+    } catch (e) {}
+    try {
+      var streams = await chFormLoadStreams();
+      var seen = {};
+      for (var j = 0; j < logos.length; j++) seen[logos[j].url] = true;
+      for (var k = 0; k < streams.length; k++) {
+        var slogo = streams[k].tvg_logo || streams[k].logo_url;
+        if (slogo && !seen[slogo]) {
+          seen[slogo] = true;
+          logos.push({ url: slogo, name: streams[k].name });
+        }
+      }
+    } catch (e) {}
+    logoCache = logos;
+    return logos;
+  }
+
+  function chFormSetLogoDisplay(url, name) {
+    var display = document.getElementById('ch-logo-display');
+    var searchInput = document.getElementById('ch-logo-search');
+    var hidden = document.getElementById('ch-logo');
+    if (!display || !searchInput || !hidden) return;
+    if (url) {
+      hidden.value = url;
+      var img = document.getElementById('ch-logo-img');
+      var nameEl = document.getElementById('ch-logo-name');
+      if (img) img.src = url;
+      if (nameEl) nameEl.textContent = name || url;
+      display.style.display = 'flex';
+      searchInput.style.display = 'none';
+    } else {
+      hidden.value = '';
+      display.style.display = 'none';
+      searchInput.style.display = '';
+      searchInput.value = '';
+    }
+  }
+
+  function chFormSetupLogoPicker() {
+    var searchInput = document.getElementById('ch-logo-search');
+    var dropdown = document.getElementById('ch-logo-dropdown');
+    var changeBtn = document.getElementById('ch-logo-change');
+    var clearBtn = document.getElementById('ch-logo-clear');
+    if (!searchInput || !dropdown) return;
+    if (changeBtn) changeBtn.addEventListener('click', function() { chFormSetLogoDisplay('', ''); searchInput.focus(); });
+    if (clearBtn) clearBtn.addEventListener('click', function() { chFormSetLogoDisplay('', ''); });
+    function showDropdown(filter) {
+      chFormLoadLogos().then(function(logos) {
+        var s = (filter || '').toLowerCase();
+        var isUrl = s.indexOf('http') === 0;
+        if (isUrl) { document.getElementById('ch-logo').value = filter; dropdown.style.display = 'none'; return; }
+        var m = s.length < 1 ? logos.slice(0, 50) : logos.filter(function(l) { return (l.name || '').toLowerCase().indexOf(s) >= 0 || (l.url || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
+        if (m.length === 0) { dropdown.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:13px">No logos found. Paste a URL instead.</div>'; dropdown.style.display = 'block'; return; }
+        dropdown.innerHTML = m.map(function(l) {
+          return '<div class="logo-opt" data-url="' + esc(l.url) + '" data-name="' + esc(l.name) + '" style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' +
+            '<img src="' + esc(l.url) + '" style="width:24px;height:24px;object-fit:contain;border-radius:2px;background:var(--bg-hover);flex-shrink:0" onerror="this.style.display=\'none\'">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(l.name) + '</span></div>';
+        }).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.logo-opt').forEach(function(opt) {
+          opt.addEventListener('click', function() { chFormSetLogoDisplay(this.getAttribute('data-url'), this.getAttribute('data-name')); dropdown.style.display = 'none'; });
+          opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+          opt.addEventListener('mouseleave', function() { this.style.background = ''; });
+        });
+      });
+    }
+    searchInput.addEventListener('focus', function() { showDropdown(searchInput.value); });
+    searchInput.addEventListener('input', function() { var val = searchInput.value.trim(); if (val.indexOf('http') === 0) { document.getElementById('ch-logo').value = val; } showDropdown(val); });
+    document.addEventListener('click', function(e) { if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
+  }
+
+  function chFormSetupTvgIdDropdown() {
+    var input = document.getElementById('ch-tvgid');
+    var dropdown = document.getElementById('ch-tvgid-dropdown');
+    if (!input || !dropdown) return;
+    function show(filter) {
+      chFormLoadEPGChannelIDs().then(function(ids) {
+        var s = (filter || '').toLowerCase();
+        var m = ids.filter(function(item) { return (item.id || '').toLowerCase().indexOf(s) >= 0 || (item.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
+        if (m.length === 0) { dropdown.style.display = 'none'; return; }
+        dropdown.innerHTML = m.map(function(item) {
+          var ico = item.icon ? '<img src="' + esc(item.icon) + '" style="width:20px;height:20px;object-fit:contain;border-radius:2px;flex-shrink:0" onerror="this.style.display=\'none\'">' : '';
+          var label = item.name ? esc(item.name) + ' <span style="color:var(--text-muted);font-size:11px">(' + esc(item.id) + ')</span>' : esc(item.id);
+          return '<div class="tvgid-opt" data-id="' + esc(item.id) + '" data-icon="' + esc(item.icon || '') + '" data-name="' + esc(item.name || '') + '" style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + ico + '<span>' + label + '</span></div>';
+        }).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.tvgid-opt').forEach(function(opt) {
+          opt.addEventListener('click', function() { input.value = this.getAttribute('data-id'); dropdown.style.display = 'none'; var icon = this.getAttribute('data-icon'); var epgName = this.getAttribute('data-name'); if (icon && !document.getElementById('ch-logo').value) { chFormSetLogoDisplay(icon, epgName || input.value); } });
+          opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+          opt.addEventListener('mouseleave', function() { this.style.background = ''; });
+        });
+      });
+    }
+    input.addEventListener('focus', function() { show(input.value); });
+    input.addEventListener('input', function() { show(input.value); });
+    document.addEventListener('click', function(e) { if (!input.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
+  }
+
+  function chFormSetupStreamSearch() {
+    var searchInput = document.getElementById('ch-stream-search');
+    var dropdown = document.getElementById('ch-stream-dropdown');
+    if (!searchInput || !dropdown) return;
+    function show(filter) {
+      chFormLoadStreams().then(function(streams) {
+        var s = (filter || '').toLowerCase();
+        var m = streams.filter(function(st) { return chFormSelectedStreamIDs.indexOf(st.id) < 0 && (st.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
+        if (m.length === 0) { dropdown.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:13px">No matching streams</div>'; dropdown.style.display = 'block'; return; }
+        dropdown.innerHTML = m.map(function(st) {
+          var badge = st.source_type ? ' <span style="background:var(--bg-hover);padding:1px 6px;border-radius:3px;font-size:10px;color:var(--text-muted)">' + esc(st.source_type) + '</span>' : '';
+          return '<div class="stream-opt" data-id="' + esc(st.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + esc(st.name) + badge + '</div>';
+        }).join('');
+        dropdown.style.display = 'block';
+        dropdown.querySelectorAll('.stream-opt').forEach(function(opt) {
+          opt.addEventListener('click', function() { chFormSelectedStreamIDs.push(this.getAttribute('data-id')); chFormRenderSelectedStreams(); searchInput.value = ''; dropdown.style.display = 'none'; });
+          opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+          opt.addEventListener('mouseleave', function() { this.style.background = ''; });
+        });
+      });
+    }
+    searchInput.addEventListener('focus', function() { show(searchInput.value); });
+    searchInput.addEventListener('input', function() { show(searchInput.value); });
+    document.addEventListener('click', function(e) { if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
+  }
+
+  function chFormRenderSelectedStreams() {
+    var selContainer = document.getElementById('ch-selected-streams');
+    if (!selContainer) return;
+    if (chFormSelectedStreamIDs.length === 0) { selContainer.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No streams assigned</span>'; return; }
+    var streams = channelStreams || [];
+    selContainer.innerHTML = chFormSelectedStreamIDs.map(function(id) {
+      var s = streams.find(function(st) { return st.id === id; });
+      var name = s ? s.name : id.substring(0, 12) + '...';
+      return '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-hover);padding:2px 8px;border-radius:12px;font-size:12px">' + esc(name) + '<button class="stream-rm" data-id="' + esc(id) + '" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 2px;font-size:14px">&times;</button></span>';
+    }).join('');
+    selContainer.querySelectorAll('.stream-rm').forEach(function(btn) {
+      btn.addEventListener('click', function() { var rid = this.getAttribute('data-id'); chFormSelectedStreamIDs = chFormSelectedStreamIDs.filter(function(id) { return id !== rid; }); chFormRenderSelectedStreams(); });
+    });
+  }
+
+  function chFormPopulate(ch, groups) {
+    var grps = groups || channelGroups;
+    var groupSelect = document.getElementById('ch-group');
+    if (groupSelect) {
+      groupSelect.innerHTML = '<option value="">None</option>';
+      for (var gi = 0; gi < grps.length; gi++) {
+        var g = grps[gi];
+        var sel = ch && ch.group_id === g.id ? ' selected' : '';
+        groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
+      }
+    }
+    var tvgInput = document.getElementById('ch-tvgid');
+    if (tvgInput) tvgInput.value = (ch && ch.tvg_id) || '';
+    chFormSetupTvgIdDropdown();
+    chFormSetupLogoPicker();
+    if (ch && ch.logo_url) { chFormSetLogoDisplay(ch.logo_url, ch.name || ''); } else { chFormSetLogoDisplay('', ''); }
+    chFormSelectedStreamIDs = ch && ch.stream_ids ? ch.stream_ids.slice() : [];
+    chFormRenderSelectedStreams();
+    chFormSetupStreamSearch();
+  }
+
+  function openStandaloneChannelModal(opts) {
+    opts = opts || {};
+    var editId = opts.editId || null;
+    var ch = opts.channel || null;
+    var preStreamID = opts.preStreamID || null;
+    var preStreamName = opts.preStreamName || null;
+    var onSaved = opts.onSaved || function() {};
+    var title = editId ? 'Edit Channel' : 'New Channel';
+    var saveLabel = editId ? 'Update' : 'Create';
+    chFormOpenModal(title, saveLabel);
+    document.getElementById('ch-name').value = (ch && ch.name) || preStreamName || '';
+    document.getElementById('ch-number').value = (ch && ch.number) || '';
+    if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = (ch && ch.tvg_id) || '';
+    document.getElementById('ch-enabled').checked = ch ? ch.is_enabled !== false : true;
+    if (preStreamID) { chFormSelectedStreamIDs = [preStreamID]; }
+    chFormPopulate(ch);
+    if (preStreamID) { chFormRenderSelectedStreams(); }
+    document.getElementById('save-channel-btn').addEventListener('click', async function() {
+      var name = document.getElementById('ch-name').value.trim();
+      var number = parseInt(document.getElementById('ch-number').value) || 0;
+      var groupId = document.getElementById('ch-group').value;
+      var logoUrl = document.getElementById('ch-logo').value.trim();
+      var tvgId = document.getElementById('ch-tvgid') ? document.getElementById('ch-tvgid').value.trim() : '';
+      var enabled = document.getElementById('ch-enabled').checked;
+      if (!name) { toast('Name required', 'error'); return; }
+      var payload = { name: name, number: number, group_id: groupId, logo_url: logoUrl, tvg_id: tvgId, is_enabled: enabled, stream_ids: chFormSelectedStreamIDs };
+      try {
+        var r;
+        if (editId) { r = await api.put('/api/channels/' + editId, payload); } else { r = await api.post('/api/channels', payload); }
+        if (r.ok) { toast(editId ? 'Channel updated' : 'Channel created'); var m = document.getElementById('channel-modal'); if (m) m.remove(); onSaved(); }
+        else { var data = await r.json().catch(function() { return {}; }); toast(data.error || 'Failed to save channel', 'error'); }
+      } catch (err) { toast('Failed to save channel', 'error'); }
+    });
+  }
 
   async function renderChannels(el) {
     var user = api.user;
@@ -1354,7 +1619,6 @@
 
     el.innerHTML = '<div class="skeleton" style="height:200px"></div>';
 
-    var channelEditId = null;
     var openGroups = {};
     var groupsInitialized = false;
 
@@ -1365,6 +1629,7 @@
     } catch (e) { channelGroups = []; }
 
     channelStreams = null;
+    logoCache = null;
 
     var nowData = {};
     try {
@@ -1389,186 +1654,15 @@
 
     var searchTerm = '';
 
-    var channelFormBody =
-      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
-      '<div style="display:flex;gap:12px"><div class="form-group" style="flex:1"><label class="form-label">Number</label><input class="form-input" id="ch-number" type="number" min="0" placeholder="1"></div>' +
-      '<div class="form-group" style="flex:1"><label class="form-label">Group</label><select class="form-input" id="ch-group"><option value="">None</option></select></div></div>' +
-      '<div class="form-group"><label class="form-label">Logo</label>' +
-      '<div style="display:flex;gap:8px;align-items:center"><input class="form-input" id="ch-logo" placeholder="http://example.com/logo.png" style="flex:1">' +
-      '<div id="ch-logo-preview" style="width:32px;height:32px;border-radius:4px;background:var(--bg-hover);flex-shrink:0;overflow:hidden"></div></div></div>' +
-      '<div class="form-group"><label class="form-label">EPG ID (tvg_id)</label>' +
-      '<div style="position:relative"><input class="form-input" id="ch-tvgid" placeholder="Type to search EPG channels..." autocomplete="off">' +
-      '<div id="ch-tvgid-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div></div>' +
-      '<div class="form-group"><label class="form-label">Streams</label>' +
-      '<div style="position:relative"><input class="form-input" id="ch-stream-search" placeholder="Search streams..." autocomplete="off">' +
-      '<div id="ch-stream-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div>' +
-      '<div id="ch-selected-streams" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div></div>' +
-      '<div class="form-group"><label class="form-label"><input type="checkbox" id="ch-enabled" checked> Enabled</label></div>';
-
-    var selectedStreamIDs = [];
-
-    function openChannelModal(title, saveLabel) {
-      var modal = showFormModal(title, channelFormBody, { id: 'channel-modal', saveLabel: saveLabel, maxWidth: '600px' });
-      modal.querySelector('.modal-save-btn').id = 'save-channel-btn';
-      return modal;
-    }
-
-    async function loadEPGChannelIDs() {
-      if (epgChannelIDs) return epgChannelIDs;
-      try { var r = await api.get('/api/epg/channel-ids'); epgChannelIDs = await r.json(); if (!Array.isArray(epgChannelIDs)) epgChannelIDs = []; } catch (e) { epgChannelIDs = []; }
-      return epgChannelIDs;
-    }
-    async function loadStreams() {
-      if (channelStreams) return channelStreams;
-      try { var r = await api.get('/api/streams?fields=slim'); channelStreams = await r.json(); if (!Array.isArray(channelStreams)) channelStreams = []; } catch (e) { channelStreams = []; }
-      return channelStreams;
-    }
-    function updateLogoPreview(url) {
-      var preview = document.getElementById('ch-logo-preview');
-      if (!preview) return;
-      preview.innerHTML = url ? '<img src="' + esc(url) + '" style="width:100%;height:100%;object-fit:contain" onerror="this.style.display=\'none\'">' : '';
-    }
-    function setupTvgIdDropdown() {
-      var input = document.getElementById('ch-tvgid');
-      var dropdown = document.getElementById('ch-tvgid-dropdown');
-      if (!input || !dropdown) return;
-      function show(filter) {
-        loadEPGChannelIDs().then(function(ids) {
-          var s = (filter || '').toLowerCase();
-          var m = ids.filter(function(item) { return (item.id || '').toLowerCase().indexOf(s) >= 0 || (item.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
-          if (m.length === 0) { dropdown.style.display = 'none'; return; }
-          dropdown.innerHTML = m.map(function(item) {
-            var label = item.name ? esc(item.name) + ' <span style="color:var(--text-muted);font-size:11px">(' + esc(item.id) + ')</span>' : esc(item.id);
-            return '<div class="tvgid-opt" data-id="' + esc(item.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + label + '</div>';
-          }).join('');
-          dropdown.style.display = 'block';
-          dropdown.querySelectorAll('.tvgid-opt').forEach(function(opt) {
-            opt.addEventListener('click', function() { input.value = this.getAttribute('data-id'); dropdown.style.display = 'none'; });
-            opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
-            opt.addEventListener('mouseleave', function() { this.style.background = ''; });
-          });
-        });
-      }
-      input.addEventListener('focus', function() { show(input.value); });
-      input.addEventListener('input', function() { show(input.value); });
-      document.addEventListener('click', function(e) { if (!input.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
-    }
-    function setupStreamSearch() {
-      var searchInput = document.getElementById('ch-stream-search');
-      var dropdown = document.getElementById('ch-stream-dropdown');
-      if (!searchInput || !dropdown) return;
-      function show(filter) {
-        loadStreams().then(function(streams) {
-          var s = (filter || '').toLowerCase();
-          var m = streams.filter(function(st) { return selectedStreamIDs.indexOf(st.id) < 0 && (st.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
-          if (m.length === 0) { dropdown.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:13px">No matching streams</div>'; dropdown.style.display = 'block'; return; }
-          dropdown.innerHTML = m.map(function(st) {
-            var badge = st.source_type ? ' <span style="background:var(--bg-hover);padding:1px 6px;border-radius:3px;font-size:10px;color:var(--text-muted)">' + esc(st.source_type) + '</span>' : '';
-            return '<div class="stream-opt" data-id="' + esc(st.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + esc(st.name) + badge + '</div>';
-          }).join('');
-          dropdown.style.display = 'block';
-          dropdown.querySelectorAll('.stream-opt').forEach(function(opt) {
-            opt.addEventListener('click', function() { selectedStreamIDs.push(this.getAttribute('data-id')); renderSelectedStreams(); searchInput.value = ''; dropdown.style.display = 'none'; });
-            opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
-            opt.addEventListener('mouseleave', function() { this.style.background = ''; });
-          });
-        });
-      }
-      searchInput.addEventListener('focus', function() { show(searchInput.value); });
-      searchInput.addEventListener('input', function() { show(searchInput.value); });
-      document.addEventListener('click', function(e) { if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
-    }
-    function renderSelectedStreams() {
-      var selContainer = document.getElementById('ch-selected-streams');
-      if (!selContainer) return;
-      if (selectedStreamIDs.length === 0) { selContainer.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No streams assigned</span>'; return; }
-      var streams = channelStreams || [];
-      selContainer.innerHTML = selectedStreamIDs.map(function(id) {
-        var s = streams.find(function(st) { return st.id === id; });
-        var name = s ? s.name : id.substring(0, 12) + '...';
-        return '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-hover);padding:2px 8px;border-radius:12px;font-size:12px">' + esc(name) + '<button class="stream-rm" data-id="' + esc(id) + '" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 2px;font-size:14px">&times;</button></span>';
-      }).join('');
-      selContainer.querySelectorAll('.stream-rm').forEach(function(btn) {
-        btn.addEventListener('click', function() { var rid = this.getAttribute('data-id'); selectedStreamIDs = selectedStreamIDs.filter(function(id) { return id !== rid; }); renderSelectedStreams(); });
-      });
-    }
-    function populateForm(ch) {
-      var groupSelect = document.getElementById('ch-group');
-      if (groupSelect) {
-        groupSelect.innerHTML = '<option value="">None</option>';
-        for (var gi = 0; gi < channelGroups.length; gi++) {
-          var g = channelGroups[gi];
-          var sel = ch && ch.group_id === g.id ? ' selected' : '';
-          groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
-        }
-      }
-      var tvgInput = document.getElementById('ch-tvgid');
-      if (tvgInput) tvgInput.value = (ch && ch.tvg_id) || '';
-      setupTvgIdDropdown();
-      var logoInput = document.getElementById('ch-logo');
-      if (logoInput) { logoInput.addEventListener('input', function() { updateLogoPreview(this.value); }); updateLogoPreview((ch && ch.logo_url) || ''); }
-      selectedStreamIDs = ch && ch.stream_ids ? ch.stream_ids.slice() : [];
-      renderSelectedStreams();
-      setupStreamSearch();
-    }
-
-    function bindChannelSave() {
-      document.getElementById('save-channel-btn').addEventListener('click', async function() {
-        var name = document.getElementById('ch-name').value.trim();
-        var number = parseInt(document.getElementById('ch-number').value) || 0;
-        var groupId = document.getElementById('ch-group').value;
-        var logoUrl = document.getElementById('ch-logo').value.trim();
-        var tvgId = document.getElementById('ch-tvgid') ? document.getElementById('ch-tvgid').value.trim() : '';
-        var enabled = document.getElementById('ch-enabled').checked;
-        if (!name) { toast('Name required', 'error'); return; }
-        var payload = { name: name, number: number, group_id: groupId, logo_url: logoUrl, tvg_id: tvgId, is_enabled: enabled, stream_ids: selectedStreamIDs };
-        try {
-          var r;
-          if (channelEditId) {
-            r = await api.put('/api/channels/' + channelEditId, payload);
-          } else {
-            r = await api.post('/api/channels', payload);
-          }
-          if (r.ok) {
-            toast(channelEditId ? 'Channel updated' : 'Channel created');
-            var m = document.getElementById('channel-modal');
-            if (m) m.remove();
-            renderChannels(el);
-          } else {
-            var data = await r.json().catch(function() { return {}; });
-            toast(data.error || 'Failed to save channel', 'error');
-          }
-        } catch (err) {
-          toast('Failed to save channel', 'error');
-        }
-      });
-    }
-
     function openEditChannel(ch) {
-      channelEditId = ch.id;
-      openChannelModal('Edit Channel', 'Update');
-      document.getElementById('ch-name').value = ch.name || '';
-      document.getElementById('ch-number').value = ch.number || '';
-      document.getElementById('ch-logo').value = ch.logo_url || '';
-      if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = ch.tvg_id || '';
-      document.getElementById('ch-enabled').checked = ch.is_enabled !== false;
-      populateForm(ch);
-      bindChannelSave();
+      openStandaloneChannelModal({ editId: ch.id, channel: ch, onSaved: function() { renderChannels(el); } });
     }
 
-    function openAddChannel() {
-      channelEditId = null;
-      openChannelModal('New Channel', 'Create');
-      document.getElementById('ch-name').value = '';
-      document.getElementById('ch-number').value = '';
-      document.getElementById('ch-logo').value = '';
-      if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = '';
-      document.getElementById('ch-enabled').checked = true;
-      populateForm(null);
-      bindChannelSave();
+    function openAddChannel(preStreamID, preStreamName) {
+      openStandaloneChannelModal({ preStreamID: preStreamID, preStreamName: preStreamName, onSaved: function() { renderChannels(el); } });
     }
 
-    async function deleteChannel(id, name) {
+        async function deleteChannel(id, name) {
       if (!confirm('Delete channel "' + name + '"?')) return;
       try {
         var r = await api.del('/api/channels/' + id);
@@ -1587,6 +1681,7 @@
       var existing = document.getElementById('group-manage-modal');
       if (existing) existing.remove();
       var html = '<div class="modal-overlay" id="group-manage-modal"><div class="modal-content" style="max-width:500px"><div class="modal-header">Channel Groups</div><div class="modal-body">' +
+        '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Drag to reorder groups</p>' +
         '<div id="gm-group-list"></div>' +
         '<div style="display:flex;gap:8px;margin-top:12px"><input class="form-input" id="gm-new-name" placeholder="New group name" style="flex:1"><button class="btn btn-primary" id="gm-create-btn">Add</button></div>' +
         '</div><div class="modal-footer"><button class="btn btn-ghost" id="gm-close">Close</button></div></div></div>';
@@ -1604,30 +1699,39 @@
       async function refreshGMGroups() {
         try { var r = await api.get('/api/channel-groups'); channelGroups = await r.json(); if (!Array.isArray(channelGroups)) channelGroups = []; } catch (e) { channelGroups = []; }
       }
+      var dragSrcIdx = null;
       function renderGMList() {
         var gmContainer = document.getElementById('gm-group-list');
         if (!gmContainer) return;
         if (channelGroups.length === 0) { gmContainer.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>'; return; }
         gmContainer.innerHTML = channelGroups.map(function(g, idx) {
           var countBadge = g.channel_count ? ' <span style="color:var(--text-muted);font-size:11px">(' + g.channel_count + ' ch)</span>' : '';
-          var upBtn = idx > 0 ? '<button class="btn btn-sm btn-ghost gm-up" data-idx="' + idx + '" title="Move up" style="padding:2px 6px">\u25B2</button>' : '<span style="width:28px"></span>';
-          var downBtn = idx < channelGroups.length - 1 ? '<button class="btn btn-sm btn-ghost gm-down" data-idx="' + idx + '" title="Move down" style="padding:2px 6px">\u25BC</button>' : '<span style="width:28px"></span>';
-          return '<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">' + upBtn + downBtn + '<span style="flex:1">' + esc(g.name) + countBadge + '</span><button class="btn btn-sm btn-danger gm-del" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' + icons.trash + '</button></div>';
+          return '<div class="gm-row" draggable="true" data-idx="' + idx + '" style="display:flex;align-items:center;gap:6px;padding:8px 6px;border-bottom:1px solid var(--border);cursor:grab;user-select:none">' +
+            '<span style="color:var(--text-muted);font-size:14px;cursor:grab;padding:0 4px">\u2630</span>' +
+            '<input class="form-input gm-name-input" data-id="' + esc(g.id) + '" value="' + esc(g.name) + '" style="flex:1;padding:4px 8px;font-size:13px">' +
+            countBadge +
+            '<button class="btn btn-sm btn-danger gm-del" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '" style="flex-shrink:0">' + icons.trash + '</button></div>';
         }).join('');
-        gmContainer.querySelectorAll('.gm-up').forEach(function(btn) {
-          btn.addEventListener('click', async function() {
-            var idx = parseInt(this.getAttribute('data-idx'));
-            if (idx <= 0) return;
-            var tmp = channelGroups[idx]; channelGroups[idx] = channelGroups[idx - 1]; channelGroups[idx - 1] = tmp;
-            await api.post('/api/channel-groups/reorder', { group_ids: channelGroups.map(function(g) { return g.id; }) });
-            await refreshGMGroups(); renderGMList();
+        gmContainer.querySelectorAll('.gm-name-input').forEach(function(input) {
+          input.addEventListener('change', async function() {
+            var gid = this.getAttribute('data-id');
+            var newName = this.value.trim();
+            if (!newName) { toast('Name required', 'error'); return; }
+            await api.put('/api/channel-groups/' + gid, { name: newName });
+            await refreshGMGroups();
           });
         });
-        gmContainer.querySelectorAll('.gm-down').forEach(function(btn) {
-          btn.addEventListener('click', async function() {
-            var idx = parseInt(this.getAttribute('data-idx'));
-            if (idx >= channelGroups.length - 1) return;
-            var tmp = channelGroups[idx]; channelGroups[idx] = channelGroups[idx + 1]; channelGroups[idx + 1] = tmp;
+        gmContainer.querySelectorAll('.gm-row').forEach(function(row) {
+          row.addEventListener('dragstart', function(e) { dragSrcIdx = parseInt(this.getAttribute('data-idx')); e.dataTransfer.effectAllowed = 'move'; this.style.opacity = '0.4'; });
+          row.addEventListener('dragend', function() { this.style.opacity = '1'; gmContainer.querySelectorAll('.gm-row').forEach(function(r) { r.style.borderTop = ''; }); });
+          row.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; gmContainer.querySelectorAll('.gm-row').forEach(function(r) { r.style.borderTop = ''; }); this.style.borderTop = '2px solid var(--accent)'; });
+          row.addEventListener('dragleave', function() { this.style.borderTop = ''; });
+          row.addEventListener('drop', async function(e) {
+            e.preventDefault(); this.style.borderTop = '';
+            var targetIdx = parseInt(this.getAttribute('data-idx'));
+            if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+            var moved = channelGroups.splice(dragSrcIdx, 1)[0];
+            channelGroups.splice(targetIdx, 0, moved);
             await api.post('/api/channel-groups/reorder', { group_ids: channelGroups.map(function(g) { return g.id; }) });
             await refreshGMGroups(); renderGMList();
           });
@@ -1892,7 +1996,7 @@
       addBtn.style.cssText = 'font-size:18px;padding:4px 12px';
       addBtn.textContent = '+';
       addBtn.title = 'Add Channel';
-      addBtn.addEventListener('click', function() { openAddChannel(); });
+      addBtn.addEventListener('click', function() { openAddChannel(null, null); });
       rightActions.appendChild(addBtn);
     }
 
@@ -8855,16 +8959,64 @@
     el.innerHTML = '<h1 class="page-title">Play URL</h1>' +
       '<div class="card">' +
       '<div class="card-title">Play a Stream URL</div>' +
-      '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+      '<p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Paste any media URL to detect its codec and play it. Probes first, then starts playback.</p>' +
+      '<div style="display:flex;gap:8px;margin-bottom:12px">' +
       '<input class="form-input" id="playurl-input" placeholder="http://example.com/stream.m3u8 or rtsp://..." style="flex:1">' +
+      '<button class="btn btn-ghost" id="playurl-probe-btn">' + icons.probe + ' Probe</button>' +
       '<button class="btn btn-primary" id="playurl-btn">' + icons.play + ' Play</button>' +
       '</div>' +
+      '<div id="playurl-probe-result"></div>' +
       '<div id="playurl-status"></div>' +
       '</div>';
 
     var playUrlInput = document.getElementById('playurl-input');
     var playUrlBtn = document.getElementById('playurl-btn');
+    var playUrlProbeBtn = document.getElementById('playurl-probe-btn');
     var playUrlStatus = document.getElementById('playurl-status');
+    var playUrlProbeResult = document.getElementById('playurl-probe-result');
+
+    async function doProbe() {
+      var url = playUrlInput.value.trim();
+      if (!url) { toast('Enter a URL to probe', 'error'); return; }
+      playUrlProbeResult.innerHTML = '<div style="display:flex;align-items:center;gap:12px;padding:16px;color:var(--text-dim)">' +
+        '<div class="spinner-ring" style="width:20px;height:20px;border-width:2px"></div>' +
+        '<span>Probing stream...</span></div>';
+      playUrlStatus.innerHTML = '';
+      try {
+        var resp = await api.post('/api/probe', { url: url });
+        if (!resp.ok) {
+          var errData = await resp.json().catch(function() { return {}; });
+          playUrlProbeResult.innerHTML = '<div style="padding:12px;color:var(--danger);font-size:13px">Probe failed: ' + esc(errData.error || 'HTTP ' + resp.status) + '</div>';
+          return;
+        }
+        var data = await resp.json();
+        var html = '<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px">';
+        html += '<div style="font-weight:600;margin-bottom:8px;font-size:13px">Detected Streams</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
+        if (data.video) {
+          html += '<span class="badge badge-delivery" style="font-size:12px;padding:2px 8px">' + esc((data.video.codec || '').toUpperCase()) + '</span>';
+          if (data.video.width && data.video.height) html += '<span class="badge" style="background:rgba(52,211,153,.1);color:var(--success);font-size:12px;padding:2px 8px;border-radius:4px">' + data.video.width + 'x' + data.video.height + '</span>';
+          if (data.video.fps) html += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:12px;padding:2px 8px;border-radius:4px">' + data.video.fps.toFixed(1) + ' fps</span>';
+          if (data.video.bit_depth && data.video.bit_depth > 8) html += '<span class="badge" style="background:rgba(251,191,36,.15);color:var(--warning);font-size:12px;padding:2px 8px;border-radius:4px">' + data.video.bit_depth + '-bit</span>';
+        }
+        if (data.audio && data.audio.length > 0) {
+          for (var ai = 0; ai < data.audio.length; ai++) {
+            var a = data.audio[ai];
+            html += '<span class="badge badge-delivery" style="font-size:12px;padding:2px 8px">' + esc((a.codec || '').toUpperCase()) + '</span>';
+            if (a.channels) html += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:12px;padding:2px 8px;border-radius:4px">' + a.channels + 'ch</span>';
+            if (a.language) html += '<span class="badge" style="background:rgba(91,110,239,.1);color:var(--accent);font-size:12px;padding:2px 8px;border-radius:4px">' + esc(a.language) + '</span>';
+          }
+        }
+        html += '</div>';
+        if (data.duration_ms > 0) {
+          html += '<div style="font-size:12px;color:var(--text-muted)">Duration: ' + formatDurationSec(data.duration_ms / 1000) + '</div>';
+        }
+        html += '</div>';
+        playUrlProbeResult.innerHTML = html;
+      } catch (e) {
+        playUrlProbeResult.innerHTML = '<div style="padding:12px;color:var(--danger);font-size:13px">Probe failed: ' + esc(e.message) + '</div>';
+      }
+    }
 
     async function doPlay() {
       var url = playUrlInput.value.trim();
@@ -8880,11 +9032,20 @@
           return;
         }
         var data = await resp.json();
+        var decisionHtml = '';
+        if (data.decision) {
+          decisionHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+          decisionHtml += '<span class="badge" style="' + (data.decision.needs_transcode ? 'background:rgba(251,191,36,.15);color:var(--warning)' : 'background:rgba(52,211,153,.15);color:var(--success)') + ';font-size:12px;padding:2px 8px;border-radius:4px">' + (data.decision.needs_transcode ? 'Transcode' : 'Copy') + '</span>';
+          if (data.decision.video_codec) decisionHtml += '<span class="badge badge-delivery" style="font-size:12px;padding:2px 8px">' + esc(String(data.decision.video_codec).toUpperCase()) + '</span>';
+          if (data.decision.audio_codec) decisionHtml += '<span class="badge badge-delivery" style="font-size:12px;padding:2px 8px">' + esc(String(data.decision.audio_codec).toUpperCase()) + '</span>';
+          if (data.decision.container) decisionHtml += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:12px;padding:2px 8px;border-radius:4px">' + esc(data.decision.container) + '</span>';
+          decisionHtml += '</div>';
+        }
         playUrlStatus.innerHTML = '<div class="card" style="margin-top:12px">' +
           '<div class="card-title">Playback Started</div>' +
-          '<div style="margin-bottom:8px">Session: <code>' + esc(data.session_id || '-') + '</code></div>' +
-          '<div style="margin-bottom:8px">Delivery: <span class="badge">' + esc(data.delivery || '-') + '</span></div>' +
-          (data.decision ? '<div style="margin-bottom:8px">Transcode: ' + (data.decision.needs_transcode ? 'Yes' : 'Copy') + ' | Video: ' + esc(String(data.decision.video_codec)) + ' | Audio: ' + esc(String(data.decision.audio_codec)) + '</div>' : '') +
+          '<div style="margin-bottom:8px;font-size:13px">Session: <code style="background:var(--bg-input);padding:2px 6px;border-radius:4px">' + esc(data.session_id || '-') + '</code></div>' +
+          '<div style="margin-bottom:8px;font-size:13px">Delivery: <span class="badge" style="font-size:12px;padding:2px 8px;border-radius:4px">' + esc(data.delivery || '-') + '</span></div>' +
+          decisionHtml +
           '<div style="display:flex;gap:8px;margin-top:12px">' +
           '<button class="btn btn-primary" id="playurl-open">Open in Player</button>' +
           '<button class="btn btn-danger" id="playurl-stop">Stop</button>' +
@@ -8909,6 +9070,7 @@
       }
     }
 
+    playUrlProbeBtn.addEventListener('click', doProbe);
     playUrlBtn.addEventListener('click', doPlay);
     playUrlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doPlay(); });
   }
