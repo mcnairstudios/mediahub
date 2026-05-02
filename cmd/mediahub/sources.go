@@ -32,7 +32,7 @@ type sourceDeps struct {
 }
 
 func registerSources(reg *source.Registry, deps sourceDeps) {
-	reg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeM3U, func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
 		if err != nil {
 			return nil, fmt.Errorf("get source config: %w", err)
@@ -59,7 +59,7 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return m3usource.New(m3uCfg), nil
 	})
 
-	reg.Register("tvpstreams", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeTVPStreams, func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
 		if err != nil {
 			return nil, fmt.Errorf("get source config: %w", err)
@@ -98,7 +98,7 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return tvpstreamssource.New(tvpCfg), nil
 	})
 
-	reg.Register("xtream", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeXtream, func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
 		if err != nil {
 			return nil, fmt.Errorf("get source config: %w", err)
@@ -128,7 +128,7 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return xstreamsource.New(xtCfg), nil
 	})
 
-	reg.Register("hdhr", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeHDHR, func(ctx context.Context, sourceID string) (source.Source, error) {
 		if sourceID == "" {
 			return hdhrsource.New(hdhrsource.Config{
 				StreamStore: deps.StreamStore,
@@ -157,7 +157,7 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return hdhrsource.New(hdhrCfg), nil
 	})
 
-	reg.Register("satip", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeSATIP, func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
 		if err != nil {
 			return nil, fmt.Errorf("get source config: %w", err)
@@ -195,7 +195,7 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return satipsource.New(satipCfg), nil
 	})
 
-	reg.Register("trailers", func(ctx context.Context, sourceID string) (source.Source, error) {
+	reg.Register(source.TypeTrailers, func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
 		if err != nil {
 			return nil, fmt.Errorf("get source config: %w", err)

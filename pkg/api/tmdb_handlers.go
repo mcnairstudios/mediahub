@@ -586,7 +586,7 @@ func (s *Server) handleTMDBSyncStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTMDBImage(w http.ResponseWriter, r *http.Request) {
 	if s.deps.TMDBImages == nil {
-		http.Error(w, "TMDB images not configured", http.StatusServiceUnavailable)
+		httputil.RespondError(w, http.StatusServiceUnavailable, "TMDB images not configured")
 		return
 	}
 	s.deps.TMDBImages.ServeHTTP(w, r)

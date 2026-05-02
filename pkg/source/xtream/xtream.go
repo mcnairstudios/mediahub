@@ -42,7 +42,7 @@ func New(cfg Config) *Source {
 		cfg.HTTPClient = http.DefaultClient
 	}
 	return &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "xtream", cfg.IsEnabled, cfg.MaxStreams),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeXtream, cfg.IsEnabled, cfg.MaxStreams),
 		cfg:        cfg,
 	}
 }
@@ -95,7 +95,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 		streams = append(streams, media.Stream{
 			ID:         id,
-			SourceType: "xtream",
+			SourceType: string(source.TypeXtream),
 			SourceID:   s.cfg.ID,
 			Name:       ls.Name,
 			URL:        liveStreamURL(s.cfg.Server, s.cfg.Username, s.cfg.Password, ls.StreamID),
@@ -130,7 +130,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 			streams = append(streams, media.Stream{
 				ID:         id,
-				SourceType: "xtream",
+				SourceType: string(source.TypeXtream),
 				SourceID:   s.cfg.ID,
 				Name:       name,
 				URL:        vodStreamURL(s.cfg.Server, s.cfg.Username, s.cfg.Password, vs.StreamID, vs.ContainerExt),
@@ -161,7 +161,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "xtream", s.cfg.ID, keepIDs); err != nil {
+	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeXtream), s.cfg.ID, keepIDs); err != nil {
 		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
@@ -247,7 +247,7 @@ func (s *Source) fetchSeriesEpisodes(seriesList []Series, seriesCatMap map[strin
 
 				allStreams = append(allStreams, media.Stream{
 					ID:          id,
-					SourceType:  "xtream",
+					SourceType:  string(source.TypeXtream),
 					SourceID:    s.cfg.ID,
 					Name:        displayName,
 					URL:         seriesEpisodeURL(s.cfg.Server, s.cfg.Username, s.cfg.Password, epID, ext),
@@ -279,7 +279,7 @@ func (s *Source) fetchSeriesEpisodes(seriesList []Series, seriesCatMap map[strin
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, "xtream", s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeXtream), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, "xtream", s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeXtream), s.cfg.ID)
 }
 
 func (s *Source) UsesVPN() bool {
@@ -348,7 +348,7 @@ func (s *Source) GetAccountInfo(ctx context.Context) (any, error) {
 }
 
 func (s *Source) Clear(ctx context.Context) error {
-	if err := s.cfg.StreamStore.DeleteBySource(ctx, "xtream", s.cfg.ID); err != nil {
+	if err := s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeXtream), s.cfg.ID); err != nil {
 		return err
 	}
 

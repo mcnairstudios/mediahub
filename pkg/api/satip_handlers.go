@@ -55,7 +55,7 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "satip",
+		Type:      string(source.TypeSATIP),
 		Name:      req.Name,
 		IsEnabled: enabled,
 		Config: map[string]string{
@@ -88,7 +88,7 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
 		return
 	}
-	if existing == nil || existing.Type != "satip" {
+	if existing == nil || existing.Type != string(source.TypeSATIP) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
@@ -148,7 +148,7 @@ func (s *Server) handleDeleteSatIPSource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "satip", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeSATIP), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
@@ -169,25 +169,25 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
-	if err != nil || sc == nil || sc.Type != "satip" {
+	if err != nil || sc == nil || sc.Type != string(source.TypeSATIP) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
 	satipScanMu.Lock()
-	if st, ok := satipScanStatus[id]; ok && st.State == "scanning" {
+	if st, ok := satipScanStatus[id]; ok && st.State == source.StateScanning {
 		satipScanMu.Unlock()
 		httputil.RespondError(w, http.StatusConflict, "scan already in progress")
 		return
 	}
-	satipScanStatus[id] = source.RefreshStatus{State: "scanning", Message: "Starting scan..."}
+	satipScanStatus[id] = source.RefreshStatus{State: source.StateScanning, Message: "Starting scan..."}
 	satipScanMu.Unlock()
 
 	go func() {
-		src, err := s.deps.SourceReg.Create(context.Background(), "satip", id)
+		src, err := s.deps.SourceReg.Create(context.Background(), source.TypeSATIP, id)
 		if err != nil {
 			satipScanMu.Lock()
-			satipScanStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
+			satipScanStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			satipScanMu.Unlock()
 			return
 		}
@@ -208,7 +208,7 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 
 		if err := src.Refresh(context.Background()); err != nil {
 			satipScanMu.Lock()
-			satipScanStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
+			satipScanStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			satipScanMu.Unlock()
 			log.Printf("satip scan failed for %s: %v", id, err)
 			return
@@ -217,7 +217,7 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 		info := src.Info(context.Background())
 		satipScanMu.Lock()
 		satipScanStatus[id] = source.RefreshStatus{
-			State:   "done",
+			State:   source.StateDone,
 			Message: fmt.Sprintf("Scan complete. %d streams found.", info.StreamCount),
 		}
 		satipScanMu.Unlock()
@@ -239,7 +239,7 @@ func (s *Server) handleSatIPScanStatus(w http.ResponseWriter, r *http.Request) {
 	satipScanMu.RUnlock()
 
 	if !ok {
-		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
+		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: source.StateIdle})
 		return
 	}
 
@@ -313,7 +313,7 @@ func (s *Server) handleSatIPClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "satip", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeSATIP), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to clear streams")
 		return
 	}

@@ -50,7 +50,7 @@ func New(cfg Config) *Source {
 		tunerCount += d.TunerCount
 	}
 	return &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "hdhr", cfg.IsEnabled, tunerCount),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeHDHR, cfg.IsEnabled, tunerCount),
 		cfg:        cfg,
 	}
 }
@@ -97,7 +97,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 			allStreams = append(allStreams, media.Stream{
 				ID:         id,
-				SourceType: "hdhr",
+				SourceType: string(source.TypeHDHR),
 				SourceID:   s.cfg.ID,
 				Name:       entry.GuideName,
 				URL:        entry.URL,
@@ -115,7 +115,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "hdhr", s.cfg.ID, allKeepIDs); err != nil {
+	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeHDHR), s.cfg.ID, allKeepIDs); err != nil {
 		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
@@ -125,7 +125,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, "hdhr", s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeHDHR), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +138,11 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, "hdhr", s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeHDHR), s.cfg.ID)
 }
 
 func (s *Source) Clear(ctx context.Context) error {
-	if err := s.cfg.StreamStore.DeleteBySource(ctx, "hdhr", s.cfg.ID); err != nil {
+	if err := s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeHDHR), s.cfg.ID); err != nil {
 		return err
 	}
 

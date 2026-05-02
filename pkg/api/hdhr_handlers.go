@@ -45,7 +45,7 @@ func (s *Server) handleCreateHDHRSource(w http.ResponseWriter, r *http.Request) 
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "hdhr",
+		Type:      string(source.TypeHDHR),
 		Name:      req.Name,
 		IsEnabled: enabled,
 		Config: map[string]string{
@@ -74,7 +74,7 @@ func (s *Server) handleUpdateHDHRSource(w http.ResponseWriter, r *http.Request) 
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
 		return
 	}
-	if existing == nil || existing.Type != "hdhr" {
+	if existing == nil || existing.Type != string(source.TypeHDHR) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
@@ -118,7 +118,7 @@ func (s *Server) handleDeleteHDHRSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "hdhr", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeHDHR), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
@@ -132,7 +132,7 @@ func (s *Server) handleDeleteHDHRSource(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleHDHRDiscover(w http.ResponseWriter, r *http.Request) {
-	src, err := s.deps.SourceReg.Create(r.Context(), "hdhr", "")
+	src, err := s.deps.SourceReg.Create(r.Context(), source.TypeHDHR, "")
 	if err != nil {
 		ips, discErr := hdhr.UDPDiscover()
 		if discErr != nil {
@@ -140,7 +140,7 @@ func (s *Server) handleHDHRDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		configs, _ := s.deps.SourceConfigStore.ListByType(r.Context(), "hdhr")
+		configs, _ := s.deps.SourceConfigStore.ListByType(r.Context(), string(source.TypeHDHR))
 		existingHosts := make(map[string]bool)
 		for _, cfg := range configs {
 			if devicesJSON := cfg.Config["devices"]; devicesJSON != "" {
@@ -195,7 +195,7 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configs, err := s.deps.SourceConfigStore.ListByType(r.Context(), "hdhr")
+	configs, err := s.deps.SourceConfigStore.ListByType(r.Context(), string(source.TypeHDHR))
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list sources")
 		return
@@ -204,7 +204,7 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 	if len(configs) == 0 {
 		sc := &sourceconfig.SourceConfig{
 			ID:        uuid.New().String(),
-			Type:      "hdhr",
+			Type:      string(source.TypeHDHR),
 			Name:      "HDHomeRun",
 			IsEnabled: true,
 			Config:    map[string]string{},
@@ -226,7 +226,7 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			src, err := s.deps.SourceReg.Create(ctx, "hdhr", sc.ID)
+			src, err := s.deps.SourceReg.Create(ctx, source.TypeHDHR, sc.ID)
 			if err != nil {
 				log.Printf("hdhr add device: failed to create source %s: %v", sc.ID, err)
 				return
@@ -273,7 +273,7 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		src, err := s.deps.SourceReg.Create(ctx, "hdhr", sc.ID)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeHDHR, sc.ID)
 		if err != nil {
 			log.Printf("hdhr add device: failed to create source %s: %v", sc.ID, err)
 			return
@@ -294,7 +294,7 @@ func (s *Server) handleHDHRDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
-	if err != nil || sc == nil || sc.Type != "hdhr" {
+	if err != nil || sc == nil || sc.Type != string(source.TypeHDHR) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
@@ -322,7 +322,7 @@ func (s *Server) handleHDHRScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
-	if err != nil || sc == nil || sc.Type != "hdhr" {
+	if err != nil || sc == nil || sc.Type != string(source.TypeHDHR) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
@@ -330,7 +330,7 @@ func (s *Server) handleHDHRScan(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		src, err := s.deps.SourceReg.Create(ctx, "hdhr", id)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeHDHR, id)
 		if err != nil {
 			log.Printf("hdhr scan: failed to create source: %v", err)
 			return
@@ -353,22 +353,22 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
-	if err != nil || sc == nil || sc.Type != "hdhr" {
+	if err != nil || sc == nil || sc.Type != string(source.TypeHDHR) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
 	hdhrRetuneMu.Lock()
-	hdhrRetuneStatus[id] = source.RefreshStatus{State: "scanning", Message: "Starting retune..."}
+	hdhrRetuneStatus[id] = source.RefreshStatus{State: source.StateScanning, Message: "Starting retune..."}
 	hdhrRetuneMu.Unlock()
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		src, err := s.deps.SourceReg.Create(ctx, "hdhr", id)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeHDHR, id)
 		if err != nil {
 			hdhrRetuneMu.Lock()
-			hdhrRetuneStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
+			hdhrRetuneStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			hdhrRetuneMu.Unlock()
 			return
 		}
@@ -376,14 +376,14 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 		retunable, ok := src.(source.Retunable)
 		if !ok {
 			hdhrRetuneMu.Lock()
-			hdhrRetuneStatus[id] = source.RefreshStatus{State: "error", Message: "source does not support retune"}
+			hdhrRetuneStatus[id] = source.RefreshStatus{State: source.StateError, Message: "source does not support retune"}
 			hdhrRetuneMu.Unlock()
 			return
 		}
 
 		if err := retunable.Retune(ctx); err != nil {
 			hdhrRetuneMu.Lock()
-			hdhrRetuneStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
+			hdhrRetuneStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			hdhrRetuneMu.Unlock()
 			log.Printf("hdhr retune failed for %s: %v", id, err)
 			return
@@ -392,7 +392,7 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 		info := src.Info(ctx)
 		hdhrRetuneMu.Lock()
 		hdhrRetuneStatus[id] = source.RefreshStatus{
-			State:   "done",
+			State:   source.StateDone,
 			Message: fmt.Sprintf("Retune complete. %d streams found.", info.StreamCount),
 		}
 		hdhrRetuneMu.Unlock()
@@ -414,7 +414,7 @@ func (s *Server) handleHDHRRetuneStatus(w http.ResponseWriter, r *http.Request) 
 	hdhrRetuneMu.RUnlock()
 
 	if !ok {
-		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
+		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: source.StateIdle})
 		return
 	}
 
@@ -428,7 +428,7 @@ func (s *Server) handleHDHRClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "hdhr", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeHDHR), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to clear streams")
 		return
 	}

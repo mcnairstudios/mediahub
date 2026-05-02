@@ -52,7 +52,7 @@ func New(cfg Config) *Source {
 		cfg.HTTPClient = http.DefaultClient
 	}
 	s := &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "tvpstreams", cfg.IsEnabled, 0),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeTVPStreams, cfg.IsEnabled, 0),
 		cfg:        cfg,
 	}
 	if cfg.InitialETag != "" {
@@ -159,7 +159,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "tvpstreams", s.cfg.ID, keepIDs)
+	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeTVPStreams), s.cfg.ID, keepIDs)
 	if err != nil {
 		log.Printf("tvpstreams: delete stale error for %s: %v", s.cfg.Name, err)
 		s.SetError(err.Error())
@@ -178,7 +178,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, "tvpstreams", s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeTVPStreams), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, "tvpstreams", s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeTVPStreams), s.cfg.ID)
 }
 
 func (s *Source) SupportsConditionalRefresh() bool {
@@ -219,7 +219,7 @@ func (s *Source) TLSInfo() source.TLSStatus {
 }
 
 func (s *Source) Clear(ctx context.Context) error {
-	if err := s.cfg.StreamStore.DeleteBySource(ctx, "tvpstreams", s.cfg.ID); err != nil {
+	if err := s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeTVPStreams), s.cfg.ID); err != nil {
 		return err
 	}
 
@@ -251,7 +251,7 @@ func entryToStream(sourceID, id string, entry m3u.Entry) media.Stream {
 
 	return media.Stream{
 		ID:             id,
-		SourceType:     "tvpstreams",
+		SourceType:     string(source.TypeTVPStreams),
 		SourceID:       sourceID,
 		Name:           entry.Name,
 		URL:            entry.URL,

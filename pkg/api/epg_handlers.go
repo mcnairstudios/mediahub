@@ -13,6 +13,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/xmltv"
 )
 
@@ -650,17 +651,17 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		cancelled := 0
 		for _, rec := range recordings {
 			switch rec.Status {
-			case "recording":
+			case recording.StatusRecording:
 				active++
-			case "pending":
+			case recording.StatusPending:
 				pending++
-			case "completed":
+			case recording.StatusCompleted:
 				completed++
-			case "scheduled":
+			case recording.StatusScheduled:
 				scheduled++
-			case "failed":
+			case recording.StatusFailed:
 				failed++
-			case "cancelled":
+			case recording.StatusCancelled:
 				cancelled++
 			}
 		}

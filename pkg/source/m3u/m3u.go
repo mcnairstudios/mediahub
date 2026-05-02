@@ -45,7 +45,7 @@ func New(cfg Config) *Source {
 		cfg.HTTPClient = http.DefaultClient
 	}
 	s := &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "m3u", cfg.IsEnabled, cfg.MaxStreams),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeM3U, cfg.IsEnabled, cfg.MaxStreams),
 		cfg:        cfg,
 	}
 	if cfg.InitialETag != "" {
@@ -107,7 +107,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 		st := media.Stream{
 			ID:         id,
-			SourceType: "m3u",
+			SourceType: string(source.TypeM3U),
 			SourceID:   s.cfg.ID,
 			Name:       entry.Name,
 			URL:        entry.URL,
@@ -169,7 +169,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "m3u", s.cfg.ID, keepIDs)
+	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeM3U), s.cfg.ID, keepIDs)
 	if err != nil {
 		log.Printf("m3u: delete stale error for %s: %v", s.cfg.Name, err)
 		s.SetError(err.Error())
@@ -188,7 +188,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, "m3u", s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeM3U), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, "m3u", s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeM3U), s.cfg.ID)
 }
 
 func (s *Source) SupportsConditionalRefresh() bool {
@@ -213,7 +213,7 @@ func (s *Source) UsesVPN() bool {
 }
 
 func (s *Source) Clear(ctx context.Context) error {
-	if err := s.cfg.StreamStore.DeleteBySource(ctx, "m3u", s.cfg.ID); err != nil {
+	if err := s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeM3U), s.cfg.ID); err != nil {
 		return err
 	}
 

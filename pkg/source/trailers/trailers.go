@@ -19,7 +19,6 @@ import (
 const (
 	defaultFeedURL         = "https://trailers.apple.com/trailers/home/feeds/just_added.json"
 	defaultItunesSearchURL = "https://itunes.apple.com/search"
-	sourceType             = "trailers"
 )
 
 var (
@@ -59,7 +58,7 @@ func New(cfg Config) *Source {
 		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, sourceType, cfg.IsEnabled, 0),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeTrailers, cfg.IsEnabled, 0),
 		cfg:        cfg,
 	}
 }
@@ -120,7 +119,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 		st := media.Stream{
 			ID:         id,
-			SourceType: sourceType,
+			SourceType: string(source.TypeTrailers),
 			SourceID:   s.cfg.ID,
 			Name:       entry.Title + " - Trailer",
 			URL:        previewURL,
@@ -144,7 +143,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
-	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, sourceType, s.cfg.ID, keepIDs)
+	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeTrailers), s.cfg.ID, keepIDs)
 	if err != nil {
 		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
@@ -156,7 +155,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, sourceType, s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeTrailers), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +167,7 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, sourceType, s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeTrailers), s.cfg.ID)
 }
 
 func (s *Source) fetchFeed(ctx context.Context) ([]feedEntry, error) {

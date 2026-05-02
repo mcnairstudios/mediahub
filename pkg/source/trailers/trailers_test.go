@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
 
@@ -161,8 +162,8 @@ func TestRefreshEmptyFeed(t *testing.T) {
 func TestStreamsAndDelete(t *testing.T) {
 	ss := &mockStreamStore{
 		streams: []media.Stream{
-			{ID: "a", SourceType: sourceType, SourceID: "src1"},
-			{ID: "b", SourceType: sourceType, SourceID: "src1"},
+			{ID: "a", SourceType: string(source.TypeTrailers), SourceID: "src1"},
+			{ID: "b", SourceType: string(source.TypeTrailers), SourceID: "src1"},
 		},
 	}
 	s := New(Config{ID: "src1", Name: "Test", IsEnabled: true, StreamStore: ss})

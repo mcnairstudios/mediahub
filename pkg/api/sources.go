@@ -87,7 +87,7 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "m3u",
+		Type:      string(source.TypeM3U),
 		Name:      req.Name,
 		IsEnabled: true,
 		Config: map[string]string{
@@ -109,12 +109,12 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		ctx := r.Context()
-		src, err := s.deps.SourceReg.Create(ctx, "m3u", sc.ID)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeM3U, sc.ID)
 		if err != nil {
 			return
 		}
 		src.Refresh(ctx)
-		s.AutoMatchStreamsToEPG(ctx, "m3u", sc.ID, sc.Config["epg_source_id"])
+		s.AutoMatchStreamsToEPG(ctx, string(source.TypeM3U), sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)
@@ -200,7 +200,7 @@ func (s *Server) handleDeleteM3USource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "m3u", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeM3U), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
@@ -269,7 +269,7 @@ func (s *Server) upsertM3UEntries(sourceID string, entries []m3u.Entry) {
 
 		streams = append(streams, media.Stream{
 			ID:         id,
-			SourceType: "m3u",
+			SourceType: string(source.TypeM3U),
 			SourceID:   sourceID,
 			Name:       entry.Name,
 			URL:        entry.URL,
@@ -286,7 +286,7 @@ func (s *Server) upsertM3UEntries(sourceID string, entries []m3u.Entry) {
 		return
 	}
 
-	deleted, err := s.deps.StreamStore.DeleteStaleBySource(ctx, "m3u", sourceID, keepIDs)
+	deleted, err := s.deps.StreamStore.DeleteStaleBySource(ctx, string(source.TypeM3U), sourceID, keepIDs)
 	if err != nil {
 		log.Printf("m3u upload: delete stale error: %v", err)
 		return
@@ -313,14 +313,14 @@ func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {
 
 	src, err := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
 	if err != nil {
-		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: "idle"})
+		httputil.RespondJSON(w, http.StatusOK, source.RefreshStatus{State: source.StateIdle})
 		return
 	}
 
 	info := src.Info(r.Context())
-	status := source.RefreshStatus{State: "idle"}
+	status := source.RefreshStatus{State: source.StateIdle}
 	if info.LastError != "" {
-		status.State = "error"
+		status.State = source.StateError
 		status.Message = info.LastError
 	}
 	httputil.RespondJSON(w, http.StatusOK, status)
@@ -347,7 +347,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "tvpstreams",
+		Type:      string(source.TypeTVPStreams),
 		Name:      req.Name,
 		IsEnabled: true,
 		Config: map[string]string{
@@ -367,12 +367,12 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 
 	go func() {
 		ctx := r.Context()
-		src, err := s.deps.SourceReg.Create(ctx, "tvpstreams", sc.ID)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeTVPStreams, sc.ID)
 		if err != nil {
 			return
 		}
 		src.Refresh(ctx)
-		s.AutoMatchStreamsToEPG(ctx, "tvpstreams", sc.ID, sc.Config["epg_source_id"])
+		s.AutoMatchStreamsToEPG(ctx, string(source.TypeTVPStreams), sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)
@@ -450,7 +450,7 @@ func (s *Server) handleDeleteTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "tvpstreams", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeTVPStreams), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
@@ -470,7 +470,7 @@ func (s *Server) handleTVPStreamsTLSStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	src, err := s.deps.SourceReg.Create(r.Context(), "tvpstreams", id)
+	src, err := s.deps.SourceReg.Create(r.Context(), source.TypeTVPStreams, id)
 	if err != nil {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
@@ -508,7 +508,7 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "xtream",
+		Type:      string(source.TypeXtream),
 		Name:      req.Name,
 		IsEnabled: true,
 		Config: map[string]string{
@@ -531,12 +531,12 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 
 	go func() {
 		ctx := r.Context()
-		src, err := s.deps.SourceReg.Create(ctx, "xtream", sc.ID)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeXtream, sc.ID)
 		if err != nil {
 			return
 		}
 		src.Refresh(ctx)
-		s.AutoMatchStreamsToEPG(ctx, "xtream", sc.ID, sc.Config["epg_source_id"])
+		s.AutoMatchStreamsToEPG(ctx, string(source.TypeXtream), sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)
@@ -626,7 +626,7 @@ func (s *Server) handleDeleteXtreamSource(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "xtream", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeXtream), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
@@ -647,12 +647,12 @@ func (s *Server) handleXtreamAccountInfo(w http.ResponseWriter, r *http.Request)
 	}
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
-	if err != nil || sc == nil || sc.Type != "xtream" {
+	if err != nil || sc == nil || sc.Type != string(source.TypeXtream) {
 		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
-	src, err := s.deps.SourceReg.Create(r.Context(), "xtream", id)
+	src, err := s.deps.SourceReg.Create(r.Context(), source.TypeXtream, id)
 	if err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -686,7 +686,7 @@ func (s *Server) handleCreateTrailersSource(w http.ResponseWriter, r *http.Reque
 
 	sc := &sourceconfig.SourceConfig{
 		ID:        uuid.New().String(),
-		Type:      "trailers",
+		Type:      string(source.TypeTrailers),
 		Name:      req.Name,
 		IsEnabled: true,
 		Config:    map[string]string{},
@@ -699,7 +699,7 @@ func (s *Server) handleCreateTrailersSource(w http.ResponseWriter, r *http.Reque
 
 	go func() {
 		ctx := r.Context()
-		src, err := s.deps.SourceReg.Create(ctx, "trailers", sc.ID)
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeTrailers, sc.ID)
 		if err != nil {
 			return
 		}
@@ -757,7 +757,7 @@ func (s *Server) handleDeleteTrailersSource(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := s.deps.StreamStore.DeleteBySource(r.Context(), "trailers", id); err != nil {
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeTrailers), id); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
 		return
 	}
