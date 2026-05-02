@@ -2,10 +2,12 @@ package bolt
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	bbolt "go.etcd.io/bbolt"
 )
 
 func TestClientStore_CRUD(t *testing.T) {
@@ -101,5 +103,61 @@ func TestClientStore_GetNonExistent(t *testing.T) {
 	}
 	if got != nil {
 		t.Error("expected nil for nonexistent client")
+	}
+}
+
+func TestClientStore_MigrateFromFlatKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate_clients.db"
+
+	raw, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+
+	err = raw.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketClients)
+		if err != nil {
+			return err
+		}
+
+		clients := []client.Client{
+			{ID: "c-1", Name: "Browser", Profile: client.Profile{Delivery: "mse"}},
+			{ID: "c-2", Name: "Plex", Profile: client.Profile{Delivery: "stream"}},
+		}
+		for _, c := range clients {
+			data, _ := json.Marshal(c)
+			b.Put([]byte(c.ID), data)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	s := db.ClientStore()
+	ctx := context.Background()
+
+	got, err := s.Get(ctx, "c-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got == nil || got.Name != "Browser" {
+		t.Fatalf("expected Browser, got %+v", got)
+	}
+
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d clients, want 2", len(list))
 	}
 }

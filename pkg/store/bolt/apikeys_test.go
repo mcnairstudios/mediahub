@@ -2,12 +2,14 @@ package bolt
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	bbolt "go.etcd.io/bbolt"
 )
 
 func newTestAPIKeyStore(t *testing.T) *APIKeyStore {
@@ -112,5 +114,70 @@ func TestAPIKeyStore_DeleteNotFound(t *testing.T) {
 	err := store.Delete(ctx, "nonexistent")
 	if err != auth.ErrAPIKeyNotFound {
 		t.Fatalf("expected ErrAPIKeyNotFound, got %v", err)
+	}
+}
+
+func TestAPIKeyStore_MigrateFromFlatKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate_apikeys.db"
+
+	raw, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+
+	err = raw.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketAPIKeys)
+		if err != nil {
+			return err
+		}
+
+		keys := []auth.APIKey{
+			{ID: "k1", Key: "secret1", UserID: "alice", Name: "key1", CreatedAt: time.Now()},
+			{ID: "k2", Key: "secret2", UserID: "alice", Name: "key2", CreatedAt: time.Now()},
+			{ID: "k3", Key: "secret3", UserID: "bob", Name: "key3", CreatedAt: time.Now()},
+		}
+		for _, ak := range keys {
+			data, _ := json.Marshal(ak)
+			b.Put([]byte(ak.ID), data)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	s := db.APIKeyStore()
+	ctx := context.Background()
+
+	got, err := s.GetByKey(ctx, "secret1")
+	if err != nil {
+		t.Fatalf("GetByKey: %v", err)
+	}
+	if got.ID != "k1" {
+		t.Errorf("ID = %q, want k1", got.ID)
+	}
+
+	aliceKeys, err := s.ListByUser(ctx, "alice")
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if len(aliceKeys) != 2 {
+		t.Fatalf("got %d keys for alice, want 2", len(aliceKeys))
+	}
+
+	bobKeys, err := s.ListByUser(ctx, "bob")
+	if err != nil {
+		t.Fatalf("ListByUser bob: %v", err)
+	}
+	if len(bobKeys) != 1 {
+		t.Fatalf("got %d keys for bob, want 1", len(bobKeys))
 	}
 }

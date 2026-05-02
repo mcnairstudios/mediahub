@@ -1,10 +1,13 @@
 package bolt
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	bbolt "go.etcd.io/bbolt"
 )
 
 func TestProbeCacheStore_GetSetDelete(t *testing.T) {
@@ -90,5 +93,68 @@ func TestProbeCacheStore_HashesURL(t *testing.T) {
 	}
 	if r2.Video.Codec != "hevc" {
 		t.Errorf("expected hevc, got %s", r2.Video.Codec)
+	}
+}
+
+func TestProbeCacheStore_MigrateFromFlatKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate_probe.db"
+
+	raw, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+
+	url1 := "http://example.com/stream1.ts"
+	url2 := "http://example.com/stream2.ts"
+
+	err = raw.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketProbeCache)
+		if err != nil {
+			return err
+		}
+
+		entries := []struct {
+			url   string
+			probe *media.ProbeResult
+		}{
+			{url1, &media.ProbeResult{Video: &media.VideoInfo{Codec: "h264", Width: 1920}}},
+			{url2, &media.ProbeResult{Video: &media.VideoInfo{Codec: "hevc", Width: 3840}}},
+		}
+
+		for _, e := range entries {
+			entry := probeCacheEntry{Result: e.probe, StoredAt: time.Now()}
+			data, _ := json.Marshal(entry)
+			b.Put([]byte(hashURL(e.url)), data)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	cache := db.ProbeCacheStore()
+
+	r1, err := cache.Get(url1)
+	if err != nil {
+		t.Fatalf("Get url1: %v", err)
+	}
+	if r1 == nil || r1.Video.Codec != "h264" {
+		t.Fatalf("expected h264, got %+v", r1)
+	}
+
+	r2, err := cache.Get(url2)
+	if err != nil {
+		t.Fatalf("Get url2: %v", err)
+	}
+	if r2 == nil || r2.Video.Codec != "hevc" {
+		t.Fatalf("expected hevc, got %+v", r2)
 	}
 }

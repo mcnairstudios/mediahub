@@ -77,7 +77,9 @@ func (d *DB) StreamStore() *StreamStore {
 }
 
 func (d *DB) SettingsStore() *SettingsStore {
-	return &SettingsStore{db: d.db}
+	s := &SettingsStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) ChannelStore() *ChannelStore {
@@ -109,11 +111,15 @@ func (d *DB) RecordingStore() *RecordingStore {
 }
 
 func (d *DB) UserStore() *UserStore {
-	return &UserStore{db: d.db}
+	s := &UserStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) SourceConfigStore() *SourceConfigStore {
-	return &SourceConfigStore{db: d.db}
+	s := &SourceConfigStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) FavoriteStore() *FavoriteStore {
@@ -123,7 +129,9 @@ func (d *DB) FavoriteStore() *FavoriteStore {
 }
 
 func (d *DB) ClientStore() *ClientStore {
-	return &ClientStore{db: d.db}
+	s := &ClientStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) SourceProfileStore() *SourceProfileStore {
@@ -131,7 +139,9 @@ func (d *DB) SourceProfileStore() *SourceProfileStore {
 }
 
 func (d *DB) ProbeCacheStore() *ProbeCacheStore {
-	return &ProbeCacheStore{db: d.db}
+	s := &ProbeCacheStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) HDHRDeviceStore() *HDHRDeviceStore {
@@ -139,11 +149,15 @@ func (d *DB) HDHRDeviceStore() *HDHRDeviceStore {
 }
 
 func (d *DB) InviteStore() *InviteStore {
-	return &InviteStore{db: d.db}
+	s := &InviteStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) APIKeyStore() *APIKeyStore {
-	return &APIKeyStore{db: d.db}
+	s := &APIKeyStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) ClearBucket(name string) error {

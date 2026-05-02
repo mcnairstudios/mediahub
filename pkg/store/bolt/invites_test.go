@@ -2,12 +2,14 @@ package bolt
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/auth"
+	bbolt "go.etcd.io/bbolt"
 )
 
 func newTestInviteStore(t *testing.T) *InviteStore {
@@ -118,5 +120,61 @@ func TestInviteStore_DeleteNotFound(t *testing.T) {
 	err := store.Delete(ctx, "nonexistent")
 	if err != auth.ErrInviteNotFound {
 		t.Fatalf("expected ErrInviteNotFound, got %v", err)
+	}
+}
+
+func TestInviteStore_MigrateFromFlatKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate_invites.db"
+
+	raw, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+
+	err = raw.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketInvites)
+		if err != nil {
+			return err
+		}
+
+		invites := []auth.Invite{
+			{Token: "tok-1", Role: auth.RoleStandard, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)},
+			{Token: "tok-2", Role: auth.RoleAdmin, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)},
+		}
+		for _, inv := range invites {
+			data, _ := json.Marshal(inv)
+			b.Put([]byte(inv.Token), data)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	s := db.InviteStore()
+	ctx := context.Background()
+
+	got, err := s.Get(ctx, "tok-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Role != auth.RoleStandard {
+		t.Errorf("Role = %q, want standard", got.Role)
+	}
+
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d invites, want 2", len(list))
 	}
 }
