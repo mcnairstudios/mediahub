@@ -167,6 +167,8 @@ func main() {
 		log.Printf("warning: failed to seed default source profiles: %v", err)
 	}
 
+	autoNumberChannels(ctx, channelStore)
+
 	wgService := wg.NewService(settingsStore, wg.PluginConfig{
 		UserAgent:    cfg.UserAgent,
 		BypassHeader: cfg.BypassHeader,
@@ -872,5 +874,37 @@ func (a *dlnaAuthAdapter) AuthenticateBasic(ctx context.Context, username, passw
 		IsAdmin:         user.IsAdmin,
 		ChannelGroupIDs: user.ChannelGroupIDs,
 	}, nil
+}
+
+func autoNumberChannels(ctx context.Context, store channel.Store) {
+	channels, err := store.List(ctx)
+	if err != nil {
+		log.Printf("auto-number channels: list: %v", err)
+		return
+	}
+
+	maxNumber := 0
+	for _, ch := range channels {
+		if ch.Number > maxNumber {
+			maxNumber = ch.Number
+		}
+	}
+
+	next := maxNumber + 1
+	numbered := 0
+	for i := range channels {
+		if channels[i].Number == 0 {
+			channels[i].Number = next
+			next++
+			if err := store.Update(ctx, &channels[i]); err != nil {
+				log.Printf("auto-number channels: update %s: %v", channels[i].ID, err)
+				continue
+			}
+			numbered++
+		}
+	}
+	if numbered > 0 {
+		log.Printf("auto-numbered %d channels (starting at %d)", numbered, maxNumber+1)
+	}
 }
 

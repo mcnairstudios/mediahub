@@ -58,7 +58,6 @@ type PipelineConfig struct {
 	TimeoutSec        int
 	IsLive            bool
 	CachedStreamInfo  *media.ProbeResult
-	UseSubprocess     bool
 }
 
 type demuxCloser struct {
@@ -123,11 +122,11 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	info := d.StreamInfo()
 	if info == nil {
 		d.Close()
-		return nil, fmt.Errorf("pipeline: probe returned no stream info for %q", cfg.StreamURL)
+		return nil, fmt.Errorf("pipeline: probe returned no stream info for %q — the stream may be offline, encrypted, or not a valid media source", cfg.StreamURL)
 	}
 	if info.Video == nil && len(info.AudioTracks) == 0 {
 		d.Close()
-		return nil, fmt.Errorf("pipeline: no video or audio streams detected in %q", cfg.StreamURL)
+		return nil, fmt.Errorf("pipeline: no video or audio streams detected in %q — the stream may be audio-only, encrypted (DRM), or contain unsupported codecs", cfg.StreamURL)
 	}
 
 	if info.Video != nil {
@@ -210,7 +209,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	if cfg.NeedsTranscode || cfg.NeedsAudioTranscode {
 		if info.Video == nil && cfg.NeedsTranscode {
 			d.Close()
-			return nil, fmt.Errorf("pipeline: transcode requested but no video stream in %q", cfg.StreamURL)
+			return nil, fmt.Errorf("pipeline: video transcode requested but no video stream found in %q — the stream appears to be audio-only", cfg.StreamURL)
 		}
 		audioOnly := !cfg.NeedsTranscode && cfg.NeedsAudioTranscode
 		b, err := bridge.New(bridge.Config{
@@ -235,7 +234,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		})
 		if err != nil {
 			d.Close()
-			return nil, fmt.Errorf("pipeline: create transcode bridge: %w: %w", err, ErrEncoderInit)
+			return nil, fmt.Errorf("pipeline: create transcode bridge for %q (codec=%s, hwaccel=%s) — check that the encoder is installed and the hardware accelerator is available: %w: %w", cfg.StreamURL, cfg.OutputCodec, cfg.HWAccel, err, ErrEncoderInit)
 		}
 		sess.AddCloser(bridgeCloser{b: b})
 		sink = b

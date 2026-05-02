@@ -208,6 +208,10 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	info := pipelineResult.Info
 	result.ProbeInfo = info
 
+	if info != nil && stream.VideoCodec == "" {
+		updateStreamFromProbe(ctx, deps.StreamStore, stream, info)
+	}
+
 	delivery := resolveDelivery(ctx, deps)
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
 		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
@@ -540,5 +544,41 @@ func Seek(deps PlaybackDeps, streamID string, positionMs int64) error {
 	}
 	sess.SeekTo(positionMs)
 	return nil
+}
+
+func updateStreamFromProbe(ctx context.Context, ss store.StreamStore, stream *media.Stream, info *media.ProbeResult) {
+	if ss == nil {
+		return
+	}
+	changed := false
+	if info.Video != nil {
+		if info.Video.Codec != "" && stream.VideoCodec == "" {
+			stream.VideoCodec = info.Video.Codec
+			changed = true
+		}
+		if info.Video.Width > 0 && stream.Width == 0 {
+			stream.Width = info.Video.Width
+			changed = true
+		}
+		if info.Video.Height > 0 && stream.Height == 0 {
+			stream.Height = info.Video.Height
+			changed = true
+		}
+		if info.Video.Interlaced && !stream.Interlaced {
+			stream.Interlaced = true
+			changed = true
+		}
+		if info.Video.BitDepth > 0 && stream.BitDepth == 0 {
+			stream.BitDepth = info.Video.BitDepth
+			changed = true
+		}
+	}
+	if len(info.AudioTracks) > 0 && stream.AudioCodec == "" {
+		stream.AudioCodec = info.AudioTracks[0].Codec
+		changed = true
+	}
+	if changed {
+		_ = ss.BulkUpsert(ctx, []media.Stream{*stream})
+	}
 }
 

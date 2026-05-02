@@ -955,3 +955,125 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestStartPlayback_PostProbeUpdatesStream(t *testing.T) {
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "satip-1", Name: "SAT>IP Channel", URL: "rtsp://192.168.1.100/stream"},
+	})
+
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
+		return &session.PipelineResult{Info: &media.ProbeResult{
+			Video: &media.VideoInfo{
+				Index: 0, Codec: "h265", Width: 1920, Height: 1080, BitDepth: 8, Interlaced: true,
+			},
+			AudioTracks: []media.AudioTrack{
+				{Index: 1, Codec: "ac3", Channels: 6, SampleRate: 48000},
+			},
+		}}, nil
+	}
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryRecord}, nil
+	})
+
+	deps := PlaybackDeps{
+		StreamStore:    ss,
+		SettingsStore:  newMockSettingsStore(nil),
+		SessionMgr:     session.NewManager(t.TempDir()),
+		Detector:       client.NewDetector(nil),
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: runner,
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "satip-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated, err := ss.Get(context.Background(), "satip-1")
+	if err != nil {
+		t.Fatalf("get stream: %v", err)
+	}
+	if updated.VideoCodec != "h265" {
+		t.Errorf("expected video codec h265, got %q", updated.VideoCodec)
+	}
+	if updated.AudioCodec != "ac3" {
+		t.Errorf("expected audio codec ac3, got %q", updated.AudioCodec)
+	}
+	if updated.Width != 1920 {
+		t.Errorf("expected width 1920, got %d", updated.Width)
+	}
+	if updated.Height != 1080 {
+		t.Errorf("expected height 1080, got %d", updated.Height)
+	}
+	if !updated.Interlaced {
+		t.Error("expected interlaced to be true")
+	}
+	if updated.BitDepth != 8 {
+		t.Errorf("expected bit depth 8, got %d", updated.BitDepth)
+	}
+}
+
+func TestStartPlayback_PostProbeDoesNotOverwriteExisting(t *testing.T) {
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "known-1", Name: "Known Stream", URL: "http://example.com/stream",
+			VideoCodec: "h264", AudioCodec: "aac", Width: 1280, Height: 720},
+	})
+
+	runner := func(_ *session.Session, _ session.PipelineConfig) (*session.PipelineResult, error) {
+		return &session.PipelineResult{Info: &media.ProbeResult{
+			Video: &media.VideoInfo{
+				Index: 0, Codec: "h265", Width: 1920, Height: 1080,
+			},
+			AudioTracks: []media.AudioTrack{
+				{Index: 1, Codec: "ac3", Channels: 6, SampleRate: 48000},
+			},
+		}}, nil
+	}
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryRecord}, nil
+	})
+
+	deps := PlaybackDeps{
+		StreamStore:    ss,
+		SettingsStore:  newMockSettingsStore(nil),
+		SessionMgr:     session.NewManager(t.TempDir()),
+		Detector:       client.NewDetector(nil),
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: runner,
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "known-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated, err := ss.Get(context.Background(), "known-1")
+	if err != nil {
+		t.Fatalf("get stream: %v", err)
+	}
+	if updated.VideoCodec != "h264" {
+		t.Errorf("expected video codec to remain h264, got %q", updated.VideoCodec)
+	}
+	if updated.AudioCodec != "aac" {
+		t.Errorf("expected audio codec to remain aac, got %q", updated.AudioCodec)
+	}
+	if updated.Width != 1280 {
+		t.Errorf("expected width to remain 1280, got %d", updated.Width)
+	}
+}
