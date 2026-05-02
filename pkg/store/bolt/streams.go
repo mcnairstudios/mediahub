@@ -44,10 +44,13 @@ func (s *StreamStore) Get(_ context.Context, id string) (*media.Stream, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
 		fullKey := b.Get(keyenc.Reverse("streamidx", id))
-		if fullKey == nil {
-			return nil
+		var data []byte
+		if fullKey != nil {
+			data = b.Get(fullKey)
 		}
-		data := b.Get(fullKey)
+		if data == nil {
+			data = b.Get([]byte(id))
+		}
 		if data == nil {
 			return nil
 		}
@@ -251,7 +254,7 @@ func (s *StreamStore) Save() error {
 	return nil
 }
 
-func (s *StreamStore) migrateFromFlatKeys() error {
+func (s *StreamStore) MigrateFromFlatKeys() error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
 		c := b.Cursor()

@@ -183,7 +183,7 @@ func TestStreamStore_DeleteStaleBySourceKeepsCorrectStreams(t *testing.T) {
 
 func TestStreamStore_MigrateFromFlatKeys(t *testing.T) {
 	dir := t.TempDir()
-	path := dir + "/migrate.db"
+	path := dir + "/migrateflat.db"
 
 	raw, err := bbolt.Open(path, 0600, nil)
 	if err != nil {
@@ -219,6 +219,7 @@ func TestStreamStore_MigrateFromFlatKeys(t *testing.T) {
 	defer db.Close()
 
 	s := db.StreamStore()
+	s.MigrateFromFlatKeys()
 	ctx := context.Background()
 
 	all, err := s.List(ctx)
@@ -292,6 +293,8 @@ func TestStreamStore_MigrateFromFlatKeysIdempotent(t *testing.T) {
 	}
 
 	s := db.StreamStore()
+	s.MigrateFromFlatKeys()
+	s.MigrateFromFlatKeys()
 	ctx := context.Background()
 
 	list1, _ := s.List(ctx)
@@ -538,6 +541,7 @@ func TestStreamStore_MigrateFrom4SegmentKeys(t *testing.T) {
 	defer db.Close()
 
 	s := db.StreamStore()
+	s.MigrateFromFlatKeys()
 	ctx := context.Background()
 
 	all, err := s.List(ctx)
