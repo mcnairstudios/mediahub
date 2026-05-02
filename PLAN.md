@@ -194,31 +194,43 @@ DELETE /api/source-profiles/{id}    — delete
 - Xtream account info error display fix
 - Error message constants (pkg/api/errors.go)
 
-## Next Up (prioritized)
+## Done (this session)
+
+- ~~Import/Export~~ — Implemented (export/import/soft-reset/hard-reset endpoints + UI)
+- ~~HDHR per-device servers~~ — Implemented (device store, manager, auto-split, per-device SSDP)
+- ~~Multi-WireGuard failover~~ — Implemented (HealthCheck + Failover + 30s scheduler)
+- ~~Invite system~~ — Implemented (create/accept tokens + API keys + X-API-Key middleware)
+- ~~OpenAPI spec~~ — Implemented (Swagger UI at /api/docs)
+- ~~Debug endpoints~~ — Implemented (pprof + debug_enabled setting)
+- ~~Error message constants~~ — Implemented (pkg/api/errors.go)
+- ~~WireGuard client config dedup~~ — Extracted resolveWGClient() helper
+- ~~OnRefreshDone callback dedup~~ — Extracted makeOnRefreshDone() shared function
+- ~~Unified scheduler~~ — robfig/cron + bolt persistence, replaces worker + recscheduler
+- ~~Prefix-keyed stores~~ — streams, channels, groups, EPG, recordings, favorites on keyenc
+- ~~Post-probe stream metadata~~ — Probe results saved back to stream store
+- ~~EPG source filtering~~ — Programs tagged with SourceID, filtered per-source
+- ~~Last Refreshed bug~~ — Xtream OnRefreshDone callback wired
+- ~~Xtream Account Info~~ — Error messages now displayed in frontend
+
+## Next Up
 
 ### HIGH
-9. **Import/Export** — JSON backup of channels, settings, accounts. Soft/hard reset.
-10. **Per-channel profile override** — Channel forces specific client profile.
-11. **Probe caching** — Store results in bolt, skip re-probe for known streams.
+- **SAT>IP audio sync** — AC3/MP2 decode errors cause audio underflow every ~25s
+- **Per-channel profile override** — Channel forces specific client profile
+- **Probe caching** — Store results in bolt, skip re-probe for known streams
 
 ### MEDIUM
-12. **HDHR per-device servers** — Separate lineup per physical device.
-13. **EPG deduplication** — Multiple sources, deduplicate by channel ID.
-14. **Multi-WireGuard failover** — Pool of tunnels, automatic failover.
-15. **Invite system** — Admin generates invite tokens.
-16. **Rename default_video_codec** — Recording only, not playback.
+- **Handler CRUD boilerplate** — Extract get-check-404-decode helpers (50+ handlers)
+- **Migrate remaining stores to keyenc** — users, clients, apikeys, invites, source_configs, settings, probe_cache
+- **Source plugin base type** — Shared Info(), HTTP client selection across 5 plugins
+- **Main.go factory reorganization** — Move 200 lines of factory registration to bootstrap file
+- **Subtitle extraction** — WebVTT from embedded DVB subtitles
 
-### LOW
-17. **Subtitle extraction** — WebVTT from embedded subtitles.
-18. **OpenAPI spec** — Swagger at /api/docs.
-19. **Debug endpoints** — Pipeline state, session info.
+## Backlog (Low Priority)
 
-## Backlog
-
-- Migrate remaining stores to keyenc (users, clients, apikeys, invites, source_configs, settings, probe_cache)
-- Generic store CRUD helpers
+- Generic store CRUD helpers (Go generics make this awkward)
 - Frontend UI component consolidation (modals, tables, forms)
 - SSDP advertiser consolidation (HDHR + DLNA)
 - Magic string constants (config keys, setting keys, status strings)
-- Source plugin base type (shared Info(), HTTP client selection)
-- Main.go factory registration reorganization
+- Stream pagination for large sources (554K M3U streams)
+- Virtual scroll for large poster grids
