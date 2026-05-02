@@ -159,7 +159,11 @@ func (s *Server) handleVODCategories(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if sourceID != "" && s.deps.SourceConfigStore != nil {
 		if sc, scErr := s.deps.SourceConfigStore.Get(r.Context(), sourceID); scErr == nil && sc != nil {
-			streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
+			if vodType != "" && vodType != "series" {
+				streams, err = s.deps.StreamStore.ListBySourceAndType(r.Context(), sc.Type, sourceID, vodType)
+			} else {
+				streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
+			}
 		}
 	}
 	if streams == nil && err == nil {
@@ -215,7 +219,11 @@ func (s *Server) handleVODLibrary(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if sourceID != "" && s.deps.SourceConfigStore != nil {
 		if sc, scErr := s.deps.SourceConfigStore.Get(r.Context(), sourceID); scErr == nil && sc != nil {
-			streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
+			if vodType != "" && vodType != "series" {
+				streams, err = s.deps.StreamStore.ListBySourceAndType(r.Context(), sc.Type, sourceID, vodType)
+			} else {
+				streams, err = s.deps.StreamStore.ListBySource(r.Context(), sc.Type, sourceID)
+			}
 		}
 	}
 	if streams == nil && err == nil {

@@ -94,12 +94,15 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
 	sourceType := r.URL.Query().Get("source_type")
 	sourceID := r.URL.Query().Get("source_id")
+	vodType := r.URL.Query().Get("vod_type")
 	fields := r.URL.Query().Get("fields")
 
 	var streams []media.Stream
 	var err error
 
-	if sourceType != "" && sourceID != "" {
+	if sourceType != "" && sourceID != "" && vodType != "" {
+		streams, err = s.deps.StreamStore.ListBySourceAndType(r.Context(), sourceType, sourceID, vodType)
+	} else if sourceType != "" && sourceID != "" {
 		streams, err = s.deps.StreamStore.ListBySource(r.Context(), sourceType, sourceID)
 	} else {
 		streams, err = s.deps.StreamStore.List(r.Context())

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/store/bolt/keyenc"
 	bbolt "go.etcd.io/bbolt"
 )
 
@@ -377,5 +378,205 @@ func TestStreamStore_CountBySourceAfterBulkOperations(t *testing.T) {
 	count, _ = s.CountBySource(ctx, "m3u", "src-1")
 	if count != 1 {
 		t.Errorf("count after stale delete = %d, want 1", count)
+	}
+}
+
+func TestStreamStore_ListBySourceAndType(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.StreamStore()
+	ctx := context.Background()
+
+	streams := []media.Stream{
+		{ID: "s1", SourceType: "xtream", SourceID: "src-1", Name: "Movie A", VODType: "movie"},
+		{ID: "s2", SourceType: "xtream", SourceID: "src-1", Name: "Movie B", VODType: "movie"},
+		{ID: "s3", SourceType: "xtream", SourceID: "src-1", Name: "Series A", VODType: "series"},
+		{ID: "s4", SourceType: "xtream", SourceID: "src-1", Name: "Live A"},
+		{ID: "s5", SourceType: "m3u", SourceID: "src-2", Name: "Movie C", VODType: "movie"},
+	}
+	s.BulkUpsert(ctx, streams)
+
+	movies, err := s.ListBySourceAndType(ctx, "xtream", "src-1", "movie")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(movies) != 2 {
+		t.Errorf("movies = %d, want 2", len(movies))
+	}
+
+	series, err := s.ListBySourceAndType(ctx, "xtream", "src-1", "series")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(series) != 1 {
+		t.Errorf("series = %d, want 1", len(series))
+	}
+
+	live, err := s.ListBySourceAndType(ctx, "xtream", "src-1", "")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(live) != 1 {
+		t.Errorf("live = %d, want 1", len(live))
+	}
+
+	all, err := s.ListBySource(ctx, "xtream", "src-1")
+	if err != nil {
+		t.Fatalf("ListBySource: %v", err)
+	}
+	if len(all) != 4 {
+		t.Errorf("all = %d, want 4", len(all))
+	}
+
+	m3uMovies, err := s.ListBySourceAndType(ctx, "m3u", "src-2", "movie")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(m3uMovies) != 1 {
+		t.Errorf("m3u movies = %d, want 1", len(m3uMovies))
+	}
+
+	none, err := s.ListBySourceAndType(ctx, "xtream", "src-1", "episode")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("episode = %d, want 0", len(none))
+	}
+}
+
+func TestStreamStore_CountBySourceAndType(t *testing.T) {
+	db, _ := tempDB(t)
+	defer db.Close()
+
+	s := db.StreamStore()
+	ctx := context.Background()
+
+	streams := []media.Stream{
+		{ID: "s1", SourceType: "xtream", SourceID: "src-1", VODType: "movie"},
+		{ID: "s2", SourceType: "xtream", SourceID: "src-1", VODType: "movie"},
+		{ID: "s3", SourceType: "xtream", SourceID: "src-1", VODType: "series"},
+		{ID: "s4", SourceType: "xtream", SourceID: "src-1"},
+	}
+	s.BulkUpsert(ctx, streams)
+
+	count, _ := s.CountBySourceAndType(ctx, "xtream", "src-1", "movie")
+	if count != 2 {
+		t.Errorf("movie count = %d, want 2", count)
+	}
+
+	count, _ = s.CountBySourceAndType(ctx, "xtream", "src-1", "series")
+	if count != 1 {
+		t.Errorf("series count = %d, want 1", count)
+	}
+
+	count, _ = s.CountBySourceAndType(ctx, "xtream", "src-1", "")
+	if count != 1 {
+		t.Errorf("live count = %d, want 1", count)
+	}
+
+	total, _ := s.CountBySource(ctx, "xtream", "src-1")
+	if total != 4 {
+		t.Errorf("total count = %d, want 4", total)
+	}
+}
+
+func TestStreamStore_MigrateFrom4SegmentKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/migrate4seg.db"
+
+	raw, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+
+	err = raw.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketStreams)
+		if err != nil {
+			return err
+		}
+
+		oldSchema := keyenc.NewSchema[struct {
+			Kind       string `key:"streams"`
+			SourceType string
+			SourceID   string
+			StreamID   string
+		}]()
+
+		streams := []media.Stream{
+			{ID: "m1", SourceType: "xtream", SourceID: "src-1", Name: "Movie", VODType: "movie"},
+			{ID: "s1", SourceType: "xtream", SourceID: "src-1", Name: "Series", VODType: "series"},
+			{ID: "l1", SourceType: "m3u", SourceID: "src-2", Name: "Live"},
+		}
+		for _, s := range streams {
+			data, _ := json.Marshal(s)
+			key := oldSchema.Key(struct {
+				Kind       string `key:"streams"`
+				SourceType string
+				SourceID   string
+				StreamID   string
+			}{
+				SourceType: s.SourceType,
+				SourceID:   s.SourceID,
+				StreamID:   s.ID,
+			})
+			b.Put(key, data)
+			b.Put(keyenc.Reverse("streamidx", s.ID), key)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed old keys: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	s := db.StreamStore()
+	ctx := context.Background()
+
+	all, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("got %d streams after migration, want 3", len(all))
+	}
+
+	got, err := s.Get(ctx, "m1")
+	if err != nil || got == nil {
+		t.Fatalf("Get m1: err=%v, got=%v", err, got)
+	}
+	if got.Name != "Movie" {
+		t.Errorf("Name = %q, want %q", got.Name, "Movie")
+	}
+
+	movies, err := s.ListBySourceAndType(ctx, "xtream", "src-1", "movie")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(movies) != 1 || movies[0].ID != "m1" {
+		t.Errorf("movies after migration = %v, want [m1]", movies)
+	}
+
+	live, err := s.ListBySourceAndType(ctx, "m3u", "src-2", "")
+	if err != nil {
+		t.Fatalf("ListBySourceAndType: %v", err)
+	}
+	if len(live) != 1 || live[0].ID != "l1" {
+		t.Errorf("live after migration = %v, want [l1]", live)
+	}
+
+	allXtream, err := s.ListBySource(ctx, "xtream", "src-1")
+	if err != nil {
+		t.Fatalf("ListBySource: %v", err)
+	}
+	if len(allXtream) != 2 {
+		t.Errorf("all xtream after migration = %d, want 2", len(allXtream))
 	}
 }

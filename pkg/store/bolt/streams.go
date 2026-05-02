@@ -15,7 +15,17 @@ type streamKeyDef struct {
 	Kind       string `key:"streams"`
 	SourceType string
 	SourceID   string
+	VODType    string
 	StreamID   string
+}
+
+const vodTypeLive = "_live"
+
+func vodTypeKey(vodType string) string {
+	if vodType == "" {
+		return vodTypeLive
+	}
+	return vodType
 }
 
 var (
@@ -83,6 +93,37 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 	return result, err
 }
 
+func (s *StreamStore) ListBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) ([]media.Stream, error) {
+	var result []media.Stream
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		c := tx.Bucket(bucketStreams).Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID, VODType: vodTypeKey(vodType)})
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) == nil {
+				result = append(result, stream)
+			}
+		}
+		return nil
+	})
+
+	return result, err
+}
+
+func (s *StreamStore) CountBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) (int, error) {
+	count := 0
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		c := tx.Bucket(bucketStreams).Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID, VODType: vodTypeKey(vodType)})
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
 func (s *StreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
 	count := 0
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -107,6 +148,7 @@ func (s *StreamStore) BulkUpsert(_ context.Context, streams []media.Stream) erro
 			key := streamSchema.Key(streamKeyDef{
 				SourceType: stream.SourceType,
 				SourceID:   stream.SourceID,
+				VODType:    vodTypeKey(stream.VODType),
 				StreamID:   stream.ID,
 			})
 			if err := b.Put(key, data); err != nil {
@@ -190,12 +232,7 @@ func (s *StreamStore) Save() error {
 func (s *StreamStore) migrateFromFlatKeys() error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
-
 		c := b.Cursor()
-		k, _ := c.Seek(prefixIdx)
-		if k != nil && bytes.HasPrefix(k, prefixIdx) {
-			return nil
-		}
 
 		type migration struct {
 			oldKey, newKey, idxKey, data []byte
@@ -203,7 +240,29 @@ func (s *StreamStore) migrateFromFlatKeys() error {
 		var migrations []migration
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+			if bytes.HasPrefix(k, prefixIdx) {
+				continue
+			}
+			if bytes.HasPrefix(k, prefixStream) {
+				parts := bytes.Split(k, []byte(":"))
+				if len(parts) == 4 {
+					var stream media.Stream
+					if json.Unmarshal(v, &stream) != nil || stream.SourceType == "" || stream.SourceID == "" || stream.ID == "" {
+						continue
+					}
+					newKey := streamSchema.Key(streamKeyDef{
+						SourceType: stream.SourceType,
+						SourceID:   stream.SourceID,
+						VODType:    vodTypeKey(stream.VODType),
+						StreamID:   stream.ID,
+					})
+					migrations = append(migrations, migration{
+						oldKey: append([]byte{}, k...),
+						newKey: newKey,
+						idxKey: keyenc.Reverse("streamidx", stream.ID),
+						data:   append([]byte{}, v...),
+					})
+				}
 				continue
 			}
 			var stream media.Stream
@@ -213,6 +272,7 @@ func (s *StreamStore) migrateFromFlatKeys() error {
 			newKey := streamSchema.Key(streamKeyDef{
 				SourceType: stream.SourceType,
 				SourceID:   stream.SourceID,
+				VODType:    vodTypeKey(stream.VODType),
 				StreamID:   stream.ID,
 			})
 			migrations = append(migrations, migration{
@@ -227,11 +287,13 @@ func (s *StreamStore) migrateFromFlatKeys() error {
 			return nil
 		}
 
-		log.Printf("streams: migrating %d streams to prefixed keys", len(migrations))
+		log.Printf("streams: migrating %d streams to 5-segment keys", len(migrations))
 		for _, m := range migrations {
 			b.Put(m.newKey, m.data)
 			b.Put(m.idxKey, m.newKey)
-			b.Delete(m.oldKey)
+			if !bytes.Equal(m.oldKey, m.newKey) {
+				b.Delete(m.oldKey)
+			}
 		}
 		log.Printf("streams: migration complete")
 		return nil

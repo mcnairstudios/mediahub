@@ -53,6 +53,31 @@ func (s *MemoryStreamStore) ListBySource(_ context.Context, sourceType, sourceID
 	return result, nil
 }
 
+func (s *MemoryStreamStore) ListBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) ([]media.Stream, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []media.Stream
+	for _, stream := range s.streams {
+		if stream.SourceType == sourceType && stream.SourceID == sourceID && stream.VODType == vodType {
+			result = append(result, stream)
+		}
+	}
+	return result, nil
+}
+
+func (s *MemoryStreamStore) CountBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, stream := range s.streams {
+		if stream.SourceType == sourceType && stream.SourceID == sourceID && stream.VODType == vodType {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *MemoryStreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

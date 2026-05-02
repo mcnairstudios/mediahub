@@ -110,13 +110,17 @@ func (m *mockStreamStore) List(_ context.Context) ([]media.Stream, error) { retu
 func (m *mockStreamStore) ListBySource(_ context.Context, _, _ string) ([]media.Stream, error) {
 	return nil, nil
 }
+func (m *mockStreamStore) ListBySourceAndType(_ context.Context, _, _, _ string) ([]media.Stream, error) {
+	return nil, nil
+}
 func (m *mockStreamStore) BulkUpsert(_ context.Context, _ []media.Stream) error { return nil }
 func (m *mockStreamStore) DeleteBySource(_ context.Context, _, _ string) error   { return nil }
 func (m *mockStreamStore) DeleteStaleBySource(_ context.Context, _, _ string, _ []string) ([]string, error) {
 	return nil, nil
 }
-func (m *mockStreamStore) CountBySource(_ context.Context, _, _ string) (int, error) { return len(m.streams), nil }
-func (m *mockStreamStore) Save() error { return nil }
+func (m *mockStreamStore) CountBySource(_ context.Context, _, _ string) (int, error)          { return len(m.streams), nil }
+func (m *mockStreamStore) CountBySourceAndType(_ context.Context, _, _, _ string) (int, error) { return 0, nil }
+func (m *mockStreamStore) Save() error                                                         { return nil }
 
 func newTestServer() *Server {
 	return &Server{
