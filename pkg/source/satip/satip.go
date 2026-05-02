@@ -39,7 +39,7 @@ func New(cfg Config) *Source {
 		cfg.HTTPPort = defaultHTTPPort
 	}
 	return &Source{
-		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "satip", cfg.IsEnabled, cfg.MaxStreams),
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, source.TypeSATIP, cfg.IsEnabled, cfg.MaxStreams),
 		cfg:        cfg,
 	}
 }
@@ -83,7 +83,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		rtspURL := ch.RTSPURL(host)
 		stream := media.Stream{
 			ID:         deterministicStreamID(s.cfg.ID, ch.ServiceID),
-			SourceType: "satip",
+			SourceType: string(source.TypeSATIP),
 			SourceID:   s.cfg.ID,
 			Name:       ch.Name,
 			URL:        rtspURL,
@@ -103,7 +103,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	for i, st := range streams {
 		keepIDs[i] = st.ID
 	}
-	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "satip", s.cfg.ID, keepIDs); err != nil {
+	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, string(source.TypeSATIP), s.cfg.ID, keepIDs); err != nil {
 		log.Warn().Err(err).Str("source", s.cfg.ID).Msg("failed to delete stale streams")
 	}
 
@@ -112,7 +112,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) Streams(ctx context.Context) ([]string, error) {
-	streams, err := s.cfg.StreamStore.ListBySource(ctx, "satip", s.cfg.ID)
+	streams, err := s.cfg.StreamStore.ListBySource(ctx, string(source.TypeSATIP), s.cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +125,11 @@ func (s *Source) Streams(ctx context.Context) ([]string, error) {
 }
 
 func (s *Source) DeleteStreams(ctx context.Context) error {
-	return s.cfg.StreamStore.DeleteBySource(ctx, "satip", s.cfg.ID)
+	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeSATIP), s.cfg.ID)
 }
 
 func (s *Source) Clear(ctx context.Context) error {
-	if err := s.cfg.StreamStore.DeleteBySource(ctx, "satip", s.cfg.ID); err != nil {
+	if err := s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeSATIP), s.cfg.ID); err != nil {
 		return err
 	}
 
