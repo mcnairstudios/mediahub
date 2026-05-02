@@ -610,6 +610,13 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		SourceConfigStore: s.deps.SourceConfigStore,
 	}
 
+	var epgSourceID string
+	if s.deps.SourceConfigStore != nil {
+		if cfg, err := s.deps.SourceConfigStore.Get(r.Context(), sourceID); err == nil && cfg != nil {
+			epgSourceID = cfg.Config["epg_source_id"]
+		}
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -620,6 +627,7 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 			log.Printf("source refresh failed: %s (%s): %v", sourceID, sourceType, err)
 		} else {
 			log.Printf("source refresh completed: %s (%s)", sourceID, sourceType)
+			s.AutoMatchStreamsToEPG(context.Background(), sourceType, sourceID, epgSourceID)
 		}
 	}()
 

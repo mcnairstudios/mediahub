@@ -114,6 +114,7 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		src.Refresh(ctx)
+		s.AutoMatchStreamsToEPG(ctx, "m3u", sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)
@@ -371,6 +372,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 			return
 		}
 		src.Refresh(ctx)
+		s.AutoMatchStreamsToEPG(ctx, "tvpstreams", sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)
@@ -534,6 +536,7 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 			return
 		}
 		src.Refresh(ctx)
+		s.AutoMatchStreamsToEPG(ctx, "xtream", sc.ID, sc.Config["epg_source_id"])
 	}()
 
 	httputil.RespondJSON(w, http.StatusCreated, sc)

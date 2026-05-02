@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/xmltv"
 )
 
