@@ -434,6 +434,8 @@
       page = 'channels';
       router.current = page;
     }
+    if (!favoritesLoaded) loadFavorites();
+
     if (page === 'player') {
       app.innerHTML = renderSidebar() + '<div class="main" id="page"></div>';
       app.innerHTML += '<button class="mobile-toggle" id="mobile-toggle">' + icons.menu + '</button>';
@@ -858,8 +860,10 @@
   }
 
   var streamFavorites = {};
+  var favoritesLoaded = false;
 
-  async function loadFavorites() {
+  async function loadFavorites(force) {
+    if (favoritesLoaded && !force) return;
     try {
       var resp = await api.get('/api/favorites');
       var favs = await resp.json();
@@ -869,6 +873,7 @@
           streamFavorites[favs[i].stream_id] = true;
         }
       }
+      favoritesLoaded = true;
     } catch (e) {
       streamFavorites = {};
     }
@@ -7268,7 +7273,7 @@
           ' data-series-id="' + esc(p.series_id || '') + '"' +
           ' data-episode-num="' + esc(p.episode_num || '') + '">' +
           recBtnHtml +
-          (p.series_id ? '<span class="epg-series-icon" title="Series: ' + esc(p.series_id) + '" style="position:absolute;top:2px;right:2px;font-size:10px;opacity:0.7">\u{1F517}</span>' : '') +
+          (p.series_id ? '<button class="epg-series-btn" data-series-id="' + esc(p.series_id) + '" title="View all episodes" style="position:absolute;top:2px;right:2px;font-size:10px;opacity:0.8;background:none;border:none;cursor:pointer;color:var(--accent);padding:0 2px;">\u{1F517}</button>' : '') +
           '<div class="epg-program-title">' + esc(p.title) + '</div>' +
           '<div class="epg-program-time">' + timeStr + '</div>' +
           '</div>';
