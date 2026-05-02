@@ -242,10 +242,7 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 	if opts.Preset != "" {
 		dict = astiav.NewDictionary()
 		defer dict.Free()
-		if err := dict.Set("preset", opts.Preset, 0); err != nil {
-			enc.freeResources()
-			return nil, fmt.Errorf("encode: failed to set preset: %w", err)
-		}
+		dict.Set("preset", opts.Preset, 0)
 	}
 
 	if err := cc.Open(codec, dict); err != nil {
