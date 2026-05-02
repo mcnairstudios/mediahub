@@ -195,9 +195,6 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 			tm.close()
 			return nil, fmt.Errorf("set extradata: %w", err)
 		}
-		if codecID == astiav.CodecIDHevc && extradata[0] == 0x01 {
-			cp.SetCodecTag(0x31637668) // hvc1
-		}
 	}
 
 	opts := astiav.NewDictionary()
@@ -241,6 +238,10 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	dur := pktDurationUs(pkt, m.video.stream)
 	if dur <= 0 {
 		dur = 20000
+	}
+
+	if isKeyframe && m.video.pktCount > 0 {
+		fmt.Printf("avmux: keyframe at pkt=%d accum=%dus size=%d\n", m.video.pktCount, m.video.accumDurationUs, pkt.Size())
 	}
 
 	shouldFlush := m.video.pktCount > 0 && isKeyframe && m.video.accumDurationUs >= 2_000_000

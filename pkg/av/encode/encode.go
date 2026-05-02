@@ -170,6 +170,12 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 
 	if opts.Bitrate > 0 {
 		cc.SetBitRate(int64(opts.Bitrate) * 1000)
+	} else {
+		maxBitrate := int64(8_000_000)
+		if opts.Width <= 1280 {
+			maxBitrate = 4_000_000
+		}
+		cc.SetBitRate(maxBitrate)
 	}
 
 	fps := opts.Framerate

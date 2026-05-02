@@ -2061,12 +2061,15 @@
             if (track === 'video' && seq === 3 && !mseState.playStarted) {
               mseState.playStarted = true;
               var tryPlay = function() {
-                if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
-                  videoEl.currentTime = mseState.videoSB.buffered.start(0);
-                  videoEl.play().catch(function() { setTimeout(tryPlay, 300); });
-                } else {
-                  setTimeout(tryPlay, 100);
-                }
+                if (mseState.stopped) return;
+                try {
+                  if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
+                    videoEl.currentTime = mseState.videoSB.buffered.start(0);
+                    videoEl.play().catch(function() { if (!mseState.stopped) setTimeout(tryPlay, 300); });
+                  } else {
+                    setTimeout(tryPlay, 100);
+                  }
+                } catch(e) { /* SourceBuffer removed */ }
               };
               setTimeout(tryPlay, 100);
             }
