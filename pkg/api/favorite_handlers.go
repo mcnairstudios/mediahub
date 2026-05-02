@@ -49,7 +49,7 @@ func (s *Server) handleAddFavorite(w http.ResponseWriter, r *http.Request) {
 		StreamID string `json:"stream_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.StreamID == "" {

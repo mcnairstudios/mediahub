@@ -254,7 +254,7 @@ func (s *Server) handleSeekRecordingPlayback(w http.ResponseWriter, r *http.Requ
 		PositionMs int64 `json:"position_ms"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

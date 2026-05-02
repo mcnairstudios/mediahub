@@ -25,7 +25,7 @@ func (s *Server) handleScheduleRecording(w http.ResponseWriter, r *http.Request)
 		StopAt    time.Time `json:"stop_at"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

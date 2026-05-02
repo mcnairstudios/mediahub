@@ -20,6 +20,7 @@ type Source struct {
 }
 
 type Program struct {
+	SourceID    string    `json:"source_id,omitempty"`
 	ChannelID   string    `json:"channel_id"`
 	Title       string    `json:"title"`
 	Subtitle    string    `json:"subtitle,omitempty"`

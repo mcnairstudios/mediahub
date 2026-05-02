@@ -15,7 +15,7 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		ExpiresIn string    `json:"expires_in"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Role == "" {
@@ -48,7 +48,7 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Token == "" || req.Username == "" || req.Password == "" {

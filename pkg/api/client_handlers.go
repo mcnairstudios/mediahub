@@ -79,7 +79,7 @@ func (s *Server) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		Profile    *client.Profile    `json:"profile"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -115,7 +115,7 @@ func (s *Server) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 	var c client.Client
 	if err := httputil.DecodeJSON(r, &c); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

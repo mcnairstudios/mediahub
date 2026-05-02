@@ -23,7 +23,7 @@ func (s *Server) handleCreateEPGSource(w http.ResponseWriter, r *http.Request) {
 		RefreshInterval string `json:"refresh_interval"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" || req.URL == "" {
@@ -78,7 +78,7 @@ func (s *Server) handleUpdateEPGSource(w http.ResponseWriter, r *http.Request) {
 		RefreshInterval *string `json:"refresh_interval"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -200,6 +200,7 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 		programs := make([]epg.Program, 0, len(programmes))
 		for _, p := range programmes {
 			programs = append(programs, epg.Program{
+				SourceID:    src.ID,
 				ChannelID:   p.ChannelID,
 				Title:       p.Title,
 				Subtitle:    p.Subtitle,
@@ -416,7 +417,7 @@ func (s *Server) handleEPGPrograms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.URL.Query().Get("source_id") != "" {
+	if sourceID := r.URL.Query().Get("source_id"); sourceID != "" {
 		programs, err := s.deps.ProgramStore.ListAll(r.Context())
 		if err != nil {
 			httputil.RespondError(w, http.StatusInternalServerError, "failed to list programs")
@@ -429,7 +430,7 @@ func (s *Server) handleEPGPrograms(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		var current []epg.Program
 		for _, p := range programs {
-			if p.StartTime.Before(now) && p.EndTime.After(now) {
+			if p.SourceID == sourceID && p.StartTime.Before(now) && p.EndTime.After(now) {
 				current = append(current, p)
 			}
 		}
@@ -809,7 +810,7 @@ func (s *Server) handleUpdateChannelLogo(w http.ResponseWriter, r *http.Request)
 		LogoURL string `json:"logo_url"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

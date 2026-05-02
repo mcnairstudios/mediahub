@@ -29,7 +29,7 @@ func (s *Server) handleCreateHDHRSource(w http.ResponseWriter, r *http.Request) 
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" {
@@ -73,7 +73,7 @@ func (s *Server) handleUpdateHDHRSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if existing == nil || existing.Type != "hdhr" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -83,7 +83,7 @@ func (s *Server) handleUpdateHDHRSource(w http.ResponseWriter, r *http.Request) 
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -289,7 +289,7 @@ func (s *Server) handleHDHRDevices(w http.ResponseWriter, r *http.Request) {
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || sc == nil || sc.Type != "hdhr" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -317,7 +317,7 @@ func (s *Server) handleHDHRScan(w http.ResponseWriter, r *http.Request) {
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || sc == nil || sc.Type != "hdhr" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -348,7 +348,7 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || sc == nil || sc.Type != "hdhr" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 

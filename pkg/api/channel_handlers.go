@@ -22,7 +22,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 		IsEnabled       *bool    `json:"is_enabled"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" {
@@ -90,7 +90,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		IsEnabled       *bool    `json:"is_enabled"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (s *Server) handleAssignStreams(w http.ResponseWriter, r *http.Request) {
 		StreamIDs []string `json:"stream_ids"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -195,7 +195,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" {
@@ -238,7 +238,7 @@ func (s *Server) handleBatchUpdateChannels(w http.ResponseWriter, r *http.Reques
 		AutoNumber *bool    `json:"auto_number"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

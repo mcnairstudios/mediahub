@@ -3944,7 +3944,12 @@
           detail.innerHTML = '<div style="color:var(--text-secondary)">Loading account info...</div>';
           try {
             var r = await api.get('/api/sources/xtream/' + id + '/info');
-            if (!r.ok) { detail.innerHTML = '<div style="color:var(--danger)">Failed to load account info</div>'; return; }
+            if (!r.ok) {
+              var errMsg = 'Failed to load account info';
+              try { var errBody = await r.json(); if (errBody && errBody.error) errMsg += ': ' + errBody.error; } catch(e2) {}
+              detail.innerHTML = '<div style="color:var(--danger)">' + esc(errMsg) + '</div>';
+              return;
+            }
             var info = await r.json();
             detail.innerHTML = '<div style="font-weight:600;margin-bottom:8px">Account Info</div>' +
               '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">' +
@@ -3974,7 +3979,7 @@
               '<div style="font-size:15px;font-weight:600">' + esc(info.server_protocol || '-') + '</div></div>' +
               '</div>';
           } catch(e) {
-            detail.innerHTML = '<div style="color:var(--danger)">Failed to load account info</div>';
+            detail.innerHTML = '<div style="color:var(--danger)">' + esc('Failed to load account info: ' + (e.message || 'unknown error')) + '</div>';
           }
         });
       });

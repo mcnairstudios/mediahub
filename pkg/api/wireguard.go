@@ -40,7 +40,7 @@ func (s *Server) handleCreateWGProfile(w http.ResponseWriter, r *http.Request) {
 		Address    string `json:"address"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -83,7 +83,7 @@ func (s *Server) handleUpdateWGProfile(w http.ResponseWriter, r *http.Request) {
 		Address    string `json:"address"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

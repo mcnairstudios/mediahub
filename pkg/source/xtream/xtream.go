@@ -19,17 +19,18 @@ import (
 )
 
 type Config struct {
-	ID           string
-	Name         string
-	Server       string
-	Username     string
-	Password     string
-	IsEnabled    bool
-	UseWireGuard bool
-	MaxStreams   int
-	StreamStore  store.StreamStore
-	HTTPClient   *http.Client
-	WGClient     *http.Client
+	ID            string
+	Name          string
+	Server        string
+	Username      string
+	Password      string
+	IsEnabled     bool
+	UseWireGuard  bool
+	MaxStreams    int
+	StreamStore   store.StreamStore
+	HTTPClient    *http.Client
+	WGClient      *http.Client
+	OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -207,6 +208,10 @@ func (s *Source) Refresh(ctx context.Context) error {
 	s.lastRefreshed = &now
 	s.lastError = ""
 	s.mu.Unlock()
+
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, "", len(streams))
+	}
 
 	if len(seriesList) > 0 {
 		go s.fetchSeriesEpisodes(seriesList, seriesCatMap)

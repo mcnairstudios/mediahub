@@ -44,6 +44,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
 	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
@@ -177,6 +178,8 @@ func main() {
 
 	tmdbCache := tmdbcache.NewPersistent(filepath.Join(cfg.DataDir, "tmdb_cache"))
 
+	onRefreshDone := makeOnRefreshDone(ctx, sourceConfigStore)
+
 	sourceReg := source.NewRegistry()
 	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
 		sc, err := sourceConfigStore.Get(ctx, sourceID)
@@ -198,24 +201,9 @@ func main() {
 			BypassSecret: cfg.BypassSecret,
 			InitialETag:  sc.Config["etag"],
 			StreamStore:  streamStore,
-			OnRefreshDone: func(sourceID, etag string, streamCount int) {
-				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
-				if err != nil || scUpd == nil {
-					return
-				}
-				scUpd.Config["etag"] = etag
-				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
-				scUpd.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
-				sourceConfigStore.Update(ctx, scUpd)
-			},
+			OnRefreshDone: onRefreshDone,
 		}
-		if m3uCfg.UseWireGuard && wgService != nil {
-			if m3uCfg.WGProfileID != "" {
-				m3uCfg.WGClient = wgService.HTTPClientForProfile(m3uCfg.WGProfileID)
-			} else if p := wgService.ActivePlugin(); p != nil {
-				m3uCfg.WGClient = p.HTTPClient()
-			}
-		}
+		m3uCfg.WGClient = resolveWGClient(wgService, m3uCfg.UseWireGuard, m3uCfg.WGProfileID)
 		log.Printf("m3u factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGProfileID, m3uCfg.WGClient != nil)
 		return m3usource.New(m3uCfg), nil
 	})
@@ -241,16 +229,7 @@ func main() {
 			StreamStore:     streamStore,
 			TMDBCache:       tmdbCache,
 			InitialETag:     sc.Config["etag"],
-			OnRefreshDone: func(sourceID, etag string, streamCount int) {
-				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
-				if err != nil || scUpd == nil {
-					return
-				}
-				scUpd.Config["etag"] = etag
-				scUpd.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
-				scUpd.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
-				sourceConfigStore.Update(ctx, scUpd)
-			},
+			OnRefreshDone: onRefreshDone,
 			OnEnrolled: func(sourceID string) error {
 				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
 				if err != nil || scUpd == nil {
@@ -262,13 +241,7 @@ func main() {
 			},
 		}
 		wgProfileID := sc.Config["wg_profile_id"]
-		if tvpCfg.UseWireGuard && wgService != nil {
-			if wgProfileID != "" {
-				tvpCfg.WGClient = wgService.HTTPClientForProfile(wgProfileID)
-			} else if p := wgService.ActivePlugin(); p != nil {
-				tvpCfg.WGClient = p.HTTPClient()
-			}
-		}
+		tvpCfg.WGClient = resolveWGClient(wgService, tvpCfg.UseWireGuard, wgProfileID)
 		log.Printf("tvpstreams factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, tvpCfg.UseWireGuard, wgProfileID, tvpCfg.WGClient != nil)
 		return tvpstreamssource.New(tvpCfg), nil
 	})
@@ -287,24 +260,18 @@ func main() {
 			}
 		}
 		xtCfg := xstreamsource.Config{
-			ID:           sc.ID,
-			Name:         sc.Name,
-			Server:       sc.Config["server"],
-			Username:     sc.Config["username"],
-			Password:     sc.Config["password"],
-			IsEnabled:    sc.IsEnabled,
-			UseWireGuard: sc.Config["use_wireguard"] == "true",
-			MaxStreams:   maxStreams,
-			StreamStore:  streamStore,
+			ID:            sc.ID,
+			Name:          sc.Name,
+			Server:        sc.Config["server"],
+			Username:      sc.Config["username"],
+			Password:      sc.Config["password"],
+			IsEnabled:     sc.IsEnabled,
+			UseWireGuard:  sc.Config["use_wireguard"] == "true",
+			MaxStreams:    maxStreams,
+			StreamStore:   streamStore,
+			OnRefreshDone: onRefreshDone,
 		}
-		xtWGProfileID := sc.Config["wg_profile_id"]
-		if xtCfg.UseWireGuard && wgService != nil {
-			if xtWGProfileID != "" {
-				xtCfg.WGClient = wgService.HTTPClientForProfile(xtWGProfileID)
-			} else if p := wgService.ActivePlugin(); p != nil {
-				xtCfg.WGClient = p.HTTPClient()
-			}
-		}
+		xtCfg.WGClient = resolveWGClient(wgService, xtCfg.UseWireGuard, sc.Config["wg_profile_id"])
 		return xstreamsource.New(xtCfg), nil
 	})
 	sourceReg.Register("hdhr", func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -908,6 +875,32 @@ func (a *dlnaEPGAdapter) NowPlaying(ctx context.Context, tvgID string) (*dlna.No
 		return nil, err
 	}
 	return &dlna.NowPlayingInfo{Title: p.Title}, nil
+}
+
+func resolveWGClient(wgService *wg.Service, useWireGuard bool, profileID string) *http.Client {
+	if !useWireGuard || wgService == nil {
+		return nil
+	}
+	if profileID != "" {
+		return wgService.HTTPClientForProfile(profileID)
+	}
+	if p := wgService.ActivePlugin(); p != nil {
+		return p.HTTPClient()
+	}
+	return nil
+}
+
+func makeOnRefreshDone(ctx context.Context, store sourceconfig.Store) func(string, string, int) {
+	return func(sourceID, etag string, streamCount int) {
+		sc, err := store.Get(ctx, sourceID)
+		if err != nil || sc == nil {
+			return
+		}
+		sc.Config["etag"] = etag
+		sc.Config["stream_count"] = fmt.Sprintf("%d", streamCount)
+		sc.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
+		store.Update(ctx, sc)
+	}
 }
 
 func autoNumberChannels(ctx context.Context, store channel.Store) {

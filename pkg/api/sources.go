@@ -76,7 +76,7 @@ func (s *Server) handleCreateM3USource(w http.ResponseWriter, r *http.Request) {
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" || req.URL == "" {
@@ -130,7 +130,7 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing == nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (s *Server) handleUpdateM3USource(w http.ResponseWriter, r *http.Request) {
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -215,7 +215,7 @@ func (s *Server) handleUploadM3U(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || existing == nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -300,7 +300,7 @@ func (s *Server) handleSourceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cfg == nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -329,7 +329,7 @@ func (s *Server) handleCreateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" || req.URL == "" {
@@ -381,7 +381,7 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if existing == nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -395,7 +395,7 @@ func (s *Server) handleUpdateTVPStreamsSource(w http.ResponseWriter, r *http.Req
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -458,7 +458,7 @@ func (s *Server) handleTVPStreamsTLSStatus(w http.ResponseWriter, r *http.Reques
 
 	src, err := s.deps.SourceReg.Create(r.Context(), "tvpstreams", id)
 	if err != nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -483,7 +483,7 @@ func (s *Server) handleCreateXtreamSource(w http.ResponseWriter, r *http.Request
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" || req.Server == "" || req.Username == "" || req.Password == "" {
@@ -538,7 +538,7 @@ func (s *Server) handleUpdateXtreamSource(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if existing == nil {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -555,7 +555,7 @@ func (s *Server) handleUpdateXtreamSource(w http.ResponseWriter, r *http.Request
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -627,7 +627,7 @@ func (s *Server) handleXtreamAccountInfo(w http.ResponseWriter, r *http.Request)
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || sc == nil || sc.Type != "xtream" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 

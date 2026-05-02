@@ -47,7 +47,7 @@ func (s *Server) handleGetSourceProfile(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleCreateSourceProfile(w http.ResponseWriter, r *http.Request) {
 	var p sourceprofile.Profile
 	if err := httputil.DecodeJSON(r, &p); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (s *Server) handleUpdateSourceProfile(w http.ResponseWriter, r *http.Reques
 
 	var req sourceprofile.Profile
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

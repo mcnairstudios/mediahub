@@ -154,19 +154,16 @@ DELETE /api/source-profiles/{id}    — delete
 
 # Current Work Plan
 
-## In Progress (agents running)
+## Completed
 
-1. **Auto-recovery for live streams** — 3 retries with exponential backoff (2s, 4s, 6s)
-2. **Recording intent persistence** — recording.json on start, recover on restart
-3. **Dockerfile** — Multi-stage build, linuxserver/ffmpeg, HW accel drivers
-4. **CI pipeline** — GitHub Actions: test on push, Docker build on tags
-5. **DLNA/Jellyfin enable/disable** — Settings toggles, verify Jellyfin matches tvproxy
-6. **HDHR SSDP advertisement** — Device discovery for Plex/Channels DVR
-7. **HW acceleration gaps** — Per-codec encoder settings, resolution-based bitrate
-8. **Recording playback** — End-to-end: play, seek, serve completed recordings
-
-## Completed This Session
-
+- Auto-recovery for live streams (3 retries with exponential backoff)
+- Recording intent persistence (recording.json on start, recover on restart)
+- Dockerfile (multi-stage build, linuxserver/ffmpeg, HW accel drivers)
+- CI pipeline (GitHub Actions: test on push, Docker build on tags)
+- DLNA/Jellyfin enable/disable (settings toggles)
+- HDHR SSDP advertisement (device discovery for Plex/Channels DVR)
+- HW acceleration gaps (per-codec encoder settings, resolution-based bitrate)
+- Recording playback (end-to-end: play, seek, serve completed recordings)
 - Alphabet jump sidebar on library grids
 - Client profile save fix (nested profile object)
 - listen_port=0 for port-agnostic client detection
@@ -191,6 +188,11 @@ DELETE /api/source-profiles/{id}    — delete
 - MSE playback pipeline fixes
 - Audio transcode (always unless explicit copy)
 - Bridge AudioOnly mode
+- WireGuard client helper extraction (main.go dedup)
+- OnRefreshDone callback extraction (main.go dedup)
+- Xtream last_refreshed persistence fix
+- Xtream account info error display fix
+- Error message constants (pkg/api/errors.go)
 
 ## Next Up (prioritized)
 
@@ -210,3 +212,13 @@ DELETE /api/source-profiles/{id}    — delete
 17. **Subtitle extraction** — WebVTT from embedded subtitles.
 18. **OpenAPI spec** — Swagger at /api/docs.
 19. **Debug endpoints** — Pipeline state, session info.
+
+## Backlog
+
+- Migrate remaining stores to keyenc (users, clients, apikeys, invites, source_configs, settings, probe_cache)
+- Generic store CRUD helpers
+- Frontend UI component consolidation (modals, tables, forms)
+- SSDP advertiser consolidation (HDHR + DLNA)
+- Magic string constants (config keys, setting keys, status strings)
+- Source plugin base type (shared Info(), HTTP client selection)
+- Main.go factory registration reorganization

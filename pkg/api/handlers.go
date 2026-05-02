@@ -30,7 +30,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Username == "" || req.Password == "" {
@@ -63,7 +63,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Token == "" {
@@ -230,7 +230,7 @@ func validateSettingValue(key, value string) error {
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]string
 	if err := httputil.DecodeJSON(r, &settings); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -508,7 +508,7 @@ func (s *Server) handleSeek(w http.ResponseWriter, r *http.Request) {
 		PositionMs int64 `json:"position_ms"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -540,7 +540,7 @@ func (s *Server) handleStartRecording(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -587,7 +587,7 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sourceType == "" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -632,7 +632,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role     auth.Role `json:"role"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Username == "" || req.Password == "" {

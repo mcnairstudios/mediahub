@@ -54,7 +54,7 @@ func (s *Server) handleCreateHDHRDevice(w http.ResponseWriter, r *http.Request) 
 		MaxChannels *int     `json:"max_channels"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" {
@@ -124,7 +124,7 @@ func (s *Server) handleUpdateHDHRDevice(w http.ResponseWriter, r *http.Request) 
 		MaxChannels *int     `json:"max_channels"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 

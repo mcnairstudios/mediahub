@@ -34,7 +34,7 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 		SourceProfileID string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 	if req.Name == "" || req.Host == "" {
@@ -87,7 +87,7 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if existing == nil || existing.Type != "satip" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
@@ -101,7 +101,7 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 		SourceProfileID *string `json:"source_profile_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
 		return
 	}
 
@@ -164,7 +164,7 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 
 	sc, err := s.deps.SourceConfigStore.Get(r.Context(), id)
 	if err != nil || sc == nil || sc.Type != "satip" {
-		httputil.RespondError(w, http.StatusNotFound, "source not found")
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
 		return
 	}
 
