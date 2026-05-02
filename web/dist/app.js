@@ -3263,7 +3263,7 @@
     function renderRecSection(sectionEl, sectionTitle, recs) {
       if (!sectionEl) return;
       if (recs.length === 0) { sectionEl.innerHTML = ''; return; }
-      var html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + esc(sectionTitle) + ' (' + recs.length + ')</div><table class="list-table"><thead><tr><th>Title</th><th>Status</th><th>Date</th><th>Duration</th><th>Size</th><th>Actions</th></tr></thead><tbody>';
+      var html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + esc(sectionTitle) + ' (' + recs.length + ')</div><table class="list-table"><thead><tr><th>Title</th><th>Status</th><th>Date</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody>';
       for (var i = 0; i < recs.length; i++) html += renderRecRow(recs[i]);
       html += '</tbody></table></div>';
       sectionEl.innerHTML = html;
@@ -3404,7 +3404,7 @@
       return;
     }
     var html = '<table class="list-table"><thead><tr>' +
-      '<th></th><th>Name</th><th>Group</th><th>Source</th><th>Actions</th>' +
+      '<th></th><th>Name</th><th>Group</th><th>Source</th><th></th>' +
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var s = filtered[i];
@@ -3523,7 +3523,7 @@
       }
 
       var html = '<table class="list-table"><thead><tr>' +
-        '<th>Name</th><th>Deinterlace</th><th>RTSP Protocol</th><th>HTTP Timeout</th><th>Actions</th>' +
+        '<th>Name</th><th>Deinterlace</th><th>RTSP Protocol</th><th>HTTP Timeout</th><th></th>' +
         '</tr></thead><tbody>';
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
@@ -5189,7 +5189,7 @@
 
       function renderUserTable() {
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Username</th><th>Email</th><th>Role</th><th>Actions</th>' +
+          '<th>Username</th><th>Email</th><th>Role</th><th></th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < users.length; i++) {
           var u = users[i];
@@ -7928,7 +7928,7 @@
         });
 
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Name</th><th>Delivery</th><th>Video</th><th>Audio</th><th>Container</th><th>Height</th><th>Type</th><th>Actions</th>' +
+          '<th>Name</th><th>Delivery</th><th>Video</th><th>Audio</th><th>Container</th><th>Height</th><th>Type</th><th></th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < profiles.length; i++) {
           var p = profiles[i];
@@ -8539,7 +8539,7 @@
         }
 
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Name</th><th>Port</th><th>Groups</th><th>Max Channels</th><th>Enabled</th><th>Actions</th>' +
+          '<th>Name</th><th>Port</th><th>Groups</th><th>Max Channels</th><th>Enabled</th><th></th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < devices.length; i++) {
           var d = devices[i];
@@ -8707,7 +8707,7 @@
         }
 
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Token</th><th>Role</th><th>Created</th><th>Expires</th><th>Used</th><th>Actions</th>' +
+          '<th>Token</th><th>Role</th><th>Created</th><th>Expires</th><th>Used</th><th></th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < invites.length; i++) {
           var inv = invites[i];
@@ -8847,7 +8847,7 @@
         }
 
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Name</th><th>Key</th><th>Created</th><th>Actions</th>' +
+          '<th>Name</th><th>Key</th><th>Created</th><th></th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
