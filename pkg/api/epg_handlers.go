@@ -953,3 +953,86 @@ func normalizeChannelName(name string) string {
 	}
 	return strings.TrimSpace(s)
 }
+
+func (s *Server) AutoMatchStreamsToEPG(ctx context.Context, sourceType, sourceID, epgSourceID string) int {
+	if epgSourceID == "" || s.deps.StreamStore == nil || s.deps.ProgramStore == nil {
+		return 0
+	}
+
+	streams, err := s.deps.StreamStore.ListBySource(ctx, sourceType, sourceID)
+	if err != nil || len(streams) == 0 {
+		return 0
+	}
+
+	epgIDs, err := s.deps.ProgramStore.ListChannelIDs(ctx)
+	if err != nil || len(epgIDs) == 0 {
+		return 0
+	}
+
+	var epgMeta map[string]map[string]string
+	if metaStr, _ := s.deps.SettingsStore.Get(ctx, "epg_channel_meta"); metaStr != "" {
+		json.Unmarshal([]byte(metaStr), &epgMeta)
+	}
+
+	epgNames := make(map[string]string, len(epgIDs))
+	if epgMeta != nil {
+		if names, ok := epgMeta["names"]; ok {
+			for id, name := range names {
+				epgNames[id] = name
+			}
+		}
+	}
+
+	normalizedEPG := make(map[string]string, len(epgIDs))
+	for _, id := range epgIDs {
+		name := epgNames[id]
+		if name != "" {
+			normalizedEPG[normalizeChannelName(name)] = id
+		}
+		normalizedEPG[normalizeChannelName(id)] = id
+	}
+
+	matched := 0
+	var updated []media.Stream
+	for _, st := range streams {
+		if st.TvgID != "" {
+			continue
+		}
+
+		var matchedID string
+		for _, epgID := range epgIDs {
+			if strings.EqualFold(st.Name, epgID) {
+				matchedID = epgID
+				break
+			}
+		}
+		if matchedID == "" {
+			for _, epgID := range epgIDs {
+				name := epgNames[epgID]
+				if name != "" && strings.EqualFold(st.Name, name) {
+					matchedID = epgID
+					break
+				}
+			}
+		}
+		if matchedID == "" {
+			normalized := normalizeChannelName(st.Name)
+			if epgID, ok := normalizedEPG[normalized]; ok {
+				matchedID = epgID
+			}
+		}
+
+		if matchedID != "" {
+			st.TvgID = matchedID
+			updated = append(updated, st)
+			matched++
+		}
+	}
+
+	if len(updated) > 0 {
+		s.deps.StreamStore.BulkUpsert(ctx, updated)
+	}
+
+	log.Printf("epg auto-match: matched %d/%d streams from source %s to EPG", matched, len(streams), sourceID)
+	return matched
+}

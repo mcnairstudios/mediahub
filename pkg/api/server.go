@@ -76,7 +76,7 @@ type Server struct {
 func NewServer(deps OrchestratorDeps) *Server {
 	s := &Server{
 		mux:        http.NewServeMux(),
-		middleware: middleware.NewAuthMiddleware(deps.AuthService),
+		middleware: middleware.NewAuthMiddleware(deps.AuthService, deps.Activity),
 		deps:       deps,
 		startedAt:  time.Now(),
 	}

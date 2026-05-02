@@ -32,6 +32,7 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 		IsEnabled       *bool  `json:"is_enabled"`
 		MaxStreams      int    `json:"max_streams"`
 		SourceProfileID string `json:"source_profile_id"`
+		EPGSourceID     string `json:"epg_source_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
@@ -63,6 +64,7 @@ func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request)
 			"transmitter_file":  req.TransmitterFile,
 			"max_streams":       fmt.Sprintf("%d", req.MaxStreams),
 			"source_profile_id": req.SourceProfileID,
+			"epg_source_id":     req.EPGSourceID,
 		},
 	}
 
@@ -99,6 +101,7 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 		IsEnabled       *bool   `json:"is_enabled"`
 		MaxStreams      *int    `json:"max_streams"`
 		SourceProfileID *string `json:"source_profile_id"`
+		EPGSourceID     *string `json:"epg_source_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
@@ -125,6 +128,9 @@ func (s *Server) handleUpdateSatIPSource(w http.ResponseWriter, r *http.Request)
 	}
 	if req.SourceProfileID != nil {
 		existing.Config["source_profile_id"] = *req.SourceProfileID
+	}
+	if req.EPGSourceID != nil {
+		existing.Config["epg_source_id"] = *req.EPGSourceID
 	}
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 )
@@ -14,11 +15,12 @@ type contextKey string
 const UserContextKey contextKey = "user"
 
 type AuthMiddleware struct {
-	authService auth.Service
+	authService     auth.Service
+	activityService *activity.Service
 }
 
-func NewAuthMiddleware(authService auth.Service) *AuthMiddleware {
-	return &AuthMiddleware{authService: authService}
+func NewAuthMiddleware(authService auth.Service, activityService *activity.Service) *AuthMiddleware {
+	return &AuthMiddleware{authService: authService, activityService: activityService}
 }
 
 func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
@@ -53,6 +55,9 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), UserContextKey, user)
+		if m.activityService != nil {
+			m.activityService.TouchUser(user.ID, user.Username, "Dashboard", r.RemoteAddr, r.UserAgent())
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

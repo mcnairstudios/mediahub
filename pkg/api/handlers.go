@@ -670,7 +670,9 @@ func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Activity == nil {
 		httputil.RespondJSON(w, http.StatusOK, map[string]any{
 			"viewers":       []any{},
+			"recent_users":  []any{},
 			"session_count": 0,
+			"viewer_count":  0,
 		})
 		return
 	}
@@ -701,15 +703,31 @@ func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	recentUsers := s.deps.Activity.RecentUsers()
+	recentList := make([]map[string]any, 0, len(recentUsers))
+	for _, u := range recentUsers {
+		idle := now.Sub(u.LastSeen)
+		recentList = append(recentList, map[string]any{
+			"user_id":     u.UserID,
+			"username":    u.Username,
+			"source":      u.Source,
+			"remote_addr": u.RemoteAddr,
+			"first_seen":  u.FirstSeen.Format(time.RFC3339),
+			"last_seen":   u.LastSeen.Format(time.RFC3339),
+			"idle_secs":   int(idle.Seconds()),
+		})
+	}
+
 	sessionCount := 0
 	if s.deps.SessionMgr != nil {
 		sessionCount = s.deps.SessionMgr.ActiveCount()
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, map[string]any{
-		"viewers":            result,
-		"session_count":      sessionCount,
-		"viewer_count":       len(viewers),
+		"viewers":             result,
+		"recent_users":        recentList,
+		"session_count":       sessionCount,
+		"viewer_count":        len(viewers),
 		"stream_distribution": streamCounts,
 	})
 }

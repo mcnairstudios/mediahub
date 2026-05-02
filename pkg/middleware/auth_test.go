@@ -71,7 +71,7 @@ func TestAuthenticate_ValidToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -98,7 +98,7 @@ func TestAuthenticate_MissingToken(t *testing.T) {
 		},
 	}
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	}))
@@ -120,7 +120,7 @@ func TestAuthenticate_InvalidToken(t *testing.T) {
 		},
 	}
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	}))
@@ -159,7 +159,7 @@ func TestAuthenticate_BearerPrefixParsing(t *testing.T) {
 			return nil, errors.New("invalid")
 		},
 	}
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestRequireAdmin_AdminUser(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.RequireAdmin(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -217,7 +217,7 @@ func TestRequireAdmin_NonAdminUser(t *testing.T) {
 		},
 	}
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.RequireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called for non-admin")
 	}))
@@ -260,7 +260,7 @@ func TestAuthenticate_APIKey(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -290,7 +290,7 @@ func TestAuthenticate_InvalidAPIKey(t *testing.T) {
 		return nil, errors.New("invalid")
 	}
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	}))
@@ -326,7 +326,7 @@ func TestAuthenticate_APIKeyTakesPrecedence(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := NewAuthMiddleware(svc)
+	mw := NewAuthMiddleware(svc, nil)
 	handler := mw.Authenticate(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
