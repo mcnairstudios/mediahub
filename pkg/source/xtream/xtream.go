@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -34,67 +33,38 @@ type Config struct {
 }
 
 type Source struct {
-	cfg           Config
-	streamCount   int
-	lastRefreshed *time.Time
-	lastError     string
-	mu            sync.RWMutex
+	source.BaseSource
+	cfg Config
 }
 
 func New(cfg Config) *Source {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	return &Source{cfg: cfg}
-}
-
-func (s *Source) Type() source.SourceType {
-	return "xtream"
-}
-
-func (s *Source) Info(_ context.Context) source.SourceInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return source.SourceInfo{
-		ID:                  s.cfg.ID,
-		Type:                "xtream",
-		Name:                s.cfg.Name,
-		IsEnabled:           s.cfg.IsEnabled,
-		StreamCount:         s.streamCount,
-		LastRefreshed:       s.lastRefreshed,
-		LastError:           s.lastError,
-		MaxConcurrentStreams: s.cfg.MaxStreams,
+	return &Source{
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "xtream", cfg.IsEnabled, cfg.MaxStreams),
+		cfg:        cfg,
 	}
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
-	client := s.cfg.HTTPClient
-	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
-		client = s.cfg.WGClient
-	}
+	client := source.HTTPClientFor(s.cfg.HTTPClient, s.cfg.WGClient, s.cfg.UseWireGuard)
 
 	auth, err := authenticate(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
 	if err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("authenticating: %w", err)
 	}
 
 	if auth.UserInfo.Status != "Active" {
 		err := fmt.Errorf("account not active: %s", auth.UserInfo.Status)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return err
 	}
 
 	categories, err := fetchCategories(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
 	if err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("fetching categories: %w", err)
 	}
 
@@ -105,9 +75,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 	liveStreams, err := fetchLiveStreams(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
 	if err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("fetching live streams: %w", err)
 	}
 
@@ -189,25 +157,16 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
 	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "xtream", s.cfg.ID, keepIDs); err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
 
-	s.mu.Lock()
-	s.streamCount = len(streams)
-	now := time.Now()
-	s.lastRefreshed = &now
-	s.lastError = ""
-	s.mu.Unlock()
+	s.SetRefreshResult(len(streams))
 
 	if s.cfg.OnRefreshDone != nil {
 		s.cfg.OnRefreshDone(s.cfg.ID, "", len(streams))
@@ -221,10 +180,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 }
 
 func (s *Source) fetchSeriesEpisodes(seriesList []Series, seriesCatMap map[string]string) {
-	client := s.cfg.HTTPClient
-	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
-		client = s.cfg.WGClient
-	}
+	client := source.HTTPClientFor(s.cfg.HTTPClient, s.cfg.WGClient, s.cfg.UseWireGuard)
 
 	ctx := context.Background()
 	const batchSize = 50
@@ -317,9 +273,7 @@ func (s *Source) fetchSeriesEpisodes(seriesList []Series, seriesCatMap map[strin
 		}
 	}
 
-	s.mu.Lock()
-	s.streamCount += len(allIDs)
-	s.mu.Unlock()
+	s.AddStreamCount(len(allIDs))
 
 	log.Printf("xtream: series episode fetch complete for %s: %d episodes from %d series", s.cfg.Name, len(allIDs), len(seriesList))
 }
@@ -367,10 +321,7 @@ type AccountInfo struct {
 }
 
 func (s *Source) GetAccountInfo(ctx context.Context) (any, error) {
-	client := s.cfg.HTTPClient
-	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
-		client = s.cfg.WGClient
-	}
+	client := source.HTTPClientFor(s.cfg.HTTPClient, s.cfg.WGClient, s.cfg.UseWireGuard)
 
 	auth, err := authenticate(ctx, client, s.cfg.Server, s.cfg.Username, s.cfg.Password)
 	if err != nil {
@@ -401,11 +352,7 @@ func (s *Source) Clear(ctx context.Context) error {
 		return err
 	}
 
-	s.mu.Lock()
-	s.streamCount = 0
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.ClearState()
 	return nil
 }
 

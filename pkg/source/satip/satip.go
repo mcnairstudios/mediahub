@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -31,42 +30,22 @@ type Config struct {
 }
 
 type Source struct {
-	cfg           Config
-	streamCount   int
-	lastRefreshed *time.Time
-	lastError     string
-	mu            sync.RWMutex
+	source.BaseSource
+	cfg Config
 }
 
 func New(cfg Config) *Source {
 	if cfg.HTTPPort == 0 {
 		cfg.HTTPPort = defaultHTTPPort
 	}
-	return &Source{cfg: cfg}
+	return &Source{
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "satip", cfg.IsEnabled, cfg.MaxStreams),
+		cfg:        cfg,
+	}
 }
 
 func (s *Source) SetScanProgress(fn func(done, total, channels int)) {
 	s.cfg.OnScanProgress = fn
-}
-
-func (s *Source) Type() source.SourceType {
-	return "satip"
-}
-
-func (s *Source) Info(_ context.Context) source.SourceInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return source.SourceInfo{
-		ID:                  s.cfg.ID,
-		Type:                "satip",
-		Name:                s.cfg.Name,
-		IsEnabled:           s.cfg.IsEnabled,
-		StreamCount:         s.streamCount,
-		LastRefreshed:       s.lastRefreshed,
-		LastError:           s.lastError,
-		MaxConcurrentStreams: s.cfg.MaxStreams,
-	}
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
@@ -95,9 +74,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 	result, err := scan.Scan(host, s.cfg.HTTPPort, cfg)
 	if err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("satip scan: %w", err)
 	}
 
@@ -118,9 +95,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
@@ -132,13 +107,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		log.Warn().Err(err).Str("source", s.cfg.ID).Msg("failed to delete stale streams")
 	}
 
-	now := time.Now()
-	s.mu.Lock()
-	s.streamCount = len(streams)
-	s.lastRefreshed = &now
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.SetRefreshResult(len(streams))
 	return nil
 }
 
@@ -164,11 +133,7 @@ func (s *Source) Clear(ctx context.Context) error {
 		return err
 	}
 
-	s.mu.Lock()
-	s.streamCount = 0
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.ClearState()
 	return nil
 }
 

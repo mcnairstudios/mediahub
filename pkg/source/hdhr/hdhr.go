@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -35,11 +34,8 @@ type Config struct {
 }
 
 type Source struct {
-	cfg           Config
-	streamCount   int
-	lastRefreshed *time.Time
-	lastError     string
-	mu            sync.RWMutex
+	source.BaseSource
+	cfg Config
 }
 
 func New(cfg Config) *Source {
@@ -49,39 +45,19 @@ func New(cfg Config) *Source {
 	if cfg.discoverer == nil {
 		cfg.discoverer = udpDiscoverHDHR
 	}
-	return &Source{cfg: cfg}
-}
-
-func (s *Source) Type() source.SourceType {
-	return "hdhr"
-}
-
-func (s *Source) Info(_ context.Context) source.SourceInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	tunerCount := 0
-	for _, d := range s.cfg.Devices {
+	for _, d := range cfg.Devices {
 		tunerCount += d.TunerCount
 	}
-
-	return source.SourceInfo{
-		ID:                  s.cfg.ID,
-		Type:                "hdhr",
-		Name:                s.cfg.Name,
-		IsEnabled:           s.cfg.IsEnabled,
-		StreamCount:         s.streamCount,
-		LastRefreshed:       s.lastRefreshed,
-		LastError:           s.lastError,
-		MaxConcurrentStreams: tunerCount,
+	return &Source{
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "hdhr", cfg.IsEnabled, tunerCount),
+		cfg:        cfg,
 	}
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
 	if len(s.cfg.Devices) == 0 {
-		s.mu.Lock()
-		s.lastError = "no devices configured"
-		s.mu.Unlock()
+		s.SetError("no devices configured")
 		return fmt.Errorf("no devices configured")
 	}
 
@@ -93,9 +69,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 		discover, err := s.fetchDiscover(ctx, baseURL)
 		if err != nil {
-			s.mu.Lock()
-			s.lastError = err.Error()
-			s.mu.Unlock()
+			s.SetError(err.Error())
 			return fmt.Errorf("discover %s: %w", device.Host, err)
 		}
 
@@ -106,9 +80,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 		lineup, err := s.fetchLineup(ctx, lineupURL)
 		if err != nil {
-			s.mu.Lock()
-			s.lastError = err.Error()
-			s.mu.Unlock()
+			s.SetError(err.Error())
 			return fmt.Errorf("lineup %s: %w", device.Host, err)
 		}
 
@@ -139,26 +111,16 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, allStreams); err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
 	if _, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "hdhr", s.cfg.ID, allKeepIDs); err != nil {
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
 
-	s.mu.Lock()
-	s.streamCount = len(allStreams)
-	now := time.Now()
-	s.lastRefreshed = &now
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.SetRefreshResult(len(allStreams))
 	return nil
 }
 
@@ -184,11 +146,7 @@ func (s *Source) Clear(ctx context.Context) error {
 		return err
 	}
 
-	s.mu.Lock()
-	s.streamCount = 0
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.ClearState()
 	return nil
 }
 

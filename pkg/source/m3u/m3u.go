@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -36,59 +35,32 @@ type Config struct {
 }
 
 type Source struct {
-	cfg           Config
-	etag          string
-	streamCount   int
-	lastRefreshed *time.Time
-	lastError     string
-	mu            sync.RWMutex
+	source.BaseSource
+	cfg  Config
+	etag string
 }
 
 func New(cfg Config) *Source {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	s := &Source{cfg: cfg}
+	s := &Source{
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "m3u", cfg.IsEnabled, cfg.MaxStreams),
+		cfg:        cfg,
+	}
 	if cfg.InitialETag != "" {
 		s.etag = cfg.InitialETag
 	}
 	return s
 }
 
-func (s *Source) Type() source.SourceType {
-	return "m3u"
-}
-
-func (s *Source) Info(_ context.Context) source.SourceInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return source.SourceInfo{
-		ID:                  s.cfg.ID,
-		Type:                "m3u",
-		Name:                s.cfg.Name,
-		IsEnabled:           s.cfg.IsEnabled,
-		StreamCount:         s.streamCount,
-		LastRefreshed:       s.lastRefreshed,
-		LastError:           s.lastError,
-		MaxConcurrentStreams: s.cfg.MaxStreams,
-	}
-}
-
 func (s *Source) Refresh(ctx context.Context) error {
-	client := s.cfg.HTTPClient
-	clientDesc := "default"
-	if s.cfg.UseWireGuard && s.cfg.WGClient != nil {
-		client = s.cfg.WGClient
-		clientDesc = "wireguard"
-	}
+	client := source.HTTPClientFor(s.cfg.HTTPClient, s.cfg.WGClient, s.cfg.UseWireGuard)
 
 	log.Printf("m3u: refreshing source %s from %s (wg=%v)", s.cfg.Name, s.cfg.URL, s.cfg.UseWireGuard)
-	log.Printf("m3u: using %s client (timeout=%v)", clientDesc, client.Timeout)
+	log.Printf("m3u: using client (timeout=%v)", client.Timeout)
 
-	s.mu.RLock()
 	etag := s.etag
-	s.mu.RUnlock()
 
 	var extraHeaders map[string]string
 	if s.cfg.BypassHeader != "" && s.cfg.BypassSecret != "" {
@@ -100,9 +72,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	fetchDuration := time.Since(fetchStart)
 	if err != nil {
 		log.Printf("m3u: fetch error for %s after %s: %v", s.cfg.Name, fetchDuration, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("fetching m3u: %w", err)
 	}
 
@@ -110,11 +80,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 	if !result.Changed {
 		log.Printf("m3u: 304 not modified for %s", s.cfg.Name)
-		s.mu.Lock()
-		now := time.Now()
-		s.lastRefreshed = &now
-		s.lastError = ""
-		s.mu.Unlock()
+		s.SetRefreshed()
 		return nil
 	}
 	defer result.Body.Close()
@@ -122,9 +88,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	entries, err := m3u.Parse(result.Body)
 	if err != nil {
 		log.Printf("m3u: parse error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("parsing m3u: %w", err)
 	}
 	log.Printf("m3u: parsed %d entries for %s", len(entries), s.cfg.Name)
@@ -201,36 +165,24 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
 		log.Printf("m3u: upsert error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
 	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "m3u", s.cfg.ID, keepIDs)
 	if err != nil {
 		log.Printf("m3u: delete stale error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
 	log.Printf("m3u: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
 
-	s.mu.Lock()
 	s.etag = result.ETag
-	s.streamCount = len(streams)
-	now := time.Now()
-	s.lastRefreshed = &now
-	s.lastError = ""
-	s.mu.Unlock()
+	s.SetRefreshResult(len(streams))
 
 	if s.cfg.OnRefreshDone != nil {
 		s.cfg.OnRefreshDone(s.cfg.ID, result.ETag, len(streams))
 	}
-
-	s.mu.Lock()
-	s.mu.Unlock()
 
 	return nil
 }
@@ -265,12 +217,8 @@ func (s *Source) Clear(ctx context.Context) error {
 		return err
 	}
 
-	s.mu.Lock()
-	s.streamCount = 0
 	s.etag = ""
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.ClearState()
 	return nil
 }
 

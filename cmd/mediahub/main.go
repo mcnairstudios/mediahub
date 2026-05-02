@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -38,19 +36,10 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/frontend/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/frontend/jellyfin"
 	"github.com/mcnairstudios/mediahub/pkg/output"
-	"github.com/mcnairstudios/mediahub/pkg/output/hls"
-	"github.com/mcnairstudios/mediahub/pkg/output/mse"
-	"github.com/mcnairstudios/mediahub/pkg/output/record"
-	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
-	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
-	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
-	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
-	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
-	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/scheduler"
@@ -181,178 +170,17 @@ func main() {
 	onRefreshDone := makeOnRefreshDone(ctx, sourceConfigStore)
 
 	sourceReg := source.NewRegistry()
-	sourceReg.Register("m3u", func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := sourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		m3uCfg := m3usource.Config{
-			ID:           sc.ID,
-			Name:         sc.Name,
-			URL:          sc.Config["url"],
-			IsEnabled:    sc.IsEnabled,
-			UseWireGuard: sc.Config["use_wireguard"] == "true",
-			WGProfileID:  sc.Config["wg_profile_id"],
-			UserAgent:    cfg.UserAgent,
-			BypassHeader: cfg.BypassHeader,
-			BypassSecret: cfg.BypassSecret,
-			InitialETag:  sc.Config["etag"],
-			StreamStore:  streamStore,
-			OnRefreshDone: onRefreshDone,
-		}
-		m3uCfg.WGClient = resolveWGClient(wgService, m3uCfg.UseWireGuard, m3uCfg.WGProfileID)
-		log.Printf("m3u factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGProfileID, m3uCfg.WGClient != nil)
-		return m3usource.New(m3uCfg), nil
-	})
-	sourceReg.Register("tvpstreams", func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := sourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		tvpCfg := tvpstreamssource.Config{
-			ID:              sc.ID,
-			Name:            sc.Name,
-			URL:             sc.Config["url"],
-			IsEnabled:       sc.IsEnabled,
-			UseWireGuard:    sc.Config["use_wireguard"] == "true",
-			DataDir:         cfg.DataDir,
-			EnrollmentToken: sc.Config["enrollment_token"],
-			TLSEnrolled:     sc.Config["tls_enrolled"] == "true",
-			BypassHeader:    cfg.BypassHeader,
-			BypassSecret:    cfg.BypassSecret,
-			StreamStore:     streamStore,
-			TMDBCache:       tmdbCache,
-			InitialETag:     sc.Config["etag"],
-			OnRefreshDone: onRefreshDone,
-			OnEnrolled: func(sourceID string) error {
-				scUpd, err := sourceConfigStore.Get(ctx, sourceID)
-				if err != nil || scUpd == nil {
-					return err
-				}
-				scUpd.Config["tls_enrolled"] = "true"
-				scUpd.Config["enrollment_token"] = ""
-				return sourceConfigStore.Update(ctx, scUpd)
-			},
-		}
-		wgProfileID := sc.Config["wg_profile_id"]
-		tvpCfg.WGClient = resolveWGClient(wgService, tvpCfg.UseWireGuard, wgProfileID)
-		log.Printf("tvpstreams factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, tvpCfg.UseWireGuard, wgProfileID, tvpCfg.WGClient != nil)
-		return tvpstreamssource.New(tvpCfg), nil
-	})
-	sourceReg.Register("xtream", func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := sourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		maxStreams := 0
-		if v := sc.Config["max_streams"]; v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				maxStreams = n
-			}
-		}
-		xtCfg := xstreamsource.Config{
-			ID:            sc.ID,
-			Name:          sc.Name,
-			Server:        sc.Config["server"],
-			Username:      sc.Config["username"],
-			Password:      sc.Config["password"],
-			IsEnabled:     sc.IsEnabled,
-			UseWireGuard:  sc.Config["use_wireguard"] == "true",
-			MaxStreams:    maxStreams,
-			StreamStore:   streamStore,
-			OnRefreshDone: onRefreshDone,
-		}
-		xtCfg.WGClient = resolveWGClient(wgService, xtCfg.UseWireGuard, sc.Config["wg_profile_id"])
-		return xstreamsource.New(xtCfg), nil
-	})
-	sourceReg.Register("hdhr", func(ctx context.Context, sourceID string) (source.Source, error) {
-		if sourceID == "" {
-			return hdhrsource.New(hdhrsource.Config{
-				StreamStore: streamStore,
-			}), nil
-		}
-		sc, err := sourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		var devices []hdhrsource.Device
-		if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
-			if jsonErr := json.Unmarshal([]byte(devicesJSON), &devices); jsonErr != nil {
-				log.Printf("hdhr: failed to parse devices for %s: %v", sc.Name, jsonErr)
-			}
-		}
-		hdhrCfg := hdhrsource.Config{
-			ID:          sc.ID,
-			Name:        sc.Name,
-			IsEnabled:   sc.IsEnabled,
-			Devices:     devices,
-			StreamStore: streamStore,
-		}
-		return hdhrsource.New(hdhrCfg), nil
-	})
-	sourceReg.Register("satip", func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := sourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		httpPort := 8875
-		if v := sc.Config["http_port"]; v != "" {
-			if n, pErr := strconv.Atoi(v); pErr == nil {
-				httpPort = n
-			}
-		}
-		maxStreams := 0
-		if v := sc.Config["max_streams"]; v != "" {
-			if n, pErr := strconv.Atoi(v); pErr == nil {
-				maxStreams = n
-			}
-		}
-		diseqcSource := 0
-		if ds := sc.Config["diseqc_source"]; ds != "" {
-			fmt.Sscanf(ds, "%d", &diseqcSource)
-		}
-		satipCfg := satipsource.Config{
-			ID:              sc.ID,
-			Name:            sc.Name,
-			Host:            sc.Config["host"],
-			HTTPPort:        httpPort,
-			IsEnabled:       sc.IsEnabled,
-			MaxStreams:       maxStreams,
-			TransmitterFile: sc.Config["transmitter_file"],
-			DiSEqCSource:    diseqcSource,
-			StreamStore:     streamStore,
-		}
-		return satipsource.New(satipCfg), nil
+	registerSources(sourceReg, sourceDeps{
+		SourceConfigStore: sourceConfigStore,
+		StreamStore:       streamStore,
+		Config:            cfg,
+		WGService:         wgService,
+		TMDBCache:         tmdbCache,
+		OnRefreshDone:     onRefreshDone,
 	})
 
 	outputReg := output.NewRegistry()
-	outputReg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
-		return mse.New(cfg)
-	})
-	outputReg.Register(output.DeliveryHLS, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
-		return hls.New(cfg)
-	})
-	outputReg.Register(output.DeliveryStream, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
-		return stream.New(cfg)
-	})
-	outputReg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
-		return record.New(cfg)
-	})
+	registerOutputs(outputReg)
 
 	connReg := connectivity.NewRegistry()
 

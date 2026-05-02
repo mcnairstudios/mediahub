@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/cache/tmdb"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -44,42 +42,23 @@ type Config struct {
 }
 
 type Source struct {
-	cfg           Config
-	etag          string
-	streamCount   int
-	lastRefreshed *time.Time
-	lastError     string
-	mu            sync.RWMutex
+	source.BaseSource
+	cfg  Config
+	etag string
 }
 
 func New(cfg Config) *Source {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	s := &Source{cfg: cfg}
+	s := &Source{
+		BaseSource: source.NewBaseSource(cfg.ID, cfg.Name, "tvpstreams", cfg.IsEnabled, 0),
+		cfg:        cfg,
+	}
 	if cfg.InitialETag != "" {
 		s.etag = cfg.InitialETag
 	}
 	return s
-}
-
-func (s *Source) Type() source.SourceType {
-	return "tvpstreams"
-}
-
-func (s *Source) Info(_ context.Context) source.SourceInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return source.SourceInfo{
-		ID:            s.cfg.ID,
-		Type:          "tvpstreams",
-		Name:          s.cfg.Name,
-		IsEnabled:     s.cfg.IsEnabled,
-		StreamCount:   s.streamCount,
-		LastRefreshed: s.lastRefreshed,
-		LastError:     s.lastError,
-	}
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
@@ -88,25 +67,19 @@ func (s *Source) Refresh(ctx context.Context) error {
 		result, err := mtls.Enroll(s.cfg.URL, s.cfg.EnrollmentToken)
 		if err != nil {
 			log.Printf("tvpstreams: mTLS enrollment failed for %s: %v", s.cfg.Name, err)
-			s.mu.Lock()
-			s.lastError = fmt.Sprintf("mTLS enrollment failed: %v", err)
-			s.mu.Unlock()
+			s.SetError(fmt.Sprintf("mTLS enrollment failed: %v", err))
 			return fmt.Errorf("mTLS enrollment: %w", err)
 		}
 		if err := mtls.SaveCerts(s.cfg.DataDir, s.cfg.ID, result); err != nil {
 			log.Printf("tvpstreams: saving mTLS certs failed for %s: %v", s.cfg.Name, err)
-			s.mu.Lock()
-			s.lastError = fmt.Sprintf("saving mTLS certs: %v", err)
-			s.mu.Unlock()
+			s.SetError(fmt.Sprintf("saving mTLS certs: %v", err))
 			return fmt.Errorf("saving mTLS certs: %w", err)
 		}
 		s.cfg.TLSEnrolled = true
 		s.cfg.EnrollmentToken = ""
 		if s.cfg.OnEnrolled != nil {
 			if err := s.cfg.OnEnrolled(s.cfg.ID); err != nil {
-				s.mu.Lock()
-				s.lastError = fmt.Sprintf("persisting enrollment state: %v", err)
-				s.mu.Unlock()
+				s.SetError(fmt.Sprintf("persisting enrollment state: %v", err))
 			}
 		}
 	}
@@ -117,9 +90,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 		tlsClient, err := mtls.HTTPClient(s.cfg.DataDir, s.cfg.ID)
 		if err != nil {
 			log.Printf("tvpstreams: loading mTLS client failed for %s: %v", s.cfg.Name, err)
-			s.mu.Lock()
-			s.lastError = fmt.Sprintf("loading mTLS client: %v", err)
-			s.mu.Unlock()
+			s.SetError(fmt.Sprintf("loading mTLS client: %v", err))
 			return fmt.Errorf("loading mTLS client: %w", err)
 		}
 		client = tlsClient
@@ -132,9 +103,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	log.Printf("tvpstreams: refreshing source %s from %s (wg=%v)", s.cfg.Name, s.cfg.URL, s.cfg.UseWireGuard)
 	log.Printf("tvpstreams: using %s client", clientDesc)
 
-	s.mu.RLock()
 	etag := s.etag
-	s.mu.RUnlock()
 
 	var extraHeaders map[string]string
 	if s.cfg.BypassHeader != "" && s.cfg.BypassSecret != "" {
@@ -144,19 +113,13 @@ func (s *Source) Refresh(ctx context.Context) error {
 	fetchResult, err := httputil.FetchConditional(ctx, client, s.cfg.URL, etag, "", extraHeaders)
 	if err != nil {
 		log.Printf("tvpstreams: fetch error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("fetching tvpstreams playlist: %w", err)
 	}
 
 	if !fetchResult.Changed {
 		log.Printf("tvpstreams: 304 not modified for %s", s.cfg.Name)
-		s.mu.Lock()
-		now := time.Now()
-		s.lastRefreshed = &now
-		s.lastError = ""
-		s.mu.Unlock()
+		s.SetRefreshed()
 		return nil
 	}
 	defer fetchResult.Body.Close()
@@ -164,9 +127,7 @@ func (s *Source) Refresh(ctx context.Context) error {
 	entries, err := m3u.Parse(fetchResult.Body)
 	if err != nil {
 		log.Printf("tvpstreams: parse error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("parsing tvpstreams playlist: %w", err)
 	}
 	log.Printf("tvpstreams: parsed %d entries for %s", len(entries), s.cfg.Name)
@@ -194,29 +155,20 @@ func (s *Source) Refresh(ctx context.Context) error {
 
 	if err := s.cfg.StreamStore.BulkUpsert(ctx, streams); err != nil {
 		log.Printf("tvpstreams: upsert error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("upserting streams: %w", err)
 	}
 
 	deleted, err := s.cfg.StreamStore.DeleteStaleBySource(ctx, "tvpstreams", s.cfg.ID, keepIDs)
 	if err != nil {
 		log.Printf("tvpstreams: delete stale error for %s: %v", s.cfg.Name, err)
-		s.mu.Lock()
-		s.lastError = err.Error()
-		s.mu.Unlock()
+		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
 	log.Printf("tvpstreams: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
 
-	s.mu.Lock()
 	s.etag = fetchResult.ETag
-	s.streamCount = len(streams)
-	now := time.Now()
-	s.lastRefreshed = &now
-	s.lastError = ""
-	s.mu.Unlock()
+	s.SetRefreshResult(len(streams))
 
 	if s.cfg.OnRefreshDone != nil {
 		s.cfg.OnRefreshDone(s.cfg.ID, fetchResult.ETag, len(streams))
@@ -271,12 +223,8 @@ func (s *Source) Clear(ctx context.Context) error {
 		return err
 	}
 
-	s.mu.Lock()
-	s.streamCount = 0
 	s.etag = ""
-	s.lastError = ""
-	s.mu.Unlock()
-
+	s.ClearState()
 	return nil
 }
 

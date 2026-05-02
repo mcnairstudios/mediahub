@@ -175,10 +175,8 @@ func TestClear(t *testing.T) {
 		Host:        "192.168.1.50",
 		StreamStore: ss,
 	})
-	s.mu.Lock()
-	s.streamCount = 1
-	s.lastError = "previous error"
-	s.mu.Unlock()
+	s.SetRefreshResult(1)
+	s.SetError("previous error")
 
 	if err := s.Clear(ctx); err != nil {
 		t.Fatalf("clear failed: %v", err)
