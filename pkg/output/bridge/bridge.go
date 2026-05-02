@@ -648,7 +648,7 @@ func resolveFramerate(framerateN, framerateD int, interlaced, hasDeinterlacer bo
 			fps = 25
 		}
 	}
-	if interlaced && !hasDeinterlacer && fps > 25 {
+	if interlaced && fps > 25 {
 		fps = fps / 2
 	}
 	return fps

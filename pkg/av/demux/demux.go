@@ -125,11 +125,7 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 		}
 	}
 	if analyzeDur <= 0 {
-		if isLive {
-			analyzeDur = 0
-		} else {
-			analyzeDur = 5000000
-		}
+		analyzeDur = 5000000
 	}
 	d.Set("probesize", fmt.Sprintf("%d", probeSize), 0)
 	d.Set("analyzeduration", fmt.Sprintf("%d", analyzeDur), 0)
