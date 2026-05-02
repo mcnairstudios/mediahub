@@ -2058,13 +2058,14 @@
             mseState.appendQueues[track].push(new Uint8Array(buf));
             processQueue(track);
             seq++;
-            if (track === 'video' && seq === 3 && !mseState.playStarted) {
+            if (track === 'video' && seq === 2 && !mseState.playStarted) {
               mseState.playStarted = true;
               var tryPlay = function() {
                 if (mseState.stopped) return;
                 try {
                   if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
-                    videoEl.currentTime = mseState.videoSB.buffered.start(0);
+                    var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
+                    videoEl.currentTime = Math.max(end - 1, mseState.videoSB.buffered.start(0));
                     videoEl.play().catch(function() { if (!mseState.stopped) setTimeout(tryPlay, 300); });
                   } else {
                     setTimeout(tryPlay, 100);
