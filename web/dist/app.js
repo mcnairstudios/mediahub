@@ -2706,7 +2706,7 @@
                   } else {
                     setTimeout(tryPlay, 100);
                   }
-                } catch(e) { /* SourceBuffer removed */ }
+                } catch(e) {}
               };
               setTimeout(tryPlay, 100);
             }
@@ -5918,7 +5918,7 @@
             } else {
               var tableHtml = '<div style="margin:8px 0">' +
                 '<div style="font-weight:600;margin-bottom:8px;padding:0 8px">' + esc(name) + ' — ' + channelIDs.length + ' channels with current programs</div>' +
-                '<div style="max-height:400px;overflow-y:auto"><table class="data-table" style="width:100%"><thead><tr>' +
+                '<div style="max-height:400px;overflow-y:auto"><table class="list-table" style="width:100%"><thead><tr>' +
                 '<th style="width:40px"></th><th>Channel</th><th>Current Program</th><th>Time</th>' +
                 '</tr></thead><tbody>';
               for (var k = 0; k < channelIDs.length; k++) {
