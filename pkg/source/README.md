@@ -5,6 +5,8 @@ Defines the contract for input plugins that provide streams into the media cloud
 
 ## Responsibilities
 - Define the `Source` interface that all source plugins must implement
+- Provide `BaseSource` embedding type with shared state (Info, SetRefreshResult, SetError, ClearState)
+- Provide `HTTPClientFor` helper for WireGuard/default client selection
 - Provide optional capability interfaces (Discoverable, Retunable, VPNRoutable, etc.)
 - Maintain a `Registry` of plugin factories for creating sources by type
 - Define `SourceInfo` for unified source listing across all types

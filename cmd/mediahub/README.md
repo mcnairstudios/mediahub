@@ -2,6 +2,8 @@
 
 Application entry point. Wires bolt-backed stores, output plugins, source registry, cache, background workers, and starts the HTTP server with graceful shutdown.
 
+Source factory registration is in `sources.go`, output plugin registration is in `outputs.go`. Main.go focuses on wiring and startup.
+
 ## Build
 
 ```bash
@@ -38,7 +40,7 @@ An admin user is seeded automatically only when the user store is empty (first r
 
 **Output**: MSE (fMP4 segments), HLS (MPEG-TS segments), Stream (mpegts/mp4 file), Record (mp4 file)
 
-**Source types**: m3u, hdhr, satip (placeholder factories; sources created via API with their config)
+**Source types**: m3u, tvpstreams, xtream, hdhr, satip (factories in `sources.go`; sources created via API with their config)
 
 ## Background workers
 
