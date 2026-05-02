@@ -2,261 +2,370 @@ package scheduler
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/mcnairstudios/mediahub/pkg/recording"
-	"github.com/mcnairstudios/mediahub/pkg/store"
+	bbolt "go.etcd.io/bbolt"
 )
 
-func TestTick_StartsDueRecording(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
-
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "Evening News",
-		Status:         recording.StatusScheduled,
-		ScheduledStart: time.Now().Add(-time.Minute),
-		ScheduledStop:  time.Now().Add(time.Hour),
+func tempDB(t *testing.T) *bbolt.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := bbolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
 	}
-	rs.Create(ctx, rec)
-
-	var started []string
-	var mu sync.Mutex
-
-	s := New(rs)
-	s.SetStartFunc(func(streamID, title string) error {
-		mu.Lock()
-		started = append(started, streamID)
-		mu.Unlock()
-		return nil
-	})
-	s.SetStopFunc(func(streamID string) error { return nil })
-
-	s.Tick(ctx)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(started) != 1 {
-		t.Fatalf("expected 1 started, got %d", len(started))
-	}
-	if started[0] != "stream-1" {
-		t.Errorf("expected stream-1, got %s", started[0])
-	}
-
-	updated, _ := rs.Get(ctx, "rec-1")
-	if updated.Status != recording.StatusRecording {
-		t.Errorf("expected recording status, got %s", updated.Status)
-	}
+	t.Cleanup(func() { db.Close(); os.Remove(path) })
+	return db
 }
 
-func TestTick_StopsExpiredRecording(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
+func TestEveryRunsMultipleTimes(t *testing.T) {
+	db := tempDB(t)
+	var count atomic.Int64
 
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "Evening News",
-		Status:         recording.StatusRecording,
-		StartedAt:      time.Now().Add(-2 * time.Hour),
-		ScheduledStart: time.Now().Add(-2 * time.Hour),
-		ScheduledStop:  time.Now().Add(-time.Minute),
-	}
-	rs.Create(ctx, rec)
-
-	var stopped []string
-	var mu sync.Mutex
-
-	s := New(rs)
-	s.SetStartFunc(func(streamID, title string) error { return nil })
-	s.SetStopFunc(func(streamID string) error {
-		mu.Lock()
-		stopped = append(stopped, streamID)
-		mu.Unlock()
+	s := New(db, nil)
+	s.Every("counter", "@every 1s", func(ctx context.Context) error {
+		count.Add(1)
 		return nil
 	})
 
-	s.Tick(ctx)
+	s.Start(context.Background())
+	time.Sleep(2500 * time.Millisecond)
+	s.Stop()
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(stopped) != 1 {
-		t.Fatalf("expected 1 stopped, got %d", len(stopped))
-	}
-	if stopped[0] != "stream-1" {
-		t.Errorf("expected stream-1, got %s", stopped[0])
-	}
-
-	updated, _ := rs.Get(ctx, "rec-1")
-	if updated.Status != recording.StatusCompleted {
-		t.Errorf("expected completed status, got %s", updated.Status)
+	if c := count.Load(); c < 2 {
+		t.Fatalf("expected at least 2 runs, got %d", c)
 	}
 }
 
-func TestTick_ScheduledRecordingListing(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
+func TestEveryErrorCallsLog(t *testing.T) {
+	db := tempDB(t)
+	var loggedName string
+	logged := make(chan struct{}, 1)
 
-	for i, id := range []string{"rec-1", "rec-2", "rec-3"} {
-		rec := &recording.Recording{
-			ID:             id,
-			StreamID:       "stream-1",
-			Title:          "Show " + id,
-			Status:         recording.StatusScheduled,
-			ScheduledStart: time.Now().Add(time.Duration(i+1) * time.Hour),
-			ScheduledStop:  time.Now().Add(time.Duration(i+2) * time.Hour),
+	s := New(db, func(name string, err error) {
+		loggedName = name
+		select {
+		case logged <- struct{}{}:
+		default:
 		}
-		rs.Create(ctx, rec)
-	}
-
-	scheduled, err := rs.ListScheduled(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(scheduled) != 3 {
-		t.Fatalf("expected 3 scheduled, got %d", len(scheduled))
-	}
-}
-
-func TestTick_CancelRemovesScheduledRecording(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
-
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "Cancelled Show",
-		Status:         recording.StatusScheduled,
-		ScheduledStart: time.Now().Add(time.Hour),
-		ScheduledStop:  time.Now().Add(2 * time.Hour),
-	}
-	rs.Create(ctx, rec)
-
-	rs.Delete(ctx, "rec-1")
-
-	scheduled, err := rs.ListScheduled(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(scheduled) != 0 {
-		t.Fatalf("expected 0 scheduled after cancel, got %d", len(scheduled))
-	}
-}
-
-func TestTick_IgnoresFutureRecordings(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
-
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "Future Show",
-		Status:         recording.StatusScheduled,
-		ScheduledStart: time.Now().Add(time.Hour),
-		ScheduledStop:  time.Now().Add(2 * time.Hour),
-	}
-	rs.Create(ctx, rec)
-
-	var started []string
-	s := New(rs)
-	s.SetStartFunc(func(streamID, title string) error {
-		started = append(started, streamID)
-		return nil
 	})
-	s.SetStopFunc(func(streamID string) error { return nil })
-
-	s.Tick(ctx)
-
-	if len(started) != 0 {
-		t.Errorf("expected no starts for future recording, got %d", len(started))
-	}
-
-	updated, _ := rs.Get(ctx, "rec-1")
-	if updated.Status != recording.StatusScheduled {
-		t.Errorf("expected still scheduled, got %s", updated.Status)
-	}
-}
-
-func TestTick_FailedStartMarksRecordingFailed(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
-
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "Bad Stream",
-		Status:         recording.StatusScheduled,
-		ScheduledStart: time.Now().Add(-time.Minute),
-		ScheduledStop:  time.Now().Add(time.Hour),
-	}
-	rs.Create(ctx, rec)
-
-	s := New(rs)
-	s.SetStartFunc(func(streamID, title string) error {
+	s.Every("failing", "@every 1s", func(ctx context.Context) error {
 		return context.DeadlineExceeded
 	})
-	s.SetStopFunc(func(streamID string) error { return nil })
 
-	s.Tick(ctx)
+	s.Start(context.Background())
+	select {
+	case <-logged:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for error log")
+	}
+	s.Stop()
 
-	updated, _ := rs.Get(ctx, "rec-1")
-	if updated.Status != recording.StatusFailed {
-		t.Errorf("expected failed status, got %s", updated.Status)
+	if loggedName != "failing" {
+		t.Fatalf("expected name 'failing', got %q", loggedName)
 	}
 }
 
-func TestStartStop(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	s := New(rs)
-	s.SetStartFunc(func(streamID, title string) error { return nil })
-	s.SetStopFunc(func(streamID string) error { return nil })
+func TestAtRunsImmediatelyWhenPast(t *testing.T) {
+	db := tempDB(t)
+	var ran atomic.Bool
 
-	ctx := context.Background()
-	s.Start(ctx)
+	s := New(db, nil)
+	s.At("past-job", time.Now().Add(-time.Minute), func(ctx context.Context) error {
+		ran.Store(true)
+		return nil
+	})
+
+	s.Start(context.Background())
+	time.Sleep(100 * time.Millisecond)
+	s.Stop()
+
+	if !ran.Load() {
+		t.Fatal("expected past At job to run immediately")
+	}
+}
+
+func TestAtRunsAtScheduledTime(t *testing.T) {
+	db := tempDB(t)
+	var ran atomic.Bool
+
+	s := New(db, nil)
+	s.At("future-job", time.Now().Add(500*time.Millisecond), func(ctx context.Context) error {
+		ran.Store(true)
+		return nil
+	})
+
+	s.Start(context.Background())
+	time.Sleep(200 * time.Millisecond)
+	if ran.Load() {
+		t.Fatal("At job ran too early")
+	}
+	time.Sleep(500 * time.Millisecond)
+	s.Stop()
+
+	if !ran.Load() {
+		t.Fatal("At job did not run")
+	}
+}
+
+func TestForRunsWithTimeout(t *testing.T) {
+	db := tempDB(t)
+	var expired atomic.Bool
+
+	s := New(db, nil)
+	s.Start(context.Background())
+
+	s.For("timed-job", 200*time.Millisecond, func(ctx context.Context) error {
+		<-ctx.Done()
+		expired.Store(true)
+		return nil
+	})
+
+	time.Sleep(400 * time.Millisecond)
+	s.Stop()
+
+	if !expired.Load() {
+		t.Fatal("For job context should have expired")
+	}
+}
+
+func TestBetweenStartsAndStops(t *testing.T) {
+	db := tempDB(t)
+	var started, stopped atomic.Bool
+
+	s := New(db, nil)
+	s.Start(context.Background())
+
+	startAt := time.Now().Add(100 * time.Millisecond)
+	stopAt := time.Now().Add(400 * time.Millisecond)
+
+	s.Between("rec-1", startAt, stopAt,
+		func(ctx context.Context) error {
+			started.Store(true)
+			return nil
+		},
+		func(ctx context.Context) error {
+			stopped.Store(true)
+			return nil
+		},
+	)
+
+	time.Sleep(250 * time.Millisecond)
+	if !started.Load() {
+		t.Fatal("Between start should have fired")
+	}
+	if stopped.Load() {
+		t.Fatal("Between stop should not have fired yet")
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	s.Stop()
+
+	if !stopped.Load() {
+		t.Fatal("Between stop should have fired")
+	}
+}
+
+func TestBetweenPastStartRunsImmediately(t *testing.T) {
+	db := tempDB(t)
+	var started, stopped atomic.Bool
+
+	s := New(db, nil)
+	s.Start(context.Background())
+
+	startAt := time.Now().Add(-time.Minute)
+	stopAt := time.Now().Add(200 * time.Millisecond)
+
+	s.Between("rec-past", startAt, stopAt,
+		func(ctx context.Context) error {
+			started.Store(true)
+			return nil
+		},
+		func(ctx context.Context) error {
+			stopped.Store(true)
+			return nil
+		},
+	)
+
+	time.Sleep(100 * time.Millisecond)
+	if !started.Load() {
+		t.Fatal("Between with past start should fire immediately")
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	s.Stop()
+
+	if !stopped.Load() {
+		t.Fatal("Between stop should have fired")
+	}
+}
+
+func TestBetweenBothPastRunsBoth(t *testing.T) {
+	db := tempDB(t)
+	var started, stopped atomic.Bool
+
+	s := New(db, nil)
+	s.Start(context.Background())
+
+	startAt := time.Now().Add(-2 * time.Minute)
+	stopAt := time.Now().Add(-time.Minute)
+
+	s.Between("rec-both-past", startAt, stopAt,
+		func(ctx context.Context) error {
+			started.Store(true)
+			return nil
+		},
+		func(ctx context.Context) error {
+			stopped.Store(true)
+			return nil
+		},
+	)
+
+	time.Sleep(200 * time.Millisecond)
+	s.Stop()
+
+	if !started.Load() {
+		t.Fatal("start should have fired for past between")
+	}
+	if !stopped.Load() {
+		t.Fatal("stop should have fired for past between")
+	}
+}
+
+func TestRemoveCancelsBetween(t *testing.T) {
+	db := tempDB(t)
+	var stopped atomic.Bool
+
+	s := New(db, nil)
+	s.Start(context.Background())
+
+	startAt := time.Now().Add(100 * time.Millisecond)
+	stopAt := time.Now().Add(500 * time.Millisecond)
+
+	s.Between("removable", startAt, stopAt,
+		func(ctx context.Context) error { return nil },
+		func(ctx context.Context) error {
+			stopped.Store(true)
+			return nil
+		},
+	)
 
 	time.Sleep(50 * time.Millisecond)
+	s.Remove("removable")
+	time.Sleep(600 * time.Millisecond)
+	s.Stop()
+
+	if stopped.Load() {
+		t.Fatal("stop should not fire after Remove")
+	}
+}
+
+func TestListEntries(t *testing.T) {
+	db := tempDB(t)
+	s := New(db, nil)
+
+	s.Every("refresh", "@every 1m", func(ctx context.Context) error { return nil })
+	s.At("one-shot", time.Now().Add(time.Hour), func(ctx context.Context) error { return nil })
+	s.Between("rec-1", time.Now(), time.Now().Add(time.Hour),
+		func(ctx context.Context) error { return nil },
+		func(ctx context.Context) error { return nil },
+	)
+
+	entries := s.List()
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	types := map[string]bool{}
+	for _, e := range entries {
+		types[e.Type] = true
+	}
+	for _, expected := range []string{"recurring", "once", "between"} {
+		if !types[expected] {
+			t.Errorf("missing entry type %q", expected)
+		}
+	}
+}
+
+func TestStopBeforeStart(t *testing.T) {
+	db := tempDB(t)
+	s := New(db, nil)
 	s.Stop()
 }
 
 func TestStartIdempotent(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	s := New(rs)
+	db := tempDB(t)
+	var count atomic.Int64
+	s := New(db, nil)
+	s.Every("x", "@every 1s", func(ctx context.Context) error {
+		count.Add(1)
+		return nil
+	})
 
-	ctx := context.Background()
-	s.Start(ctx)
-	s.Start(ctx)
+	s.Start(context.Background())
+	s.Start(context.Background())
+	time.Sleep(1500 * time.Millisecond)
 	s.Stop()
-}
 
-func TestStopWithoutStart(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	s := New(rs)
-	s.Stop()
-}
-
-func TestNoStartFuncDoesNotPanic(t *testing.T) {
-	rs := store.NewMemoryRecordingStore()
-	ctx := context.Background()
-
-	rec := &recording.Recording{
-		ID:             "rec-1",
-		StreamID:       "stream-1",
-		Title:          "No Func",
-		Status:         recording.StatusScheduled,
-		ScheduledStart: time.Now().Add(-time.Minute),
-		ScheduledStop:  time.Now().Add(time.Hour),
+	if c := count.Load(); c > 3 {
+		t.Fatalf("double start should be noop, got %d runs", c)
 	}
-	rs.Create(ctx, rec)
+}
 
-	s := New(rs)
-	s.Tick(ctx)
+func TestNilDBWorks(t *testing.T) {
+	s := New(nil, nil)
+	s.Every("no-db", "@every 1s", func(ctx context.Context) error { return nil })
+	s.Start(context.Background())
+	time.Sleep(1200 * time.Millisecond)
+	s.Stop()
+}
 
-	updated, _ := rs.Get(ctx, "rec-1")
-	if updated.Status != recording.StatusScheduled {
-		t.Errorf("expected still scheduled when no start func, got %s", updated.Status)
+func TestConcurrentSafety(t *testing.T) {
+	db := tempDB(t)
+	s := New(db, nil)
+
+	s.Every("bg", "@every 1s", func(ctx context.Context) error { return nil })
+	s.Start(context.Background())
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.List()
+		}()
+	}
+	wg.Wait()
+	s.Stop()
+}
+
+func TestBoltPersistence(t *testing.T) {
+	db := tempDB(t)
+	var ran atomic.Bool
+
+	s := New(db, nil)
+	s.Every("persisted", "@every 1s", func(ctx context.Context) error {
+		ran.Store(true)
+		return nil
+	})
+	s.Start(context.Background())
+	time.Sleep(1200 * time.Millisecond)
+	s.Stop()
+
+	if !ran.Load() {
+		t.Fatal("job should have run")
+	}
+
+	e := s.loadEntry("cron:recurring:persisted")
+	if e == nil {
+		t.Fatal("expected persisted entry in bolt")
+	}
+	if e.LastRun.IsZero() {
+		t.Fatal("expected non-zero last_run")
 	}
 }

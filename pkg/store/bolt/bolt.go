@@ -24,6 +24,7 @@ var (
 	bucketHDHRDevices    = []byte("hdhr_devices")
 	bucketInvites        = []byte("invites")
 	bucketAPIKeys        = []byte("api_keys")
+	bucketScheduler      = []byte("scheduler")
 )
 
 type DB struct {
@@ -44,6 +45,7 @@ func Open(path string) (*DB, error) {
 		bucketTMDBQueue, bucketTMDBBlobs, bucketImageQueue,
 		bucketHDHRDevices,
 		bucketInvites, bucketAPIKeys,
+		bucketScheduler,
 	}
 
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -163,6 +165,7 @@ func (d *DB) ClearAll() error {
 		"probe_cache", "tmdb_queue", "tmdb_blobs", "image_queue",
 		"hdhr_devices",
 		"invites", "api_keys",
+		"scheduler",
 	}
 	return d.db.Update(func(tx *bbolt.Tx) error {
 		for _, name := range buckets {

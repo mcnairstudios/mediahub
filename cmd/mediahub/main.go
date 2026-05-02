@@ -51,11 +51,11 @@ import (
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
-	recscheduler "github.com/mcnairstudios/mediahub/pkg/scheduler"
+	"github.com/mcnairstudios/mediahub/pkg/recording"
+	"github.com/mcnairstudios/mediahub/pkg/scheduler"
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
-	"github.com/mcnairstudios/mediahub/pkg/worker"
 	"github.com/mcnairstudios/mediahub/web"
 )
 
@@ -410,8 +410,8 @@ func main() {
 	os.MkdirAll(sessionTmpDir, 0755)
 	sessionMgr := session.NewManager(sessionTmpDir)
 
-	scheduler := worker.NewScheduler(func(name string, err error) {
-		log.Printf("worker %s error: %v", name, err)
+	sched := scheduler.New(db.BoltDB(), func(name string, err error) {
+		log.Printf("scheduler %s error: %v", name, err)
 	})
 
 	var epgRefreshFn orchestrator.EPGRefreshFunc
@@ -425,56 +425,80 @@ func main() {
 			}
 		},
 	}
-	scheduler.Add(worker.Job{
-		Name:     "source-refresh",
-		Interval: 1 * time.Minute,
-		Fn: func(ctx context.Context) error {
-			errs := orchestrator.RefreshAll(ctx, refreshDeps)
-			if len(errs) > 0 {
-				return fmt.Errorf("source refresh: %d errors, last: %w", len(errs), errs[len(errs)-1])
-			}
-			return nil
-		},
+	sched.Every("source-refresh", "@every 1m", func(ctx context.Context) error {
+		errs := orchestrator.RefreshAll(ctx, refreshDeps)
+		if len(errs) > 0 {
+			return fmt.Errorf("source refresh: %d errors, last: %w", len(errs), errs[len(errs)-1])
+		}
+		return nil
 	})
 
-	scheduler.Add(worker.Job{
-		Name:     "wg-health",
-		Interval: 30 * time.Second,
-		Fn: func(ctx context.Context) error {
-			if wgService.ActivePlugin() == nil {
-				return nil
-			}
-			if err := wgService.HealthCheck(ctx); err != nil {
-				log.Printf("wireguard: health check failed: %v — attempting failover", err)
-				name, fErr := wgService.Failover(ctx)
-				if fErr != nil {
-					return fmt.Errorf("wireguard failover failed: %w", fErr)
-				}
-				log.Printf("wireguard: failover succeeded — now using %s", name)
-				if plugin := wgService.ActivePlugin(); plugin != nil {
-					connReg.Register(plugin)
-					connReg.SetActive("wireguard")
-				}
-			}
+	sched.Every("wg-health", "@every 30s", func(ctx context.Context) error {
+		if wgService.ActivePlugin() == nil {
 			return nil
-		},
+		}
+		if err := wgService.HealthCheck(ctx); err != nil {
+			log.Printf("wireguard: health check failed: %v — attempting failover", err)
+			name, fErr := wgService.Failover(ctx)
+			if fErr != nil {
+				return fmt.Errorf("wireguard failover failed: %w", fErr)
+			}
+			log.Printf("wireguard: failover succeeded — now using %s", name)
+			if plugin := wgService.ActivePlugin(); plugin != nil {
+				connReg.Register(plugin)
+				connReg.SetActive("wireguard")
+			}
+		}
+		return nil
 	})
 
-	recScheduler := recscheduler.New(recordingStore)
 	recDeps := orchestrator.RecordingDeps{
 		SessionMgr:     sessionMgr,
 		RecordingStore: recordingStore,
 		OutputReg:      outputReg,
 		RecordDir:      cfg.RecordDir,
 	}
-	recScheduler.SetStartFunc(func(streamID, title string) error {
-		return orchestrator.StartRecording(ctx, recDeps, streamID, title, "system", false)
-	})
-	recScheduler.SetStopFunc(func(streamID string) error {
-		return orchestrator.StopRecording(ctx, recDeps, streamID)
+	sched.Every("recording-check", "@every 30s", func(ctx context.Context) error {
+		now := time.Now()
+
+		scheduled, err := recordingStore.ListScheduled(ctx)
+		if err != nil {
+			return fmt.Errorf("list scheduled: %w", err)
+		}
+		for i := range scheduled {
+			rec := &scheduled[i]
+			if !rec.ScheduledStart.IsZero() && !rec.ScheduledStart.After(now) {
+				if err := orchestrator.StartRecording(ctx, recDeps, rec.StreamID, rec.Title, "system", false); err != nil {
+					rec.Status = recording.StatusFailed
+					recordingStore.Update(ctx, rec)
+					continue
+				}
+				rec.Status = recording.StatusRecording
+				rec.StartedAt = now
+				recordingStore.Update(ctx, rec)
+			}
+		}
+
+		active, err := recordingStore.ListByStatus(ctx, recording.StatusRecording)
+		if err != nil {
+			return fmt.Errorf("list active: %w", err)
+		}
+		for i := range active {
+			rec := &active[i]
+			if !rec.ScheduledStop.IsZero() && !rec.ScheduledStop.After(now) {
+				if err := orchestrator.StopRecording(ctx, recDeps, rec.StreamID); err != nil {
+					rec.Status = recording.StatusFailed
+					recordingStore.Update(ctx, rec)
+					continue
+				}
+				rec.Status = recording.StatusCompleted
+				rec.StoppedAt = now
+				recordingStore.Update(ctx, rec)
+			}
+		}
+		return nil
 	})
 	orchestrator.RecoverRecordings(ctx, recDeps)
-	recScheduler.Start(ctx)
 
 	logoCache := logocache.New(filepath.Join(cfg.DataDir, "logocache"))
 
@@ -574,8 +598,6 @@ func main() {
 	dlnaServer.SetAuthenticator(&dlnaAuthAdapter{auth: authService})
 	dlnaServer.SetEPG(&dlnaEPGAdapter{programs: programStore})
 	dlnaServer.RegisterRoutes(mainMux)
-
-	scheduler.Start(ctx)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -751,14 +773,12 @@ func main() {
 	}
 	go enqueueTMDBStreams()
 
-	scheduler.Add(worker.Job{
-		Name:     "tmdb-enqueue",
-		Interval: 60 * time.Second,
-		Fn: func(_ context.Context) error {
-			enqueueTMDBStreams()
-			return nil
-		},
+	sched.Every("tmdb-enqueue", "@every 1m", func(_ context.Context) error {
+		enqueueTMDBStreams()
+		return nil
 	})
+
+	sched.Start(ctx)
 
 	select {
 	case sig := <-sigCh:
@@ -768,8 +788,7 @@ func main() {
 	}
 
 	cancel()
-	recScheduler.Stop()
-	scheduler.Stop()
+	sched.Stop()
 	sessionMgr.StopAll()
 	wgService.Close()
 
