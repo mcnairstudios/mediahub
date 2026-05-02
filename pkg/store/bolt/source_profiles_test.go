@@ -20,7 +20,7 @@ func TestSourceProfileStore_CRUD(t *testing.T) {
 
 	p := &sourceprofile.Profile{
 		ID:                "sp-1",
-		Name:              "SAT>IP DVB-T",
+		Name:              "SAT>IP",
 		Deinterlace:       true,
 		DeinterlaceMethod: "auto",
 		RTSPProtocols:     "tcp",
@@ -38,8 +38,8 @@ func TestSourceProfileStore_CRUD(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected profile, got nil")
 	}
-	if got.Name != "SAT>IP DVB-T" {
-		t.Errorf("name = %s, want SAT>IP DVB-T", got.Name)
+	if got.Name != "SAT>IP" {
+		t.Errorf("name = %s, want SAT>IP", got.Name)
 	}
 	if !got.Deinterlace {
 		t.Error("deinterlace should be true")

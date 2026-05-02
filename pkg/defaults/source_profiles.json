@@ -5,15 +5,7 @@
       "http_timeout_sec": 30
     },
     {
-      "name": "SAT>IP DVB-T",
-      "deinterlace": true,
-      "deinterlace_method": "auto",
-      "rtsp_protocols": "tcp",
-      "http_timeout_sec": 10,
-      "format_hint": "rtsp"
-    },
-    {
-      "name": "DVB Satellite",
+      "name": "SAT>IP",
       "deinterlace": true,
       "deinterlace_method": "auto",
       "rtsp_protocols": "tcp",
