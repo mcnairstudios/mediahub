@@ -579,7 +579,6 @@
       '<div class="stat-grid" id="dash-stats">' +
       '<div class="stat-card stat-link" data-page="streams"><div class="stat-value" id="stat-streams">-</div><div class="stat-label">Streams</div></div>' +
       '<div class="stat-card stat-link" data-page="channels"><div class="stat-value" id="stat-channels">-</div><div class="stat-label">Channels</div></div>' +
-      '<div class="stat-card stat-link" data-page="recordings"><div class="stat-value" id="stat-recordings">-</div><div class="stat-label">Recordings</div></div>' +
       (isAdmin ? '<div class="stat-card stat-link" data-page="activity"><div class="stat-value" id="stat-active">-</div><div class="stat-label">Active Now</div></div>' : '') +
       '<div class="stat-card stat-link" data-page="guide"><div class="stat-value" id="stat-epg-programs">-</div><div class="stat-label">EPG Programs</div></div>' +
       '</div>' +
@@ -590,10 +589,6 @@
       '<div class="dash-section" id="dash-epg-section">' +
       '<div class="dash-section-title">' + icons.epg + ' EPG Status</div>' +
       '<div id="dash-epg"><div class="skeleton" style="height:60px"></div></div>' +
-      '</div>' +
-      '<div class="dash-section" id="dash-rec-section">' +
-      '<div class="dash-section-title">' + icons.recordings + ' Recordings</div>' +
-      '<div id="dash-recordings"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>' +
       (isAdmin ? '<div class="dash-section" id="dash-wg-section">' +
       '<div class="dash-section-title">' + icons.wireguard + ' Connectivity</div>' +
@@ -663,11 +658,10 @@
           if (!Array.isArray(epgSources) || epgSources.length === 0) {
             epgContEl.innerHTML = '<div style="color:var(--text-muted)">No EPG sources configured</div>';
           } else {
-            var epgHtml = '';
+            var epgHtml = '<div class="dash-source-grid">';
             for (var ei = 0; ei < epgSources.length; ei++) {
               var es = epgSources[ei];
-              var eAgo = '';
-              var eColor = 'var(--text-muted)';
+              var eAgo = 'Never';
               var eDot = 'var(--text-muted)';
               if (es.last_refreshed) {
                 var eDate = new Date(es.last_refreshed);
@@ -675,14 +669,16 @@
                 eAgo = eMin < 1 ? 'just now' : eMin < 60 ? eMin + 'm ago' : eMin < 1440 ? Math.floor(eMin / 60) + 'h ago' : Math.floor(eMin / 1440) + 'd ago';
                 eDot = eMin < 1440 ? 'var(--success)' : eMin < 2880 ? 'var(--warning)' : 'var(--danger)';
               }
-              if (es.last_error) { eDot = 'var(--danger)'; eAgo = es.last_error; }
-              epgHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">' +
-                '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + eDot + ';flex-shrink:0"></span>' +
-                '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">' + esc(es.name) + '</div>' +
-                '<div style="font-size:12px;color:var(--text-muted)">' + (es.channel_count || 0) + ' channels, ' + ((es.program_count || 0)).toLocaleString() + ' programs</div></div>' +
-                '<div style="font-size:12px;color:var(--text-secondary);text-align:right;flex-shrink:0">' + esc(eAgo || 'Never') + '</div></div>';
+              if (es.last_error) { eDot = 'var(--danger)'; eAgo = 'Error'; }
+              epgHtml += '<div class="dash-source-card" style="cursor:pointer" onclick="location.hash=\'#/epgsources\'">' +
+                '<div class="dash-source-icon" style="background:' + eDot + '20;color:' + eDot + '">' +
+                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + eDot + '"></span></div>' +
+                '<div class="dash-source-info">' +
+                '<div class="dash-source-name">' + esc(es.name) + '</div>' +
+                '<div class="dash-source-meta">' + (es.channel_count || 0) + ' ch, ' + ((es.program_count || 0)).toLocaleString() + ' progs &middot; ' + esc(eAgo) + '</div>' +
+                '</div></div>';
             }
-            epgContEl.innerHTML = epgHtml;
+            epgContEl.innerHTML = epgHtml + '</div>';
           }
         } catch (e) {
           epgContEl.innerHTML = '<div style="color:var(--text-muted)">Could not load EPG sources</div>';
