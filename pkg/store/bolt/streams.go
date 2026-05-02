@@ -65,14 +65,17 @@ func (s *StreamStore) List(_ context.Context) ([]media.Stream, error) {
 	var result []media.Stream
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		c := tx.Bucket(bucketStreams).Cursor()
-		for k, v := c.Seek(prefixStream); k != nil && bytes.HasPrefix(k, prefixStream); k, v = c.Next() {
+		b := tx.Bucket(bucketStreams)
+		return b.ForEach(func(k, v []byte) error {
+			if bytes.HasPrefix(k, prefixIdx) {
+				return nil
+			}
 			var stream media.Stream
 			if json.Unmarshal(v, &stream) == nil {
 				result = append(result, stream)
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 
 	return result, err
@@ -82,7 +85,8 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 	var result []media.Stream
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		c := tx.Bucket(bucketStreams).Cursor()
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
 		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
 		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var stream media.Stream
@@ -90,7 +94,19 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 				result = append(result, stream)
 			}
 		}
-		return nil
+		if len(result) > 0 {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+				return nil
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) == nil && stream.SourceType == sourceType && stream.SourceID == sourceID {
+				result = append(result, stream)
+			}
+			return nil
+		})
 	})
 
 	return result, err
@@ -152,12 +168,28 @@ func (s *StreamStore) CountBySourceAndType(_ context.Context, sourceType, source
 func (s *StreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
 	count := 0
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		c := tx.Bucket(bucketStreams).Cursor()
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
 		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
 		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
 			count++
 		}
-		return nil
+		if count > 0 {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+				return nil
+			}
+			var partial struct {
+				SourceType string `json:"source_type"`
+				SourceID   string `json:"source_id"`
+			}
+			if json.Unmarshal(v, &partial) == nil && partial.SourceType == sourceType && partial.SourceID == sourceID {
+				count++
+			}
+			return nil
+		})
 	})
 	return count, err
 }
