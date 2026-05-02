@@ -351,28 +351,28 @@
     var user = api.user;
     var isAdmin = user && user.is_admin;
     var items = [
-      { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+      { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', adminOnly: true },
       { id: 'activity', label: 'Activity', icon: 'stats', adminOnly: true },
+      { section: 'Content' },
       { id: 'channels', label: 'Channels', icon: 'channels' },
       { id: 'library', label: 'Library', icon: 'library' },
       { id: 'guide', label: 'EPG Guide', icon: 'guide' },
       { id: 'recordings', label: 'Recordings', icon: 'recordings' },
       { id: 'favorites', label: 'Favorites', icon: 'favorites' },
-      { section: 'Admin', adminOnly: true },
+      { section: 'Sources', adminOnly: true },
       { id: 'sources', label: 'Sources', icon: 'sources', adminOnly: true },
       { id: 'epgsources', label: 'EPG Sources', icon: 'epg', adminOnly: true },
       { id: 'streams', label: 'Streams', icon: 'streams', adminOnly: true },
+      { section: 'Stream Management', adminOnly: true },
       { id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles', adminOnly: true },
       { id: 'clients', label: 'Clients', icon: 'clients', adminOnly: true },
+      { id: 'hdhrdevices', label: 'HDHR Devices', icon: 'hdhr', adminOnly: true },
+      { id: 'logos', label: 'Logos', icon: 'logos', adminOnly: true },
+      { section: 'System', adminOnly: true },
       { id: 'settings', label: 'Settings', icon: 'settings', adminOnly: true },
       { id: 'users', label: 'Users', icon: 'users', adminOnly: true },
       { id: 'wireguard', label: 'WireGuard', icon: 'wireguard', adminOnly: true },
-      { id: 'hdhrdevices', label: 'HDHR Devices', icon: 'hdhr', adminOnly: true },
-      { id: 'logos', label: 'Logos', icon: 'logos', adminOnly: true },
-      { section: 'Developer', adminOnly: true },
-      { id: 'probe', label: 'Probe', icon: 'probe', adminOnly: true },
-      { id: 'playurl', label: 'Play URL', icon: 'play', adminOnly: true },
-      { id: 'apikeys', label: 'API Keys', icon: 'apikey', adminOnly: true }
+      { id: 'developer', label: 'Developer', icon: 'probe', adminOnly: true }
     ];
     return items.filter(function(n, i, arr) {
       if (n.adminOnly && !isAdmin) return false;
@@ -473,6 +473,7 @@
     else if (page === 'playurl') renderPlayURL(pageEl);
     else if (page === 'hdhrdevices') renderHDHRDevices(pageEl);
     else if (page === 'apikeys') renderAPIKeys(pageEl);
+    else if (page === 'developer') renderDeveloper(pageEl);
     else renderDashboard(pageEl);
   }
 
@@ -751,9 +752,16 @@
           var recent = metaResults[1] || [];
           var queueCount = (queue.metadata || 0) + (queue.images || 0);
           var resolvedCount = Array.isArray(recent) ? recent.length : 0;
+          var totalVOD = 0;
+          if (stats.sources) {
+            for (var mi = 0; mi < stats.sources.length; mi++) {
+              totalVOD += stats.sources[mi].stream_count || 0;
+            }
+          }
           metaEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
-            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + queueCount + '</div><div class="stat-label">Queue</div></div>' +
-            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + resolvedCount + '</div><div class="stat-label">Recently Resolved</div></div>' +
+            (queueCount > 0 ? '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + queueCount + '</div><div class="stat-label">Processing</div></div>' : '') +
+            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + resolvedCount + '</div><div class="stat-label">Recently Matched</div></div>' +
+            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + totalVOD.toLocaleString() + '</div><div class="stat-label">Total Streams</div></div>' +
             '</div>';
         } catch (e) {
           metaEl.innerHTML = '<div style="color:var(--text-muted)">Metadata unavailable</div>';
@@ -8546,6 +8554,47 @@
     playUrlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doPlay(); });
   }
 
+  function renderDeveloper(el) {
+    var activeTab = (router.params && router.params.tab) || 'probe';
+    el.innerHTML = '<h1 class="page-title">Developer Tools</h1>' +
+      '<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px">' +
+      '<button class="btn dev-tab' + (activeTab === 'probe' ? ' btn-primary' : ' btn-ghost') + '" data-tab="probe">Probe</button>' +
+      '<button class="btn dev-tab' + (activeTab === 'playurl' ? ' btn-primary' : ' btn-ghost') + '" data-tab="playurl">Play URL</button>' +
+      '<button class="btn dev-tab' + (activeTab === 'apikeys' ? ' btn-primary' : ' btn-ghost') + '" data-tab="apikeys">API Keys</button>' +
+      '<button class="btn dev-tab' + (activeTab === 'debug' ? ' btn-primary' : ' btn-ghost') + '" data-tab="debug">Debug</button>' +
+      '</div>' +
+      '<div id="dev-content"></div>';
+    var contentEl = document.getElementById('dev-content');
+    function loadTab(tab) {
+      contentEl.innerHTML = '';
+      if (tab === 'probe') renderProbe(contentEl);
+      else if (tab === 'playurl') renderPlayURL(contentEl);
+      else if (tab === 'apikeys') renderAPIKeys(contentEl);
+      else if (tab === 'debug') {
+        contentEl.innerHTML = '<div class="card"><div class="card-title">Debug Settings</div>' +
+          '<div class="form-group"><label class="form-label">Debug Logging</label>' +
+          '<button class="btn btn-sm" id="toggle-debug">Toggle</button></div>' +
+          '<div class="form-group"><label class="form-label">pprof Endpoints</label>' +
+          '<div style="font-size:13px;color:var(--text-secondary)">/debug/pprof/ (enabled when debug_enabled=true)</div></div></div>';
+        document.getElementById('toggle-debug').addEventListener('click', async function() {
+          var resp = await api.get('/api/settings');
+          var settings = await resp.json();
+          var current = settings.debug_enabled === 'true' || settings.debug_enabled === '1';
+          await api.put('/api/settings', { debug_enabled: current ? 'false' : 'true' });
+          toast(current ? 'Debug disabled' : 'Debug enabled');
+        });
+      }
+    }
+    el.querySelectorAll('.dev-tab').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        el.querySelectorAll('.dev-tab').forEach(function(b) { b.className = 'btn dev-tab btn-ghost'; });
+        this.className = 'btn dev-tab btn-primary';
+        loadTab(this.getAttribute('data-tab'));
+      });
+    });
+    loadTab(activeTab);
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
@@ -8569,7 +8618,8 @@
     player: renderPlayer,
     hdhrdevices: renderHDHRDevices,
     invites: renderInvites,
-    apikeys: renderAPIKeys
+    apikeys: renderAPIKeys,
+    developer: renderDeveloper
   };
 
   router.init();
