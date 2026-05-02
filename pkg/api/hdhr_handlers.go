@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -138,7 +139,10 @@ func (s *Server) handleHDHRDiscover(w http.ResponseWriter, r *http.Request) {
 		for _, cfg := range configs {
 			if devicesJSON := cfg.Config["devices"]; devicesJSON != "" {
 				var devices []hdhr.Device
-				json.Unmarshal([]byte(devicesJSON), &devices)
+				if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+					log.Printf("hdhr discover: failed to unmarshal devices for source %s: %v", cfg.ID, err)
+					continue
+				}
 				for _, d := range devices {
 					existingHosts[d.Host] = true
 				}
@@ -201,7 +205,11 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 		}
 
 		device := hdhr.Device{Host: req.Host}
-		devicesJSON, _ := json.Marshal([]hdhr.Device{device})
+		devicesJSON, err := json.Marshal([]hdhr.Device{device})
+		if err != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to marshal device")
+			return
+		}
 		sc.Config["devices"] = string(devicesJSON)
 
 		if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
@@ -210,11 +218,16 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 		}
 
 		go func() {
-			src, err := s.deps.SourceReg.Create(context.Background(), "hdhr", sc.ID)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			src, err := s.deps.SourceReg.Create(ctx, "hdhr", sc.ID)
 			if err != nil {
+				log.Printf("hdhr add device: failed to create source %s: %v", sc.ID, err)
 				return
 			}
-			src.Refresh(context.Background())
+			if err := src.Refresh(ctx); err != nil {
+				log.Printf("hdhr add device: refresh failed for %s: %v", sc.ID, err)
+			}
 		}()
 
 		httputil.RespondJSON(w, http.StatusCreated, map[string]string{"message": "device added to new source"})
@@ -224,7 +237,11 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 	sc := configs[0]
 	var devices []hdhr.Device
 	if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
-		json.Unmarshal([]byte(devicesJSON), &devices)
+		if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+			log.Printf("hdhr add device: failed to unmarshal devices for source %s: %v", sc.ID, err)
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to parse existing devices")
+			return
+		}
 	}
 
 	for _, d := range devices {
@@ -235,7 +252,11 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	devices = append(devices, hdhr.Device{Host: req.Host})
-	devicesJSON, _ := json.Marshal(devices)
+	devicesJSON, err := json.Marshal(devices)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to marshal devices")
+		return
+	}
 	sc.Config["devices"] = string(devicesJSON)
 
 	if err := s.deps.SourceConfigStore.Update(r.Context(), &sc); err != nil {
@@ -244,11 +265,16 @@ func (s *Server) handleHDHRAddDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		src, err := s.deps.SourceReg.Create(context.Background(), "hdhr", sc.ID)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		src, err := s.deps.SourceReg.Create(ctx, "hdhr", sc.ID)
 		if err != nil {
+			log.Printf("hdhr add device: failed to create source %s: %v", sc.ID, err)
 			return
 		}
-		src.Refresh(context.Background())
+		if err := src.Refresh(ctx); err != nil {
+			log.Printf("hdhr add device: refresh failed for %s: %v", sc.ID, err)
+		}
 	}()
 
 	httputil.RespondJSON(w, http.StatusOK, map[string]string{"message": "device added"})
@@ -269,7 +295,11 @@ func (s *Server) handleHDHRDevices(w http.ResponseWriter, r *http.Request) {
 
 	var devices []hdhr.Device
 	if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
-		json.Unmarshal([]byte(devicesJSON), &devices)
+		if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+			log.Printf("hdhr devices: failed to unmarshal devices for source %s: %v", id, err)
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to parse devices")
+			return
+		}
 	}
 	if devices == nil {
 		devices = []hdhr.Device{}
@@ -292,12 +322,14 @@ func (s *Server) handleHDHRScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		src, err := s.deps.SourceReg.Create(context.Background(), "hdhr", id)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		src, err := s.deps.SourceReg.Create(ctx, "hdhr", id)
 		if err != nil {
 			log.Printf("hdhr scan: failed to create source: %v", err)
 			return
 		}
-		if err := src.Refresh(context.Background()); err != nil {
+		if err := src.Refresh(ctx); err != nil {
 			log.Printf("hdhr scan failed for %s: %v", id, err)
 		} else {
 			log.Printf("hdhr scan completed for %s", id)
@@ -325,7 +357,9 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 	hdhrRetuneMu.Unlock()
 
 	go func() {
-		src, err := s.deps.SourceReg.Create(context.Background(), "hdhr", id)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		src, err := s.deps.SourceReg.Create(ctx, "hdhr", id)
 		if err != nil {
 			hdhrRetuneMu.Lock()
 			hdhrRetuneStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
@@ -341,7 +375,7 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := retunable.Retune(context.Background()); err != nil {
+		if err := retunable.Retune(ctx); err != nil {
 			hdhrRetuneMu.Lock()
 			hdhrRetuneStatus[id] = source.RefreshStatus{State: "error", Message: err.Error()}
 			hdhrRetuneMu.Unlock()
@@ -349,7 +383,7 @@ func (s *Server) handleHDHRRetune(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		info := src.Info(context.Background())
+		info := src.Info(ctx)
 		hdhrRetuneMu.Lock()
 		hdhrRetuneStatus[id] = source.RefreshStatus{
 			State:   "done",
@@ -399,7 +433,9 @@ func (s *Server) handleHDHRClear(w http.ResponseWriter, r *http.Request) {
 func hdhrDevicesFromConfig(sc *sourceconfig.SourceConfig) []hdhr.Device {
 	var devices []hdhr.Device
 	if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
-		json.Unmarshal([]byte(devicesJSON), &devices)
+		if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+			log.Printf("hdhr: failed to unmarshal devices for source %s: %v", sc.ID, err)
+		}
 	}
 	return devices
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,7 +104,25 @@ func main() {
 	inviteStore := db.InviteStore()
 	apiKeyStore := db.APIKeyStore()
 
-	authService := auth.NewJWTService(userStore, "mediahub-secret-change-me")
+	jwtSecret := os.Getenv("MEDIAHUB_JWT_SECRET")
+	if jwtSecret == "" {
+		secretFile := filepath.Join(cfg.DataDir, "jwt_secret")
+		data, err := os.ReadFile(secretFile)
+		if err == nil && len(data) > 0 {
+			jwtSecret = string(data)
+		} else {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				log.Fatalf("generating JWT secret: %v", err)
+			}
+			jwtSecret = hex.EncodeToString(b)
+			if err := os.WriteFile(secretFile, []byte(jwtSecret), 0600); err != nil {
+				log.Fatalf("persisting JWT secret to %s: %v", secretFile, err)
+			}
+			log.Println("generated and persisted new JWT secret")
+		}
+	}
+	authService := auth.NewJWTService(userStore, jwtSecret)
 	authService.SetInviteStore(inviteStore)
 	authService.SetAPIKeyStore(apiKeyStore)
 

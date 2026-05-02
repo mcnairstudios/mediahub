@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -218,7 +219,9 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 			if end > len(programs) {
 				end = len(programs)
 			}
-			s.deps.ProgramStore.BulkInsert(ctx, programs[i:end])
+			if err := s.deps.ProgramStore.BulkInsert(ctx, programs[i:end]); err != nil {
+				log.Printf("epg refresh: BulkInsert failed for source %s batch %d-%d: %v", src.ID, i, end, err)
+			}
 		}
 	}
 
@@ -674,7 +677,9 @@ func (s *Server) handleListLogos(w http.ResponseWriter, r *http.Request) {
 
 	var epgMeta map[string]map[string]string
 	if metaStr, err := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta"); err == nil && metaStr != "" {
-		json.Unmarshal([]byte(metaStr), &epgMeta)
+		if err := json.Unmarshal([]byte(metaStr), &epgMeta); err != nil {
+			log.Printf("list logos: failed to unmarshal epg_channel_meta: %v", err)
+		}
 	}
 
 	type logoEntry struct {

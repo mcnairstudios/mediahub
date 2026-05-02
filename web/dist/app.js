@@ -165,7 +165,13 @@
       if (bwEstimate > 0) headers['X-Client-Bandwidth'] = String(bwEstimate);
       var opts = { method: method, headers: headers };
       if (body !== undefined) opts.body = JSON.stringify(body);
-      var resp = await fetch(path, opts);
+      var resp;
+      try {
+        resp = await fetch(path, opts);
+      } catch (err) {
+        console.error('Network error for ' + method + ' ' + path + ':', err);
+        throw new Error('network error: ' + (err.message || 'request failed'));
+      }
       if (resp.status === 401 && path !== '/api/auth/login') {
         this.token = null;
         this.user = null;
@@ -937,7 +943,7 @@
           btn.style.color = nowFav ? '#eab308' : 'var(--text-muted)';
           if (nowFav) btn.classList.add('favorited');
           else btn.classList.remove('favorited');
-        });
+        }).catch(function() { toast('Failed to update favorite', 'error'); });
         return;
       }
       if (btn.dataset.qadd) {
@@ -1727,7 +1733,7 @@
         favBtn.innerHTML = (nowFav ? icons.starFilled : icons.star) + (nowFav ? ' Favorited' : ' Favorite');
         if (nowFav) favBtn.classList.add('favorited');
         else favBtn.classList.remove('favorited');
-      });
+      }).catch(function() { toast('Failed to update favorite', 'error'); });
     });
 
     try {
@@ -2994,7 +3000,7 @@
           streams = streams.filter(function(s) { return s.id !== sid; });
           renderFavoriteTable(streams, document.getElementById('fav-search') ? document.getElementById('fav-search').value.toLowerCase() : '');
           toast('Removed from favorites');
-        });
+        }).catch(function() { toast('Failed to remove favorite', 'error'); });
       });
     });
   }
@@ -6112,7 +6118,7 @@
     favIcon.onclick = function() {
       toggleFavorite(item.id).then(function() {
         favIcon.textContent = streamFavorites[item.id] ? '\u2B50' : '\u2606';
-      });
+      }).catch(function() { toast('Failed to update favorite', 'error'); });
     };
     actionIcons.appendChild(favIcon);
 
@@ -7475,7 +7481,7 @@
       if (copyBtn) {
         copyBtn.addEventListener('click', function() {
           if (navigator.clipboard) {
-            navigator.clipboard.writeText(url).then(function() { toast('URL copied'); });
+            navigator.clipboard.writeText(url).then(function() { toast('URL copied'); }).catch(function() { toast('Failed to copy', 'error'); });
           } else {
             toast('Clipboard not available', 'error');
           }

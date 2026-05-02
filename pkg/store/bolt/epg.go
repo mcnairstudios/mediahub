@@ -1,12 +1,14 @@
 package bolt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
+	"log"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/epg"
+	"github.com/mcnairstudios/mediahub/pkg/store/bolt/keyenc"
 	bbolt "go.etcd.io/bbolt"
 )
 
@@ -77,25 +79,32 @@ func (s *EPGSourceStore) Delete(_ context.Context, id string) error {
 	})
 }
 
-type ProgramStore struct {
-	db *bbolt.DB
+type programKeyDef struct {
+	Kind      string `key:"programs"`
+	ChannelID string
+	StartTime string
 }
 
-func programKey(channelID string, start time.Time) []byte {
-	return []byte(channelID + "|" + start.UTC().Format(time.RFC3339Nano))
+var (
+	programSchema = keyenc.NewSchema[programKeyDef]()
+	prefixProgram = programSchema.Prefix(programKeyDef{})
+)
+
+type ProgramStore struct {
+	db *bbolt.DB
 }
 
 func (s *ProgramStore) NowPlaying(_ context.Context, channelID string) (*epg.Program, error) {
 	var found *epg.Program
 
 	now := time.Now()
-	prefix := []byte(channelID + "|")
+	prefix := programSchema.Prefix(programKeyDef{ChannelID: channelID})
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEPGPrograms)
 		c := b.Cursor()
 
-		for k, v := c.Seek(prefix); k != nil && hasPrefix(k, prefix); k, v = c.Next() {
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var p epg.Program
 			if err := json.Unmarshal(v, &p); err != nil {
 				return err
@@ -114,13 +123,13 @@ func (s *ProgramStore) NowPlaying(_ context.Context, channelID string) (*epg.Pro
 func (s *ProgramStore) Range(_ context.Context, channelID string, start, end time.Time) ([]epg.Program, error) {
 	var result []epg.Program
 
-	prefix := []byte(channelID + "|")
+	prefix := programSchema.Prefix(programKeyDef{ChannelID: channelID})
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEPGPrograms)
 		c := b.Cursor()
 
-		for k, v := c.Seek(prefix); k != nil && hasPrefix(k, prefix); k, v = c.Next() {
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var p epg.Program
 			if err := json.Unmarshal(v, &p); err != nil {
 				return err
@@ -140,14 +149,15 @@ func (s *ProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEPGPrograms)
-		return b.ForEach(func(_, v []byte) error {
+		c := b.Cursor()
+		for k, v := c.Seek(prefixProgram); k != nil && bytes.HasPrefix(k, prefixProgram); k, v = c.Next() {
 			var p epg.Program
 			if err := json.Unmarshal(v, &p); err != nil {
 				return err
 			}
 			result = append(result, p)
-			return nil
-		})
+		}
+		return nil
 	})
 
 	return result, err
@@ -168,7 +178,11 @@ func (s *ProgramStore) BulkInsert(_ context.Context, programs []epg.Program) err
 				if err != nil {
 					return err
 				}
-				if err := b.Put(programKey(p.ChannelID, p.StartTime), data); err != nil {
+				key := programSchema.Key(programKeyDef{
+					ChannelID: p.ChannelID,
+					StartTime: p.StartTime.UTC().Format(time.RFC3339Nano),
+				})
+				if err := b.Put(key, data); err != nil {
 					return err
 				}
 			}
@@ -181,17 +195,15 @@ func (s *ProgramStore) BulkInsert(_ context.Context, programs []epg.Program) err
 }
 
 func (s *ProgramStore) DeleteBySource(_ context.Context, sourceID string) error {
-	prefix := []byte(sourceID + "|")
+	prefix := programSchema.Prefix(programKeyDef{ChannelID: sourceID})
 
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEPGPrograms)
 		c := b.Cursor()
 
 		var toDelete [][]byte
-		for k, _ := c.Seek(prefix); k != nil && hasPrefix(k, prefix); k, _ = c.Next() {
-			keyCopy := make([]byte, len(k))
-			copy(keyCopy, k)
-			toDelete = append(toDelete, keyCopy)
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			toDelete = append(toDelete, append([]byte{}, k...))
 		}
 
 		for _, k := range toDelete {
@@ -203,6 +215,63 @@ func (s *ProgramStore) DeleteBySource(_ context.Context, sourceID string) error 
 	})
 }
 
-func hasPrefix(key, prefix []byte) bool {
-	return strings.HasPrefix(string(key), string(prefix))
+func (s *ProgramStore) migrateFromPipeKeys() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketEPGPrograms)
+		c := b.Cursor()
+
+		k, _ := c.Seek(prefixProgram)
+		if k != nil && bytes.HasPrefix(k, prefixProgram) {
+			return nil
+		}
+
+		type migration struct {
+			oldKey, newKey, data []byte
+		}
+		var migrations []migration
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if bytes.HasPrefix(k, prefixProgram) {
+				continue
+			}
+			ks := string(k)
+			pipeIdx := -1
+			for i, ch := range ks {
+				if ch == '|' {
+					pipeIdx = i
+					break
+				}
+			}
+			if pipeIdx < 0 {
+				continue
+			}
+			channelID := ks[:pipeIdx]
+			startTime := ks[pipeIdx+1:]
+			if channelID == "" || startTime == "" {
+				continue
+			}
+
+			newKey := programSchema.Key(programKeyDef{
+				ChannelID: channelID,
+				StartTime: startTime,
+			})
+			migrations = append(migrations, migration{
+				oldKey: append([]byte{}, k...),
+				newKey: newKey,
+				data:   append([]byte{}, v...),
+			})
+		}
+
+		if len(migrations) == 0 {
+			return nil
+		}
+
+		log.Printf("epg programs: migrating %d programs to prefixed keys", len(migrations))
+		for _, m := range migrations {
+			b.Put(m.newKey, m.data)
+			b.Delete(m.oldKey)
+		}
+		log.Printf("epg programs: migration complete")
+		return nil
+	})
 }

@@ -81,11 +81,15 @@ func (d *DB) SettingsStore() *SettingsStore {
 }
 
 func (d *DB) ChannelStore() *ChannelStore {
-	return &ChannelStore{db: d.db}
+	s := &ChannelStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) GroupStore() *GroupStore {
-	return &GroupStore{db: d.db}
+	s := &GroupStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) EPGSourceStore() *EPGSourceStore {
@@ -93,11 +97,15 @@ func (d *DB) EPGSourceStore() *EPGSourceStore {
 }
 
 func (d *DB) ProgramStore() *ProgramStore {
-	return &ProgramStore{db: d.db}
+	s := &ProgramStore{db: d.db}
+	s.migrateFromPipeKeys()
+	return s
 }
 
 func (d *DB) RecordingStore() *RecordingStore {
-	return &RecordingStore{db: d.db}
+	s := &RecordingStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) UserStore() *UserStore {
@@ -109,7 +117,9 @@ func (d *DB) SourceConfigStore() *SourceConfigStore {
 }
 
 func (d *DB) FavoriteStore() *FavoriteStore {
-	return &FavoriteStore{db: d.db}
+	s := &FavoriteStore{db: d.db}
+	s.migrateFromNestedBuckets()
+	return s
 }
 
 func (d *DB) ClientStore() *ClientStore {
