@@ -51,6 +51,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("PUT /api/channels/{id}", s.adminOnly(s.handleUpdateChannel))
 	s.mux.Handle("DELETE /api/channels/{id}", s.adminOnly(s.handleDeleteChannel))
 	s.mux.Handle("POST /api/channels/{id}/streams", s.adminOnly(s.handleAssignStreams))
+	s.mux.Handle("POST /api/channels/batch", s.adminOnly(s.handleBatchUpdateChannels))
 	s.mux.Handle("GET /api/channel-groups", s.authenticated(s.handleListGroups))
 	s.mux.Handle("POST /api/channel-groups", s.adminOnly(s.handleCreateGroup))
 	s.mux.Handle("DELETE /api/channel-groups/{id}", s.adminOnly(s.handleDeleteGroup))

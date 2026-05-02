@@ -85,16 +85,20 @@ func TestStreamStore_BulkUpsertUpdatesExisting(t *testing.T) {
 	ctx := context.Background()
 
 	original := media.Stream{
-		ID:   "stream-1",
-		Name: "BBC One",
-		URL:  "http://example.com/bbc1",
+		ID:         "stream-1",
+		SourceType: "m3u",
+		SourceID:   "src-1",
+		Name:       "BBC One",
+		URL:        "http://example.com/bbc1",
 	}
 	s.BulkUpsert(ctx, []media.Stream{original})
 
 	updated := media.Stream{
-		ID:   "stream-1",
-		Name: "BBC One HD",
-		URL:  "http://example.com/bbc1hd",
+		ID:         "stream-1",
+		SourceType: "m3u",
+		SourceID:   "src-1",
+		Name:       "BBC One HD",
+		URL:        "http://example.com/bbc1hd",
 	}
 	s.BulkUpsert(ctx, []media.Stream{updated})
 
@@ -215,9 +219,9 @@ func TestStreamStore_List(t *testing.T) {
 	ctx := context.Background()
 
 	streams := []media.Stream{
-		{ID: "s1", Name: "One"},
-		{ID: "s2", Name: "Two"},
-		{ID: "s3", Name: "Three"},
+		{ID: "s1", SourceType: "m3u", SourceID: "src-1", Name: "One"},
+		{ID: "s2", SourceType: "m3u", SourceID: "src-1", Name: "Two"},
+		{ID: "s3", SourceType: "xtream", SourceID: "src-2", Name: "Three"},
 	}
 	s.BulkUpsert(ctx, streams)
 

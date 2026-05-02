@@ -240,16 +240,17 @@ func TestFragmentedMuxer_CopyMode_BFrameDTS(t *testing.T) {
 		size     int
 	}
 
+	// At 90kHz timebase, 90000 ticks = 1 second. Each GOP = 4 packets at 90000 ticks = 4 seconds.
 	pkts := []pktDef{
-		{pts: 0, dts: 0, dur: 3000, keyframe: true, size: 5000},
-		{pts: 6000, dts: 3000, dur: 3000, keyframe: false, size: 500},
-		{pts: 3000, dts: 3000, dur: 3000, keyframe: false, size: 300},
-		{pts: 9000, dts: 6000, dur: 3000, keyframe: false, size: 600},
-		{pts: 12000, dts: 9000, dur: 3000, keyframe: true, size: 4000},
-		{pts: 18000, dts: 12000, dur: 3000, keyframe: false, size: 500},
-		{pts: 15000, dts: 12000, dur: 3000, keyframe: false, size: 300},
-		{pts: 21000, dts: 15000, dur: 3000, keyframe: false, size: 600},
-		{pts: 24000, dts: 18000, dur: 3000, keyframe: true, size: 4000},
+		{pts: 0, dts: 0, dur: 90000, keyframe: true, size: 5000},
+		{pts: 180000, dts: 90000, dur: 90000, keyframe: false, size: 500},
+		{pts: 90000, dts: 90000, dur: 90000, keyframe: false, size: 300},
+		{pts: 270000, dts: 180000, dur: 90000, keyframe: false, size: 600},
+		{pts: 360000, dts: 270000, dur: 90000, keyframe: true, size: 4000},
+		{pts: 540000, dts: 360000, dur: 90000, keyframe: false, size: 500},
+		{pts: 450000, dts: 360000, dur: 90000, keyframe: false, size: 300},
+		{pts: 630000, dts: 450000, dur: 90000, keyframe: false, size: 600},
+		{pts: 720000, dts: 540000, dur: 90000, keyframe: true, size: 4000},
 	}
 
 	for i, pd := range pkts {

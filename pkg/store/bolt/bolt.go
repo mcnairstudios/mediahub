@@ -71,7 +71,9 @@ func (d *DB) BoltDB() *bbolt.DB {
 }
 
 func (d *DB) StreamStore() *StreamStore {
-	return &StreamStore{db: d.db}
+	s := &StreamStore{db: d.db}
+	s.migrateFromFlatKeys()
+	return s
 }
 
 func (d *DB) SettingsStore() *SettingsStore {

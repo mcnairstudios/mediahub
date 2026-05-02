@@ -94,15 +94,24 @@ func TestSeedDefaults_NonEmptyStore(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := SeedDefaults(ctx, store, loadTestProfiles(t)); err != nil {
+	defs := loadTestProfiles(t)
+	if err := SeedDefaults(ctx, store, defs); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	if len(store.profiles) != 1 {
-		t.Errorf("expected 1 profile (no seeding), got %d", len(store.profiles))
+	expectedCount := 1 + len(defs)
+	if len(store.profiles) != expectedCount {
+		t.Errorf("expected %d profiles (custom + defaults), got %d", expectedCount, len(store.profiles))
 	}
-	if store.profiles[0].Name != "Custom" {
-		t.Errorf("expected Custom, got %s", store.profiles[0].Name)
+
+	hasCustom := false
+	for _, p := range store.profiles {
+		if p.Name == "Custom" {
+			hasCustom = true
+		}
+	}
+	if !hasCustom {
+		t.Error("expected Custom profile to be preserved")
 	}
 }
 

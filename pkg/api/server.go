@@ -3,6 +3,7 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
@@ -69,6 +70,7 @@ type Server struct {
 	mux        *http.ServeMux
 	middleware *middleware.AuthMiddleware
 	deps       OrchestratorDeps
+	startedAt  time.Time
 }
 
 func NewServer(deps OrchestratorDeps) *Server {
@@ -76,6 +78,7 @@ func NewServer(deps OrchestratorDeps) *Server {
 		mux:        http.NewServeMux(),
 		middleware: middleware.NewAuthMiddleware(deps.AuthService),
 		deps:       deps,
+		startedAt:  time.Now(),
 	}
 	s.registerRoutes()
 	return s

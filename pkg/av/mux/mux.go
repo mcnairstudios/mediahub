@@ -240,10 +240,6 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 		dur = 20000
 	}
 
-	if isKeyframe && m.video.pktCount > 0 {
-		fmt.Printf("avmux: keyframe at pkt=%d accum=%dus size=%d\n", m.video.pktCount, m.video.accumDurationUs, pkt.Size())
-	}
-
 	shouldFlush := m.video.pktCount > 0 && isKeyframe && m.video.accumDurationUs >= 2_000_000
 	if shouldFlush {
 		if err := m.video.flushFragment(); err != nil {

@@ -352,6 +352,9 @@ func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
 		Categories  []string `json:"categories,omitempty"`
 		Rating      string `json:"rating,omitempty"`
 		Progress    float64 `json:"progress"`
+		NextTitle   string `json:"next_title,omitempty"`
+		NextStart   string `json:"next_start,omitempty"`
+		NextEnd     string `json:"next_end,omitempty"`
 	}
 
 	now := time.Now()
@@ -377,7 +380,7 @@ func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
 				progress = 1
 			}
 		}
-		result = append(result, nowEntry{
+		entry := nowEntry{
 			ChannelID:   ch.ID,
 			ChannelName: ch.Name,
 			Title:       prog.Title,
@@ -388,7 +391,14 @@ func (s *Server) handleEPGNow(w http.ResponseWriter, r *http.Request) {
 			Categories:  prog.Categories,
 			Rating:      prog.Rating,
 			Progress:    progress,
-		})
+		}
+		nextProgs, err := s.deps.ProgramStore.Range(r.Context(), tvgID, prog.EndTime, prog.EndTime.Add(4*time.Hour))
+		if err == nil && len(nextProgs) > 0 {
+			entry.NextTitle = nextProgs[0].Title
+			entry.NextStart = nextProgs[0].StartTime.Format(time.RFC3339)
+			entry.NextEnd = nextProgs[0].EndTime.Format(time.RFC3339)
+		}
+		result = append(result, entry)
 	}
 
 	if result == nil {
@@ -522,19 +532,29 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		totalPrograms := 0
 		totalEPGChannels := 0
 		epgErrors := 0
+		var lastRefreshed *time.Time
 		for _, src := range epgSources {
 			totalPrograms += src.ProgramCount
 			totalEPGChannels += src.ChannelCount
 			if src.LastError != "" {
 				epgErrors++
 			}
+			if src.LastRefreshed != nil {
+				if lastRefreshed == nil || src.LastRefreshed.After(*lastRefreshed) {
+					lastRefreshed = src.LastRefreshed
+				}
+			}
 		}
-		stats["epg"] = map[string]any{
+		epgStats := map[string]any{
 			"source_count":  len(epgSources),
 			"channel_count": totalEPGChannels,
 			"program_count": totalPrograms,
 			"error_count":   epgErrors,
 		}
+		if lastRefreshed != nil {
+			epgStats["last_refreshed"] = lastRefreshed.Format(time.RFC3339)
+		}
+		stats["epg"] = epgStats
 	}
 
 	recordings, err := s.deps.RecordingStore.List(r.Context(), "", true)
@@ -578,6 +598,10 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 			"connected": plugin != nil,
 		}
 	}
+
+	uptime := time.Since(s.startedAt)
+	stats["uptime_seconds"] = int(uptime.Seconds())
+	stats["started_at"] = s.startedAt.Format(time.RFC3339)
 
 	httputil.RespondJSON(w, http.StatusOK, stats)
 }

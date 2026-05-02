@@ -115,6 +115,7 @@ func (m *mockStreamStore) DeleteBySource(_ context.Context, _, _ string) error  
 func (m *mockStreamStore) DeleteStaleBySource(_ context.Context, _, _ string, _ []string) ([]string, error) {
 	return nil, nil
 }
+func (m *mockStreamStore) CountBySource(_ context.Context, _, _ string) (int, error) { return len(m.streams), nil }
 func (m *mockStreamStore) Save() error { return nil }
 
 func newTestServer() *Server {

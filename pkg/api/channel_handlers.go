@@ -231,6 +231,57 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleBatchUpdateChannels(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChannelIDs []string `json:"channel_ids"`
+		IsEnabled  *bool    `json:"is_enabled"`
+		AutoNumber *bool    `json:"auto_number"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.AutoNumber != nil && *req.AutoNumber {
+		channels, err := s.deps.ChannelStore.List(r.Context())
+		if err != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+			return
+		}
+		for i := range channels {
+			channels[i].Number = i + 1
+			if err := s.deps.ChannelStore.Update(r.Context(), &channels[i]); err != nil {
+				httputil.RespondError(w, http.StatusInternalServerError, "failed to update channel")
+				return
+			}
+		}
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{"updated": len(channels)})
+		return
+	}
+
+	if len(req.ChannelIDs) == 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "channel_ids required")
+		return
+	}
+
+	updated := 0
+	for _, id := range req.ChannelIDs {
+		ch, err := s.deps.ChannelStore.Get(r.Context(), id)
+		if err != nil || ch == nil {
+			continue
+		}
+		if req.IsEnabled != nil {
+			ch.IsEnabled = *req.IsEnabled
+		}
+		if err := s.deps.ChannelStore.Update(r.Context(), ch); err != nil {
+			continue
+		}
+		updated++
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{"updated": updated})
+}
+
 func (s *Server) checkChannelNumberUnique(ctx context.Context, number int, excludeID string) error {
 	channels, err := s.deps.ChannelStore.List(ctx)
 	if err != nil {

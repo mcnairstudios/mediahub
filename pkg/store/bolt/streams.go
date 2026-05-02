@@ -1,11 +1,27 @@
 package bolt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
+	"github.com/mcnairstudios/mediahub/pkg/store/bolt/keyenc"
 	bbolt "go.etcd.io/bbolt"
+)
+
+type streamKeyDef struct {
+	Kind       string `key:"streams"`
+	SourceType string
+	SourceID   string
+	StreamID   string
+}
+
+var (
+	streamSchema = keyenc.NewSchema[streamKeyDef]()
+	prefixStream = streamSchema.Prefix(streamKeyDef{})
+	prefixIdx    = keyenc.ReversePrefix("streamidx")
 )
 
 type StreamStore struct {
@@ -17,7 +33,11 @@ func (s *StreamStore) Get(_ context.Context, id string) (*media.Stream, error) {
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
-		data := b.Get([]byte(id))
+		fullKey := b.Get(keyenc.Reverse("streamidx", id))
+		if fullKey == nil {
+			return nil
+		}
+		data := b.Get(fullKey)
 		if data == nil {
 			return nil
 		}
@@ -32,15 +52,14 @@ func (s *StreamStore) List(_ context.Context) ([]media.Stream, error) {
 	var result []media.Stream
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketStreams)
-		return b.ForEach(func(_, v []byte) error {
+		c := tx.Bucket(bucketStreams).Cursor()
+		for k, v := c.Seek(prefixStream); k != nil && bytes.HasPrefix(k, prefixStream); k, v = c.Next() {
 			var stream media.Stream
-			if err := json.Unmarshal(v, &stream); err != nil {
-				return err
+			if json.Unmarshal(v, &stream) == nil {
+				result = append(result, stream)
 			}
-			result = append(result, stream)
-			return nil
-		})
+		}
+		return nil
 	})
 
 	return result, err
@@ -50,17 +69,15 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 	var result []media.Stream
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketStreams)
-		return b.ForEach(func(_, v []byte) error {
+		c := tx.Bucket(bucketStreams).Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var stream media.Stream
-			if err := json.Unmarshal(v, &stream); err != nil {
-				return err
-			}
-			if stream.SourceType == sourceType && stream.SourceID == sourceID {
+			if json.Unmarshal(v, &stream) == nil {
 				result = append(result, stream)
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 
 	return result, err
@@ -69,17 +86,12 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 func (s *StreamStore) CountBySource(_ context.Context, sourceType, sourceID string) (int, error) {
 	count := 0
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketStreams)
-		return b.ForEach(func(_, v []byte) error {
-			var partial struct {
-				SourceType string `json:"source_type"`
-				SourceID   string `json:"source_id"`
-			}
-			if json.Unmarshal(v, &partial) == nil && partial.SourceType == sourceType && partial.SourceID == sourceID {
-				count++
-			}
-			return nil
-		})
+		c := tx.Bucket(bucketStreams).Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			count++
+		}
+		return nil
 	})
 	return count, err
 }
@@ -92,7 +104,15 @@ func (s *StreamStore) BulkUpsert(_ context.Context, streams []media.Stream) erro
 			if err != nil {
 				return err
 			}
-			if err := b.Put([]byte(stream.ID), data); err != nil {
+			key := streamSchema.Key(streamKeyDef{
+				SourceType: stream.SourceType,
+				SourceID:   stream.SourceID,
+				StreamID:   stream.ID,
+			})
+			if err := b.Put(key, data); err != nil {
+				return err
+			}
+			if err := b.Put(keyenc.Reverse("streamidx", stream.ID), key); err != nil {
 				return err
 			}
 		}
@@ -103,26 +123,23 @@ func (s *StreamStore) BulkUpsert(_ context.Context, streams []media.Stream) erro
 func (s *StreamStore) DeleteBySource(_ context.Context, sourceType, sourceID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
 
-		var toDelete [][]byte
-		err := b.ForEach(func(k, v []byte) error {
+		var toDelete []struct{ key, id []byte }
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var stream media.Stream
-			if err := json.Unmarshal(v, &stream); err != nil {
-				return err
+			if json.Unmarshal(v, &stream) == nil {
+				toDelete = append(toDelete, struct{ key, id []byte }{
+					key: append([]byte{}, k...),
+					id:  []byte(stream.ID),
+				})
 			}
-			if stream.SourceType == sourceType && stream.SourceID == sourceID {
-				toDelete = append(toDelete, k)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
 		}
 
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
-				return err
-			}
+		for _, d := range toDelete {
+			b.Delete(d.key)
+			b.Delete(keyenc.Reverse("streamidx", string(d.id)))
 		}
 		return nil
 	})
@@ -138,30 +155,27 @@ func (s *StreamStore) DeleteStaleBySource(_ context.Context, sourceType, sourceI
 
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID})
 
-		var toDelete [][]byte
-		err := b.ForEach(func(k, v []byte) error {
+		var toDelete []struct{ key, id []byte }
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var stream media.Stream
-			if err := json.Unmarshal(v, &stream); err != nil {
-				return err
-			}
-			if stream.SourceType != sourceType || stream.SourceID != sourceID {
-				return nil
+			if json.Unmarshal(v, &stream) != nil {
+				continue
 			}
 			if _, ok := keep[stream.ID]; !ok {
-				toDelete = append(toDelete, k)
+				toDelete = append(toDelete, struct{ key, id []byte }{
+					key: append([]byte{}, k...),
+					id:  []byte(stream.ID),
+				})
 				deleted = append(deleted, stream.ID)
 			}
-			return nil
-		})
-		if err != nil {
-			return err
 		}
 
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
-				return err
-			}
+		for _, d := range toDelete {
+			b.Delete(d.key)
+			b.Delete(keyenc.Reverse("streamidx", string(d.id)))
 		}
 		return nil
 	})
@@ -171,4 +185,55 @@ func (s *StreamStore) DeleteStaleBySource(_ context.Context, sourceType, sourceI
 
 func (s *StreamStore) Save() error {
 	return nil
+}
+
+func (s *StreamStore) migrateFromFlatKeys() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketStreams)
+
+		c := b.Cursor()
+		k, _ := c.Seek(prefixIdx)
+		if k != nil && bytes.HasPrefix(k, prefixIdx) {
+			return nil
+		}
+
+		type migration struct {
+			oldKey, newKey, idxKey, data []byte
+		}
+		var migrations []migration
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+				continue
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) != nil || stream.SourceType == "" || stream.SourceID == "" || stream.ID == "" {
+				continue
+			}
+			newKey := streamSchema.Key(streamKeyDef{
+				SourceType: stream.SourceType,
+				SourceID:   stream.SourceID,
+				StreamID:   stream.ID,
+			})
+			migrations = append(migrations, migration{
+				oldKey: append([]byte{}, k...),
+				newKey: newKey,
+				idxKey: keyenc.Reverse("streamidx", stream.ID),
+				data:   append([]byte{}, v...),
+			})
+		}
+
+		if len(migrations) == 0 {
+			return nil
+		}
+
+		log.Printf("streams: migrating %d streams to prefixed keys", len(migrations))
+		for _, m := range migrations {
+			b.Put(m.newKey, m.data)
+			b.Put(m.idxKey, m.newKey)
+			b.Delete(m.oldKey)
+		}
+		log.Printf("streams: migration complete")
+		return nil
+	})
 }
