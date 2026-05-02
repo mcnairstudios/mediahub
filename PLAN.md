@@ -1,236 +1,80 @@
-# Source Stream Profiles — Generic Input Configuration
+# MediaHub Plan
 
-## Concept
+## Architecture
+See top of file for Source Stream Profile design (unchanged).
 
-A source stream profile captures everything about how to **receive and normalize** an input stream, regardless of source type. The same profile can apply to any source — SAT>IP, HDHR, IPTV, IP camera, local file. The only difference between source types is which fields are relevant; the profile struct is universal.
+## Sprint: User Feedback (Current)
 
-This means:
-- Knowledge learned from one device applies to similar devices
-- New source types don't need new profile code — just select the right fields
-- Users create profiles once and reuse them across sources
+### Stream 1: Frontend UX Overhaul
+1. **Left menu reorganization** [M] — Mirror tvproxy: Dashboard, Activity, Channels, Movies, TV Series, EPG Guide, Recordings, Favorites | Admin: Sources, Channel Groups, Source Profiles, Clients, Settings, Users, WireGuard, HDHR Devices, Logos | Developer: Probe, Play URL, API Keys, Debug. Remove TMDB as standalone page.
+2. **Edit panels as popups** [S] — All edit forms in modal overlays, not inline at bottom. Confirm/cancel buttons. Reference tvproxy modal pattern.
+3. **Invites merged into Users** [S] — "Invite User" button on Users page, not separate nav item. Remove Invites from nav.
+4. **TMDB counts on dashboard** [S] — Remove TMDB nav item. Show queue/resolved/image counts as dashboard widget.
+5. **Dashboard EPG per-source** [S] — Show each EPG source with individual timestamp + status color (green/yellow/red).
+6. **Dashboard source cards** [S] — Click navigates to that source's streams (DONE but verify working).
 
-## What a Source Profile Controls
+### Stream 2: Channels, Guide & EPG
+7. **Channels overhaul** [M] — Match tvproxy: stream assignment UI, logo picker, EPG ID selector, group assignment. Edit in modal popup.
+8. **Channel groups** [M] — Drag reorder, bulk channel assignment to groups. Reference tvproxy channel_group.go.
+9. **Guide = MY channels** [M] — Guide shows user's chosen channels (not all EPG), grouped by channel group. Time grid with program tiles. Reference tvproxy EPG guide page.
+10. **Auto EPG matching** [M] — Match EPG channels to stream channels by tvg_id (exact) then name (fuzzy). Manual override. Optional epg_source_id on source config.
+11. **Series link in EPG** [M] — Parse XMLTV series-id/CRID. Show series link icon next to record button in guide. Group related episodes.
+12. **Stream/Logo/EPG selection** [S] — When adding channels, use tvproxy-style selection UIs for picking streams, logos, and EPG IDs.
 
-### Signal Processing
-| Field | Purpose | Example |
-|-------|---------|---------|
-| `deinterlace` | Enable deinterlacing | `true` for DVB SD content |
-| `deinterlace_method` | Algorithm | `"auto"`, `"bob"`, `"weave"` |
+### Stream 3: Recordings, Activity & Playback
+13. **Recording page overhaul** [M] — Three sections: Active, Scheduled, Completed. Show channel name, program title, duration, file size. Handle stale entries. Scheduled recordings from guide register with cron scheduler, cancellable.
+14. **Activity page** [S] — Active viewers (tuner usage), recent logins (20min window), stream/session info. Reference tvproxy ActivityService.
+15. **IPTV playback fix** [S] — Strategy defaults to transcode when in_video empty. Fix: default to copy when codec unknown, especially for HLS sources.
+16. **SAT>IP audio sync** [S] — AC3/MP2 decode errors cause audio underflow every ~25s. Investigate and fix.
+17. **Arbitrary play URL** [S] — Debug menu input: paste URL, detect codec, play. Uses existing detection logic.
 
-### Connection Tuning
-| Field | Purpose | Example |
-|-------|---------|---------|
-| `rtsp_protocols` | RTSP transport | `"tcp"` (reliable) or `"udp"` (low latency) |
-| `rtsp_latency` | RTSP buffer (ms) | `0` (min latency) to `2000` (stable) |
-| `http_timeout_sec` | Connection timeout | `5` (LAN) to `60` (remote) |
-| `http_user_agent` | UA override | Provider-specific UA strings |
-| `format_hint` | Force input format (ambiguous URLs only) | `"rtsp"`, `"mpegts"`, `"hls"` |
-| `probe_duration_sec` | How long to analyze stream | `10` for remote IPTV |
+### Stream 4: Data Integrity & Backend
+18. **Save persistence audit** [M] — Agent to check every save/update handler: does it persist to bolt? Is persisted data actually used? Report any orphaned saves.
+19. **Jellyfin completeness audit** [M] — Compare every endpoint response in tvproxy pkg/jellyfin/ vs mediahub pkg/frontend/jellyfin/. Report format differences.
+20. **System source profiles** [S] — Mark built-in profiles (SAT>IP, Default, HDHR, etc.) as IsSystem. Prevent deletion. Seed on startup.
+21. **User roles enforcement** [S] — Standard users: channels, guide, library, recordings, favorites only. Admin: everything. Frontend + middleware checks. DLNA Basic Auth respects roles. Reference tvproxy middleware.
+22. **Logos working** [S] — Verify full chain: EPG extraction → logo cache → channel assignment → display. Reference tvproxy logo.go.
+23. **Favorites instant** [S] — Bulk-fetch all user favorites once on page load. No per-item IsFavorite calls. Prefix scan is already fast.
 
-### Future Fields (added as needed)
-| Field | Purpose | When |
-|-------|---------|------|
-| `audio_sync_mode` | PTS handling strategy | IP cameras with broken timestamps |
-| `reconnect_attempts` | Auto-reconnect count | Unreliable sources |
-| `reconnect_delay_sec` | Backoff between retries | Unreliable sources |
-| `buffer_size_kb` | Input buffer | High bitrate sources |
+## Completed (Previous Sessions)
 
-New fields are added with `omitempty` — old profiles remain valid. No migration needed.
-
-## What a Source Profile Does NOT Control
-
-These belong to the **client profile** (output side):
-- Encoder bitrate / quality
-- Output codec (h264, h265, av1)
-- Output container (mp4, mpegts, matroska)
-- Delivery mode (MSE, HLS, stream)
-- Output resolution ceiling
-- Hardware acceleration
-
-The separation is absolute: source profile = how to receive. Client profile = how to deliver.
-
-## How It Works in the Pipeline
-
-```
-Source → [Source Profile applied] → Demuxer → Bridge → FanOut → [Client Profile applied] → Output
-         ├─ timeout                                              ├─ codec
-         ├─ user agent                                           ├─ container
-         ├─ rtsp protocol                                        ├─ delivery
-         └─ deinterlace                                          ├─ bitrate
-                                                                 └─ resolution
-```
-
-The orchestrator's `StartPlayback`:
-1. Looks up the stream's source → source config → `source_profile_id`
-2. Loads the source profile
-3. Applies to `PipelineConfig`: timeout, user agent, deinterlace
-4. Detects the client → client profile
-5. Applies to strategy `Output`: codec, container, delivery, hwaccel
-6. Strategy produces decision → pipeline runs
-
-## Seeded Profiles
-
-Stored in `defaults/source_profiles.json`, loaded on first run:
-
-```json
-[
-  {
-    "name": "Default",
-    "http_timeout_sec": 30
-  },
-  {
-    "name": "DVB Terrestrial",
-    "deinterlace": true,
-    "deinterlace_method": "auto",
-    "rtsp_protocols": "tcp",
-    "http_timeout_sec": 60
-  },
-  {
-    "name": "DVB Satellite",
-    "deinterlace": true,
-    "deinterlace_method": "auto",
-    "rtsp_protocols": "tcp",
-    "rtsp_latency": 200,
-    "http_timeout_sec": 60
-  },
-  {
-    "name": "HDHomeRun",
-    "http_timeout_sec": 10
-  },
-  {
-    "name": "Remote IPTV",
-    "http_timeout_sec": 30
-  },
-  {
-    "name": "Local Network",
-    "http_timeout_sec": 5
-  }
-]
-```
-
-Users can:
-- Edit any seeded profile
-- Create new profiles for new device types
-- Assign any profile to any source — the UI shows/hides irrelevant fields but the backend doesn't enforce which fields apply to which source type
-
-## UI
-
-### Source Profiles Page (admin)
-- Table: Name, Deinterlace, RTSP, Timeout
-- Create/Edit form shows ALL fields grouped by category
-- Help text per field explains when to use it
-
-### Source Forms (M3U, SAT>IP, HDHR, Xtream, tvpstreams)
-- "Source Profile" dropdown populated from `/api/source-profiles`
-- Same dropdown on every source type — no source-type-specific logic
-- Selected profile ID stored as `source_profile_id` in source config
-
-### Auto Refresh
-- "Refresh Interval" dropdown: None, Every Minute, Hourly, Daily, Weekly
-- Stored as `refresh_interval` in source config
-- tvpstreams defaults to "Every Minute" (cheap ETag checks)
-- Everything else defaults to "None" (manual)
-
-## API
-
-```
-GET    /api/source-profiles         — list all
-GET    /api/source-profiles/{id}    — get one
-POST   /api/source-profiles         — create
-PUT    /api/source-profiles/{id}    — update
-DELETE /api/source-profiles/{id}    — delete
-```
-
-## Key Principles
-
-1. **One struct, all sources** — the Profile struct is the same regardless of source type
-2. **Additive, never breaking** — new fields added with omitempty, old profiles stay valid
-3. **Input only** — no output/encoding concerns leak into source profiles
-4. **Reusable** — a profile created for one SAT>IP device works on any similar device
-5. **Overridable** — external `/config/source_profiles.json` overrides embedded defaults
-6. **Seeded, not hardcoded** — defaults are JSON data, not Go code
-
----
-
-# Current Work Plan
-
-## Completed
-
-- Auto-recovery for live streams (3 retries with exponential backoff)
-- Recording intent persistence (recording.json on start, recover on restart)
-- Dockerfile (multi-stage build, linuxserver/ffmpeg, HW accel drivers)
-- CI pipeline (GitHub Actions: test on push, Docker build on tags)
-- DLNA/Jellyfin enable/disable (settings toggles)
-- HDHR SSDP advertisement (device discovery for Plex/Channels DVR)
-- HW acceleration gaps (per-codec encoder settings, resolution-based bitrate)
-- Recording playback (end-to-end: play, seek, serve completed recordings)
-- Alphabet jump sidebar on library grids
-- Client profile save fix (nested profile object)
-- listen_port=0 for port-agnostic client detection
-- TV series grouping by group field
-- TMDB series lookup by group name
-- Tags system (edition, codec, resolution, audio format)
-- Sync progress live updates
-- VOD cache invalidation during sync
-- Token TTL 24h
-- Edition tag stripping for TMDB matching
-- Unified refresh intervals (all sources use same mechanism)
-- EPG refresh unified into source worker
-- Standalone movies not grouped as collections
-- Source stream profiles (format_hint, probe_duration_sec)
-- Global audio/subtitle language in settings
-- JSON defaults (clients.json, source_profiles.json, settings.json)
-- Source count cached in config (no bolt scan)
-- Slim streams API (?fields=slim)
-- Bandwidth estimation
-- Google OAuth SSO
-- SAT>IP full scan package
-- MSE playback pipeline fixes
-- Audio transcode (always unless explicit copy)
-- Bridge AudioOnly mode
-- WireGuard client helper extraction (main.go dedup)
-- OnRefreshDone callback extraction (main.go dedup)
-- Xtream last_refreshed persistence fix
-- Xtream account info error display fix
+- Import/Export (endpoints + UI)
+- HDHR per-device servers (store, manager, auto-split, SSDP)
+- Multi-WireGuard failover (HealthCheck + Failover + scheduler)
+- Invite system (tokens + API keys + X-API-Key middleware)
+- OpenAPI spec (Swagger UI at /api/docs)
+- Debug endpoints (pprof + debug_enabled)
 - Error message constants (pkg/api/errors.go)
-
-## Done (this session)
-
-- ~~Import/Export~~ — Implemented (export/import/soft-reset/hard-reset endpoints + UI)
-- ~~HDHR per-device servers~~ — Implemented (device store, manager, auto-split, per-device SSDP)
-- ~~Multi-WireGuard failover~~ — Implemented (HealthCheck + Failover + 30s scheduler)
-- ~~Invite system~~ — Implemented (create/accept tokens + API keys + X-API-Key middleware)
-- ~~OpenAPI spec~~ — Implemented (Swagger UI at /api/docs)
-- ~~Debug endpoints~~ — Implemented (pprof + debug_enabled setting)
-- ~~Error message constants~~ — Implemented (pkg/api/errors.go)
-- ~~WireGuard client config dedup~~ — Extracted resolveWGClient() helper
-- ~~OnRefreshDone callback dedup~~ — Extracted makeOnRefreshDone() shared function
-- ~~Unified scheduler~~ — robfig/cron + bolt persistence, replaces worker + recscheduler
-- ~~Prefix-keyed stores~~ — streams, channels, groups, EPG, recordings, favorites on keyenc
-- ~~Post-probe stream metadata~~ — Probe results saved back to stream store
-- ~~EPG source filtering~~ — Programs tagged with SourceID, filtered per-source
-- ~~Last Refreshed bug~~ — Xtream OnRefreshDone callback wired
-- ~~Xtream Account Info~~ — Error messages now displayed in frontend
-
-## Next Up
-
-### HIGH
-- **SAT>IP audio sync** — AC3/MP2 decode errors cause audio underflow every ~25s
-- **Per-channel profile override** — Channel forces specific client profile
-- **Probe caching** — Store results in bolt, skip re-probe for known streams
-
-### MEDIUM
-- **Handler CRUD boilerplate** — Extract get-check-404-decode helpers (50+ handlers)
-- **Migrate remaining stores to keyenc** — users, clients, apikeys, invites, source_configs, settings, probe_cache
-- **Source plugin base type** — Shared Info(), HTTP client selection across 5 plugins
-- **Main.go factory reorganization** — Move 200 lines of factory registration to bootstrap file
-- **Subtitle extraction** — WebVTT from embedded DVB subtitles
+- WireGuard client config dedup (resolveWGClient helper)
+- OnRefreshDone callback dedup (makeOnRefreshDone)
+- Unified scheduler (robfig/cron + bolt persistence)
+- Prefix-keyed stores (streams, channels, groups, EPG, recordings, favorites)
+- VOD type in stream keys (ListBySourceAndType, ListByVODType)
+- Post-probe stream metadata saved to store
+- EPG source filtering (SourceID on programs)
+- Last Refreshed bug fix (Xtream OnRefreshDone)
+- Xtream Account Info error display
+- SAT>IP H.265 transcode pipeline (in-process, hev1 fMP4, ffmpeg handles Annex B)
+- go-astiav usage aligned with official examples
+- BSF extradata extractor
+- FanOut error isolation (record plugin errors non-fatal)
+- Source profiles merged (SAT>IP DVB-T + DVB Satellite → SAT>IP)
+- Dashboard improvements (uptime, Now/Next, bulk ops, auto-number)
+- CI smoke test upgrade
+- Settings validation
+- DLNA now-playing EPG info
+- Jellyfin TMDB enrichment + season posters
+- Channel auto-numbering on startup
 
 ## Backlog (Low Priority)
 
-- Generic store CRUD helpers (Go generics make this awkward)
-- Frontend UI component consolidation (modals, tables, forms)
-- SSDP advertiser consolidation (HDHR + DLNA)
-- Magic string constants (config keys, setting keys, status strings)
-- Stream pagination for large sources (554K M3U streams)
+- Handler CRUD boilerplate extraction (50+ handlers)
+- Migrate remaining stores to keyenc (users, clients, apikeys, invites, source_configs, settings, probe_cache)
+- Source plugin base type (shared Info(), HTTP client selection)
+- Main.go factory reorganization
+- Generic store CRUD helpers
+- Frontend UI component consolidation
+- SSDP advertiser consolidation
+- Magic string constants
+- Stream pagination for large sources
 - Virtual scroll for large poster grids
