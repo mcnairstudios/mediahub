@@ -701,6 +701,10 @@
       var sources = await resp.json();
       if (!Array.isArray(sources)) sources = [];
       buildSourcePicker(el, sources);
+      if (router.params && router.params.sourceType && router.params.sourceId) {
+        loadSourceStreams(router.params.sourceType, router.params.sourceId, router.params.sourceType === 'tvpstreams');
+        router.params = {};
+      }
     } catch (e) {
       document.getElementById('stream-source-picker').innerHTML =
         '<div class="empty-state">' + icons.empty + '<p>Failed to load sources</p></div>';
