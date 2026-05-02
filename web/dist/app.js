@@ -501,6 +501,8 @@
         closePlayerOverlay();
         api.token = null;
         api.user = null;
+        streamFavorites = {};
+        favoritesLoaded = false;
         router.navigate('login');
       });
     }
@@ -604,7 +606,7 @@
       '<div class="dash-section-title">' + icons.epg + ' EPG Status</div>' +
       '<div id="dash-epg"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>' +
-      '<!-- system removed, in tiles --><div style="display:none" id="dash-system-section">' +
+      '<div style="display:none" id="dash-system-section">' +
       '<div class="dash-section-title">' + icons.settings + ' System</div>' +
       '<div id="dash-system"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>';
@@ -631,8 +633,8 @@
 
       var sourcesEl = document.getElementById('dash-sources');
       if (sourcesEl && stats.sources) {
-        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8' };
-        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT' };
+        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800' };
+        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL' };
         var sHtml = '';
         for (var si = 0; si < stats.sources.length; si++) {
           var src = stats.sources[si];
@@ -757,7 +759,6 @@
       '<div id="stream-list"></div>';
 
     try {
-      await loadFavorites();
       var resp = await api.get('/api/sources');
       var sources = await resp.json();
       if (!Array.isArray(sources)) sources = [];
@@ -784,7 +785,7 @@
     var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
-      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : 'M3U';
+      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'Trailers' : 'M3U';
       html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
@@ -3120,6 +3121,9 @@
       } else if (r.status === 'scheduled' && r.scheduled_start) {
         var countdown = (new Date(r.scheduled_start).getTime() - Date.now()) / 1000;
         durStr = countdown > 0 ? '<span class="rec-countdown" data-start="' + esc(r.scheduled_start) + '" style="color:var(--accent)">in ' + formatDurationSec(countdown) + '</span>' : '<span style="color:var(--warning)">starting...</span>';
+      } else if (r.status === 'scheduled' && r.scheduled_stop) {
+        var schedDur = (new Date(r.scheduled_stop) - new Date(r.scheduled_start)) / 1000;
+        if (schedDur > 0) durStr = formatDurationSec(schedDur);
       }
       var sizeStr = formatBytes(r.file_size);
       var title = r.title || r.stream_name || r.channel_name || r.stream_id;
@@ -3127,11 +3131,19 @@
       if (title === subtitle) subtitle = '';
       var titleHtml = '<div style="font-weight:600">' + esc(title) + '</div>';
       if (subtitle) titleHtml += '<div style="font-size:12px;color:var(--text-muted)">' + esc(subtitle) + '</div>';
+      var codecBadges = '';
+      if (r.video_codec) codecBadges += '<span class="badge badge-delivery" style="font-size:10px;padding:1px 5px">' + esc(r.video_codec.toUpperCase()) + '</span> ';
+      if (r.audio_codec) codecBadges += '<span class="badge badge-delivery" style="font-size:10px;padding:1px 5px">' + esc(r.audio_codec.toUpperCase()) + '</span> ';
+      if (r.container) codecBadges += '<span class="badge" style="background:var(--bg-hover);color:var(--text-dim);font-size:10px;padding:1px 5px;border-radius:4px">' + esc(r.container.toUpperCase()) + '</span>';
+      if (codecBadges) titleHtml += '<div style="margin-top:2px">' + codecBadges + '</div>';
+      if (r.status === 'completed' && r.file_exists === false) {
+        titleHtml += '<div style="font-size:11px;color:var(--danger);margin-top:2px">File missing from disk</div>';
+      }
       var actions = '';
       if (r.status === 'recording' && isAdmin) {
         actions += '<button class="btn btn-sm btn-danger rec-stop-btn" data-id="' + esc(r.stream_id) + '" title="Stop">' + (icons.stop || 'Stop') + '</button>';
       }
-      if (r.status === 'completed') {
+      if (r.status === 'completed' && r.file_exists !== false) {
         actions += '<button class="btn btn-sm btn-primary rec-play-btn" data-id="' + esc(r.id) + '" data-title="' + esc(title) + '" title="Play">' + icons.play + '</button>';
         actions += '<a class="btn btn-sm btn-ghost" href="/api/recordings/completed/' + esc(r.id) + '/stream" target="_blank" download title="Download">' + icons.download + '</a>';
       }
@@ -3253,12 +3265,8 @@
       '<div id="fav-list"><div class="skeleton" style="height:200px"></div></div>';
 
     try {
-      await loadFavorites();
-      var favResp = await api.get('/api/favorites');
-      var favs = await favResp.json();
-      if (!Array.isArray(favs)) favs = [];
-
-      var streamIDs = favs.map(function(f) { return f.stream_id; });
+      await loadFavorites(true);
+      var streamIDs = Object.keys(streamFavorites);
       var allStreams = [];
       if (streamIDs.length > 0) {
         var streamResp = await api.get('/api/streams?fields=slim');
@@ -3476,6 +3484,7 @@
       '<button class="btn btn-primary" id="add-xtream-btn">' + icons.plus + ' Add Xtream Source</button>' +
       '<button class="btn btn-primary" id="add-hdhr-btn">' + icons.plus + ' Add HDHomeRun</button>' +
       '<button class="btn btn-primary" id="add-satip-btn">' + icons.plus + ' Add SAT>IP Source</button>' +
+      '<button class="btn btn-primary" id="add-trailers-btn">' + icons.plus + ' Add Apple Trailers</button>' +
       '<button class="btn btn-ghost" id="discover-hdhr-btn">Discover HDHomeRun</button>' +
       '</div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
@@ -3535,9 +3544,14 @@
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="satip-enabled" checked> Enabled</label></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-satip-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-satip-btn">Cancel</button></div></div>' +
+      '<div id="add-trailers-form" style="display:none" class="card">' +
+      '<div class="card-title">New Apple Trailers Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="trailers-name" placeholder="Apple Trailers" value="Apple Trailers"></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-trailers-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-trailers-btn">Cancel</button></div></div>' +
       '<div id="hdhr-discover-modal" style="display:none"></div>';
 
-    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form'];
+    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form', 'add-trailers-form'];
     var editingSourceId = null;
     var editingSourceType = null;
 
@@ -3682,6 +3696,13 @@
       showSourceFormAsModal('add-satip-form');
     });
     document.getElementById('cancel-satip-btn').addEventListener('click', function() { hideAllForms(); });
+    document.getElementById('add-trailers-btn').addEventListener('click', function() {
+      resetFormFields('add-trailers-form');
+      setFormTitle('add-trailers-form', 'New Apple Trailers Source');
+      setSubmitBtnText('create-trailers-btn', 'Create');
+      showSourceFormAsModal('add-trailers-form');
+    });
+    document.getElementById('cancel-trailers-btn').addEventListener('click', function() { hideAllForms(); });
 
     async function loadSystems(selectedSystem) {
       var sel = document.getElementById('satip-system');
@@ -3784,6 +3805,32 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'SAT>IP source created');
+          hideAllForms();
+          editingSourceId = null;
+          editingSourceType = null;
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save source', 'error');
+      }
+    });
+
+    document.getElementById('create-trailers-btn').addEventListener('click', async function() {
+      var name = document.getElementById('trailers-name').value.trim();
+      if (!name) { toast('Name required', 'error'); return; }
+      try {
+        var payload = { name: name };
+        var r;
+        if (editingSourceId && editingSourceType === 'trailers') {
+          r = await api.put('/api/sources/trailers/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/trailers', payload);
+        }
+        if (r.ok) {
+          toast(editingSourceId ? 'Source updated' : 'Apple Trailers source created, refreshing...');
           hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
@@ -4353,6 +4400,11 @@
             document.getElementById('satip-profile').value = config.source_profile_id || '';
             document.getElementById('satip-epg-source').value = config.epg_source_id || '';
             document.getElementById('satip-enabled').checked = entry.is_enabled;
+          } else if (type === 'trailers') {
+            setFormTitle('add-trailers-form', 'Edit Apple Trailers Source');
+            setSubmitBtnText('create-trailers-btn', 'Update');
+            showSourceFormAsModal('add-trailers-form');
+            document.getElementById('trailers-name').value = name || '';
           }
         });
       });
@@ -5879,87 +5931,97 @@
 
       var viewers = data.viewers || [];
       var recentUsers = data.recent_users || [];
+      var sessionCount = data.session_count || 0;
       var streamCount = viewers.length;
       var userCount = recentUsers.length;
 
-      var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">' +
-        '<h2 style="margin:0">Activity</h2>' +
-        '<div style="display:flex;gap:16px;font-size:0.95em;color:var(--text-muted)">' +
-        '<span>' + streamCount + ' stream' + (streamCount !== 1 ? 's' : '') + '</span>' +
-        '<span>' + userCount + ' user' + (userCount !== 1 ? 's' : '') + ' online</span>' +
-        '</div></div>';
-      root.innerHTML = header;
+      var statsHtml = '<div class="stat-grid" style="margin-bottom:20px">' +
+        '<div class="stat-card"><div class="stat-value">' + streamCount + '</div><div class="stat-label">Active Streams</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + sessionCount + '</div><div class="stat-label">Sessions</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + userCount + '</div><div class="stat-label">Users Online</div></div>' +
+        '</div>';
+      root.innerHTML = statsHtml;
 
       if (viewers.length === 0 && recentUsers.length === 0) {
-        root.innerHTML += '<div style="text-align:center;padding:48px 16px;color:var(--text-muted)">' +
-          '<p style="font-size:1.1em;margin:0">No active sessions</p>' +
-          '</div>';
+        root.innerHTML += '<div class="empty-state"><p>No active sessions</p></div>';
         return;
       }
 
       if (viewers.length > 0) {
+        root.innerHTML += '<h3 style="margin:0 0 12px 0;font-size:1em;color:var(--text-dim)">Active Streams</h3>';
         var grid = '';
         for (var i = 0; i < viewers.length; i++) {
-        var v = viewers[i];
-        var displayName = v.stream_name || v.channel_name || 'Unknown Stream';
+          var v = viewers[i];
+          var displayName = v.stream_name || v.channel_name || 'Unknown Stream';
 
-        grid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">';
+          grid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">';
 
-        grid += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
-        grid += '<span style="font-size:1.15em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(displayName) + '">' + esc(displayName) + '</span>';
-        grid += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.85em;white-space:nowrap">' +
-          '<span style="width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0"></span>Playing</span>';
-        grid += '</div>';
+          grid += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
+          grid += '<span style="font-size:1.05em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="' + esc(displayName) + '">' + esc(displayName) + '</span>';
+          grid += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.85em;white-space:nowrap;flex-shrink:0">' +
+            '<span style="width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0"></span>Playing</span>';
+          grid += '</div>';
 
-        if (v.username) {
-          grid += '<div style="display:flex;align-items:center;gap:6px;font-size:0.9em;color:var(--text-muted)">' +
-            '<span style="font-weight:500">\ud83d\udc64</span>' +
-            '<span>' + esc(v.username) + '</span></div>';
+          grid += '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
+          if (v.username) {
+            grid += '<span class="badge" style="background:rgba(91,110,239,.1);color:var(--accent);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.username) + '</span>';
+          }
+          if (v.delivery) {
+            grid += '<span class="badge" style="' + deliveryBadgeStyle(v.delivery) + 'font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.delivery.toUpperCase()) + '</span>';
+          }
+          if (v.client_name) {
+            grid += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.client_name) + '</span>';
+          }
+          if (v.transcoding) {
+            grid += '<span class="badge" style="background:rgba(251,191,36,.15);color:var(--warning);font-size:0.8em;padding:2px 8px;border-radius:4px">Transcode</span>';
+          } else if (v.video_codec) {
+            grid += '<span class="badge" style="background:rgba(52,211,153,.15);color:var(--success);font-size:0.8em;padding:2px 8px;border-radius:4px">Copy</span>';
+          }
+          grid += '</div>';
+
+          if (v.video_codec || v.audio_codec || v.resolution) {
+            grid += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+            if (v.video_codec) {
+              grid += '<span class="badge badge-delivery" style="font-size:0.75em;padding:1px 6px">' + esc(v.video_codec.toUpperCase()) + '</span>';
+            }
+            if (v.audio_codec) {
+              grid += '<span class="badge badge-delivery" style="font-size:0.75em;padding:1px 6px">' + esc(v.audio_codec.toUpperCase()) + '</span>';
+            }
+            if (v.resolution) {
+              grid += '<span class="badge" style="background:rgba(52,211,153,.1);color:var(--success);font-size:0.75em;padding:1px 6px;border-radius:4px">' + esc(v.resolution) + '</span>';
+            }
+            grid += '</div>';
+          }
+
+          grid += '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:0.85em;color:var(--text-muted)">';
+          grid += '<span style="font-weight:500">Duration</span>';
+          grid += '<span class="activity-duration" data-started="' + esc(v.started_at) + '">' + fmtDuration(v.started_at) + '</span>';
+          grid += '<span style="font-weight:500">IP</span>';
+          grid += '<span>' + esc(v.remote_addr || '-') + '</span>';
+          if (v.channel_name && v.stream_name && v.channel_name !== v.stream_name) {
+            grid += '<span style="font-weight:500">Channel</span>';
+            grid += '<span>' + esc(v.channel_name) + '</span>';
+          }
+          grid += '</div>';
+
+          grid += '</div>';
         }
 
-        grid += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-        if (v.delivery) {
-          grid += '<span class="badge" style="' + deliveryBadgeStyle(v.delivery) + 'font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.delivery.toUpperCase()) + '</span>';
-        }
-        if (v.client_name) {
-          grid += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.client_name) + '</span>';
-        }
-        grid += '</div>';
-
-        grid += '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:0.88em;color:var(--text-muted)">';
-        grid += '<span style="font-weight:500">IP</span>';
-        grid += '<span>' + esc(v.remote_addr || '-') + '</span>';
-        grid += '<span style="font-weight:500">Duration</span>';
-        grid += '<span class="activity-duration" data-started="' + esc(v.started_at) + '">' + fmtDuration(v.started_at) + '</span>';
-        if (v.channel_name && v.stream_name) {
-          grid += '<span style="font-weight:500">Channel</span>';
-          grid += '<span>' + esc(v.channel_name) + '</span>';
-        }
-        grid += '</div>';
-
-        grid += '</div>';
-      }
-
-      root.innerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:16px;margin-bottom:24px">' + grid + '</div>';
+        root.innerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:12px;margin-bottom:24px">' + grid + '</div>';
       }
 
       if (recentUsers.length > 0) {
-        root.innerHTML += '<h3 style="margin:0 0 12px 0;font-size:1em;color:var(--text-muted)">Recent Users</h3>';
-        var userGrid = '';
+        root.innerHTML += '<h3 style="margin:0 0 12px 0;font-size:1em;color:var(--text-dim)">Recent Users (20 min window)</h3>';
+        var userHtml = '<table class="list-table"><thead><tr><th>User</th><th>Source</th><th>IP</th><th>Last Active</th></tr></thead><tbody>';
         for (var j = 0; j < recentUsers.length; j++) {
           var u = recentUsers[j];
-          userGrid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">';
-          userGrid += '<div style="display:flex;align-items:center;gap:8px">';
-          userGrid += '<span style="font-weight:600">' + esc(u.username) + '</span>';
-          userGrid += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(u.source) + '</span>';
-          userGrid += '</div>';
-          userGrid += '<div style="display:flex;align-items:center;gap:12px;font-size:0.88em;color:var(--text-muted)">';
-          userGrid += '<span>' + esc(u.remote_addr || '-') + '</span>';
-          userGrid += '<span>' + fmtIdleSecs(u.idle_secs || 0) + '</span>';
-          userGrid += '</div>';
-          userGrid += '</div>';
+          userHtml += '<tr><td style="font-weight:600">' + esc(u.username) + '</td>';
+          userHtml += '<td><span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(u.source) + '</span></td>';
+          userHtml += '<td style="color:var(--text-muted)">' + esc(u.remote_addr || '-') + '</td>';
+          userHtml += '<td style="color:var(--text-muted)">' + fmtIdleSecs(u.idle_secs || 0) + '</td></tr>';
         }
-        root.innerHTML += '<div style="display:grid;gap:8px">' + userGrid + '</div>';
+        userHtml += '</tbody></table>';
+        root.innerHTML += '<div class="card">' + userHtml + '</div>';
       }
     }
 
@@ -6396,8 +6458,6 @@
       '<div id="lib-content"><div class="skeleton" style="height:400px"></div></div>';
 
     try {
-      await loadFavorites();
-
       var sourcesResp = await api.get('/api/sources');
       var allSources = await sourcesResp.json();
       if (!Array.isArray(allSources)) allSources = [];
@@ -7429,6 +7489,14 @@
           return;
         }
 
+        var seriesBtn = e.target.closest('.epg-series-btn');
+        if (seriesBtn) {
+          e.stopPropagation();
+          var sid = seriesBtn.dataset.seriesId;
+          if (sid) showSeriesModal(sid);
+          return;
+        }
+
         var prog = e.target.closest('.epg-program');
         if (prog) {
           var row = prog.closest('.epg-row');
@@ -7574,8 +7642,10 @@
 
       if (opts.seriesID) {
         var seriesEl = document.createElement('div');
-        seriesEl.style.cssText = 'font-size:12px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:4px;';
-        seriesEl.innerHTML = '\u{1F517} Series link: ' + esc(opts.seriesID) + (opts.episodeNum ? ' | Episode: ' + esc(opts.episodeNum) : '');
+        seriesEl.style.cssText = 'font-size:12px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:6px;cursor:pointer;';
+        seriesEl.innerHTML = '\u{1F517} <span style="text-decoration:underline">View all episodes</span>' + (opts.episodeNum ? ' <span style="opacity:0.7">| Episode: ' + esc(opts.episodeNum) + '</span>' : '');
+        seriesEl.title = 'Series: ' + opts.seriesID;
+        seriesEl.onclick = function() { overlay.remove(); showSeriesModal(opts.seriesID); };
         body.appendChild(seriesEl);
       }
 
@@ -7634,6 +7704,71 @@
 
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
+    }
+
+    function showSeriesModal(seriesID) {
+      var sOvr = document.createElement('div');
+      sOvr.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+      sOvr.onclick = function(e) { if (e.target === sOvr) sOvr.remove(); };
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { sOvr.remove(); document.removeEventListener('keydown', onKey); } });
+      var sMdl = document.createElement('div');
+      sMdl.style.cssText = 'width:90%;max-width:640px;max-height:80vh;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;position:relative;display:flex;flex-direction:column;';
+      var sHdr = document.createElement('div');
+      sHdr.style.cssText = 'padding:20px 24px 12px;border-bottom:1px solid var(--border);';
+      var sCls = document.createElement('button');
+      sCls.textContent = '✕';
+      sCls.style.cssText = 'position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:4px;';
+      sCls.onclick = function() { sOvr.remove(); };
+      sHdr.appendChild(sCls);
+      var sTtl = document.createElement('div');
+      sTtl.style.cssText = 'font-size:18px;font-weight:700;color:#fff;padding-right:32px;';
+      sTtl.textContent = 'Series Episodes';
+      sHdr.appendChild(sTtl);
+      sMdl.appendChild(sHdr);
+      var sBdy = document.createElement('div');
+      sBdy.style.cssText = 'padding:16px 24px 20px;overflow-y:auto;flex:1;';
+      sBdy.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)"><div class="spinner-ring"></div> Loading episodes...</div>';
+      sMdl.appendChild(sBdy);
+      sOvr.appendChild(sMdl);
+      document.body.appendChild(sOvr);
+      api.get('/api/epg/series?series_id=' + encodeURIComponent(seriesID)).then(function(resp) {
+        return resp.json();
+      }).then(function(episodes) {
+        if (!Array.isArray(episodes) || episodes.length === 0) {
+          sBdy.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No episodes found for this series.</div>';
+          return;
+        }
+        episodes.sort(function(a, b) { return new Date(a.start).getTime() - new Date(b.start).getTime(); });
+        var sNow = Date.now();
+        var chNames = guideData.channel_names || {};
+        var sHtml = '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">' + episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '') + ' found</div>';
+        for (var si = 0; si < episodes.length; si++) {
+          var ep = episodes[si];
+          var epSt = new Date(ep.start).getTime();
+          var epEn = new Date(ep.stop).getTime();
+          var sLive = sNow >= epSt && sNow < epEn;
+          var sPast = sNow >= epEn;
+          var sFut = epSt > sNow;
+          var sBdg = '';
+          if (sLive) sBdg = '<span style="background:var(--danger);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;margin-left:6px;">LIVE</span>';
+          else if (sFut) sBdg = '<span style="color:var(--accent);font-size:11px;margin-left:6px;">Upcoming</span>';
+          var eNum = ep.episode_num ? '<span style="color:var(--text-muted);font-size:11px;margin-left:4px;">(' + esc(ep.episode_num) + ')</span>' : '';
+          var nBdg = ep.is_new ? '<span style="color:#22c55e;font-size:10px;font-weight:700;margin-left:4px;">NEW</span>' : '';
+          var cNm = chNames[ep.channel_id] ? '<span style="color:var(--text-muted);font-size:11px;"> on ' + esc(chNames[ep.channel_id]) + '</span>' : '';
+          var dStr = new Date(ep.start).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+          var tStr = guideFormatTime(epSt) + ' - ' + guideFormatTime(epEn);
+          sHtml += '<div style="padding:10px 0;border-bottom:1px solid var(--border);' + (sPast ? 'opacity:0.5;' : '') + '">' +
+            '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
+            '<span style="font-weight:600;color:#fff;">' + esc(ep.title) + '</span>' + eNum + nBdg + sBdg + '</div>' +
+            (ep.subtitle ? '<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">' + esc(ep.subtitle) + '</div>' : '') +
+            '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + esc(dStr) + ' ' + esc(tStr) + cNm + '</div>' +
+            (ep.description ? '<div style="font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.4;">' + esc(ep.description.length > 150 ? ep.description.substring(0, 150) + '...' : ep.description) + '</div>' : '') +
+            '</div>';
+        }
+        sBdy.innerHTML = sHtml;
+      }).catch(function(err) {
+        sBdy.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger)">Failed to load episodes: ' + esc(err.message) + '</div>';
+      });
     }
 
     if (channels.length === 0) {

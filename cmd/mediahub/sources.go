@@ -15,6 +15,7 @@ import (
 	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
+	trailerssource "github.com/mcnairstudios/mediahub/pkg/source/trailers"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
@@ -192,5 +193,22 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 			StreamStore:     deps.StreamStore,
 		}
 		return satipsource.New(satipCfg), nil
+	})
+
+	reg.Register("trailers", func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		tCfg := trailerssource.Config{
+			ID:          sc.ID,
+			Name:        sc.Name,
+			IsEnabled:   sc.IsEnabled,
+			StreamStore: deps.StreamStore,
+		}
+		return trailerssource.New(tCfg), nil
 	})
 }
