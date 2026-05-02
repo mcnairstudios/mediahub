@@ -5534,7 +5534,7 @@
           detailRow.appendChild(td);
           row.after(detailRow);
           try {
-            var gdResp = await api.get('/api/epg/guide?hours=6');
+            var gdResp = await api.get('/api/epg/programs?source_id=' + encodeURIComponent(id));
             var guideData = await gdResp.json();
             var programs = guideData.programs || {};
             var HOUR_WIDTH = 240;
@@ -5675,9 +5675,12 @@
     }
   }
 
-  var activityRefreshTimer = null;
-
   async function renderActivity(el) {
+    el.innerHTML = '<div id="activity-root"><div style="text-align:center;padding:48px;color:var(--text-muted)">Loading activity...</div></div>';
+
+    var pollTimer = null;
+    var durationTimer = null;
+
     function fmtDuration(startedAt) {
       var secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
       if (secs < 0) secs = 0;
@@ -5695,26 +5698,24 @@
       return 'background:var(--bg-hover);color:var(--text);';
     }
 
-    el.innerHTML = '<div id="activity-root"><div style="text-align:center;padding:48px;color:var(--text-muted)">Loading activity...</div></div>';
-
     function renderViewers(viewers) {
       var root = document.getElementById('activity-root');
       if (!root) return;
       root.innerHTML = '';
 
-      var viewerCount = viewers ? viewers.length : 0;
+      var streamCount = viewers ? viewers.length : 0;
 
-      var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">' +
-        '<h1 class="page-title" style="margin:0">Activity</h1>' +
-        '<span style="font-size:0.95em;color:var(--text-muted)">' + viewerCount + ' active stream' + (viewerCount !== 1 ? 's' : '') + '</span>' +
-        '</div>';
+      var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">' +
+        '<h2 style="margin:0">Activity</h2>' +
+        '<div style="display:flex;gap:16px;font-size:0.95em;color:var(--text-muted)">' +
+        '<span>\u25B6 ' + streamCount + ' stream' + (streamCount !== 1 ? 's' : '') + '</span>' +
+        '</div></div>';
       root.innerHTML = header;
 
       if (!viewers || viewers.length === 0) {
-        root.innerHTML += '<div style="text-align:center;padding:64px 16px;color:var(--text-muted)">' +
-          '<div style="font-size:3em;margin-bottom:16px;opacity:0.3">' + icons.play + '</div>' +
+        root.innerHTML += '<div style="text-align:center;padding:48px 16px;color:var(--text-muted)">' +
+          '<div style="font-size:3em;margin-bottom:12px;opacity:0.4">\u25B6</div>' +
           '<p style="font-size:1.1em;margin:0">No active sessions</p>' +
-          '<p style="font-size:0.9em;margin-top:8px;opacity:0.7">Start playing a stream to see it here</p>' +
           '</div>';
         return;
       }
@@ -5724,19 +5725,21 @@
         var v = viewers[i];
         var displayName = v.stream_name || v.channel_name || 'Unknown Stream';
 
-        grid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px">';
+        grid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">';
 
         grid += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
-        grid += '<span style="font-size:1.1em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(displayName) + '">' + esc(displayName) + '</span>';
+        grid += '<span style="font-size:1.15em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(displayName) + '">' + esc(displayName) + '</span>';
         grid += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.85em;white-space:nowrap">' +
           '<span style="width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0"></span>Playing</span>';
         grid += '</div>';
 
         if (v.username) {
-          grid += '<div style="font-size:0.9em;color:var(--text-muted)">' + esc(v.username) + '</div>';
+          grid += '<div style="display:flex;align-items:center;gap:6px;font-size:0.9em;color:var(--text-muted)">' +
+            '<span style="font-weight:500">\ud83d\udc64</span>' +
+            '<span>' + esc(v.username) + '</span></div>';
         }
 
-        grid += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+        grid += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
         if (v.delivery) {
           grid += '<span class="badge" style="' + deliveryBadgeStyle(v.delivery) + 'font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.delivery.toUpperCase()) + '</span>';
         }
@@ -5746,11 +5749,11 @@
         grid += '</div>';
 
         grid += '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:0.88em;color:var(--text-muted)">';
-        grid += '<span style="font-weight:500">Duration</span>';
-        grid += '<span class="activity-duration" data-started="' + esc(v.started_at) + '">' + fmtDuration(v.started_at) + '</span>';
         grid += '<span style="font-weight:500">IP</span>';
         grid += '<span>' + esc(v.remote_addr || '-') + '</span>';
-        if (v.channel_name) {
+        grid += '<span style="font-weight:500">Duration</span>';
+        grid += '<span class="activity-duration" data-started="' + esc(v.started_at) + '">' + fmtDuration(v.started_at) + '</span>';
+        if (v.channel_name && v.stream_name) {
           grid += '<span style="font-weight:500">Channel</span>';
           grid += '<span>' + esc(v.channel_name) + '</span>';
         }
@@ -5759,10 +5762,8 @@
         grid += '</div>';
       }
 
-      root.innerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));gap:16px">' + grid + '</div>';
+      root.innerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:16px">' + grid + '</div>';
     }
-
-    var durationTimer = null;
 
     function updateDurations() {
       var spans = document.querySelectorAll('.activity-duration');
@@ -5787,16 +5788,13 @@
 
     await fetchAndRender();
 
-    if (activityRefreshTimer) clearInterval(activityRefreshTimer);
-    if (durationTimer) clearInterval(durationTimer);
-
     durationTimer = setInterval(updateDurations, 1000);
 
-    activityRefreshTimer = setInterval(function() {
+    pollTimer = setInterval(function() {
       if (router.current !== 'activity') {
-        clearInterval(activityRefreshTimer);
+        clearInterval(pollTimer);
         clearInterval(durationTimer);
-        activityRefreshTimer = null;
+        pollTimer = null;
         durationTimer = null;
         return;
       }
@@ -6994,10 +6992,8 @@
     channels.sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
 
     if (channels.length === 0) {
-      var epgChannelIDs = Object.keys(guideData.programs || {}).sort();
-      for (var ei = 0; ei < epgChannelIDs.length; ei++) {
-        channels.push({ id: epgChannelIDs[ei], name: epgChannelIDs[ei], tvg_id: epgChannelIDs[ei], is_enabled: true });
-      }
+      el.innerHTML = '<div class="empty-state"><p>No channels configured</p><p style="color:var(--text-muted);font-size:13px">Add channels first, then assign EPG IDs to see the guide.</p></div>';
+      return;
     }
 
     var groupMap = {};

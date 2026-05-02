@@ -248,6 +248,8 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		a := info.AudioTracks[0]
 		if decision.NeedsAudioTranscode && string(decision.AudioCodec) != "" {
 			a.Codec = string(decision.AudioCodec)
+			a.Channels = 2
+			a.SampleRate = 48000
 		}
 		pluginCfg.Audio = &a
 	}
