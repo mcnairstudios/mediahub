@@ -350,7 +350,8 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 			StreamName: result.Session.StreamName,
 			Delivery:   result.Delivery,
 			StartedAt:  time.Now(),
-			RemoteAddr: r.RemoteAddr,
+			RemoteAddr: stripPort(r.RemoteAddr),
+			ClientName: clientNameFromUA(r.UserAgent()),
 		}
 		if user != nil {
 			v.UserID = user.ID
@@ -799,7 +800,8 @@ func (s *Server) handlePlayURL(w http.ResponseWriter, r *http.Request) {
 			StreamName: req.URL,
 			Delivery:   result.Delivery,
 			StartedAt:  time.Now(),
-			RemoteAddr: r.RemoteAddr,
+			RemoteAddr: stripPort(r.RemoteAddr),
+			ClientName: clientNameFromUA(r.UserAgent()),
 		}
 		if user != nil {
 			v.UserID = user.ID
@@ -907,5 +909,38 @@ func (s *Server) resolveStreamLogos(streams []media.Stream) {
 		if streams[i].TvgLogo != "" {
 			streams[i].TvgLogo = s.deps.LogoCache.Resolve(streams[i].TvgLogo)
 		}
+	}
+}
+
+func stripPort(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[:i]
+	}
+	return addr
+}
+
+func clientNameFromUA(ua string) string {
+	ua = strings.ToLower(ua)
+	switch {
+	case strings.Contains(ua, "chrome") && !strings.Contains(ua, "edg"):
+		return "Chrome"
+	case strings.Contains(ua, "firefox"):
+		return "Firefox"
+	case strings.Contains(ua, "safari") && !strings.Contains(ua, "chrome"):
+		return "Safari"
+	case strings.Contains(ua, "edg"):
+		return "Edge"
+	case strings.Contains(ua, "vlc"):
+		return "VLC"
+	case strings.Contains(ua, "mpv"):
+		return "mpv"
+	case strings.Contains(ua, "kodi"):
+		return "Kodi"
+	case strings.Contains(ua, "plex"):
+		return "Plex"
+	case strings.Contains(ua, "jellyfin"):
+		return "Jellyfin"
+	default:
+		return "Browser"
 	}
 }

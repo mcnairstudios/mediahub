@@ -118,7 +118,8 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 			StreamName: result.Session.StreamName,
 			Delivery:   result.Delivery,
 			StartedAt:  time.Now(),
-			RemoteAddr: r.RemoteAddr,
+			RemoteAddr: stripPort(r.RemoteAddr),
+			ClientName: clientNameFromUA(r.UserAgent()),
 		}
 		if user != nil {
 			v.UserID = user.ID

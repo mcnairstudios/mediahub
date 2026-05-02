@@ -140,14 +140,16 @@ func (s *Server) handleTMDBDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTMDBQueue(w http.ResponseWriter, r *http.Request) {
-	var metaCount, imageCount int
+	var metaCount, imageCount, resolvedCount int
 	if s.deps.TMDBStore != nil {
 		metaCount, _ = s.deps.TMDBStore.QueueCount()
 		imageCount, _ = s.deps.TMDBStore.ImageQueueCount()
+		resolvedCount, _ = s.deps.TMDBStore.BlobCount()
 	}
 	httputil.RespondJSON(w, http.StatusOK, map[string]int{
 		"metadata": metaCount,
 		"images":   imageCount,
+		"resolved": resolvedCount,
 	})
 }
 

@@ -728,20 +728,13 @@
       var metaTile = document.getElementById('stat-metadata');
       if (metaTile) {
         try {
-          var metaResults = await Promise.all([
-            api.get('/api/tmdb/queue').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-            api.get('/api/tmdb/recent').then(function(r) { return r.json(); }).catch(function() { return []; })
-          ]);
-          var queue = metaResults[0] || {};
-          var recent = metaResults[1] || [];
-          var queueCount = (queue.metadata || 0) + (queue.images || 0);
-          var resolvedCount = Array.isArray(recent) ? recent.length : 0;
-          if (queueCount > 0) {
-            metaTile.textContent = queueCount + ' queued';
-          } else {
-            metaTile.textContent = resolvedCount + ' matched';
-          }
-          metaTile.style.fontSize = '16px';
+          var queueResp = await api.get('/api/tmdb/queue').then(function(r) { return r.json(); }).catch(function() { return {}; });
+          var resolved = queueResp.resolved || 0;
+          var totalVOD = stats.total_streams || 0;
+          var pct = totalVOD > 0 ? Math.round(resolved / totalVOD * 100) : 0;
+          metaTile.textContent = resolved.toLocaleString() + ' / ' + totalVOD.toLocaleString() + ' (' + pct + '%)';
+          metaTile.style.fontSize = '14px';
+          metaTile.closest('.stat-card').querySelector('.stat-label').textContent = 'TMDB Matched';
         } catch (e) {
           metaTile.textContent = '-';
         }
@@ -1019,11 +1012,7 @@
         return;
       }
       var isLive = btn.dataset.live !== '0';
-      if (!isLive) {
-        showStreamDetail(btn.dataset.sid, btn.dataset.sname);
-      } else {
-        startPlay(btn.dataset.sid, btn.dataset.sname, isLive);
-      }
+      startPlay(btn.dataset.sid, btn.dataset.sname, isLive);
     });
   }
 
@@ -5689,86 +5678,129 @@
   var activityRefreshTimer = null;
 
   async function renderActivity(el) {
-    el.innerHTML = '<h1 class="page-title">Activity</h1>' +
-      '<div class="stat-grid">' +
-      '<div class="stat-card"><div class="stat-value" id="stat-active-viewers">-</div><div class="stat-label">Active Viewers</div></div>' +
-      '<div class="stat-card"><div class="stat-value" id="stat-active-sessions">-</div><div class="stat-label">Active Sessions</div></div>' +
-      '</div>' +
-      '<div id="activity-viewers"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="activity-distribution" style="margin-top:16px"></div>';
+    function fmtDuration(startedAt) {
+      var secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      if (secs < 0) secs = 0;
+      var hrs = Math.floor(secs / 3600);
+      var mins = Math.floor((secs % 3600) / 60);
+      var s = secs % 60;
+      return hrs > 0 ? hrs + ':' + String(mins).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+                     : mins + ':' + String(s).padStart(2, '0');
+    }
 
-    async function refresh() {
-      try {
-        var resp = await api.get('/api/activity');
-        var data = await resp.json();
-        var viewers = data.viewers || [];
-        var viewerCount = data.viewer_count || viewers.length;
-        var sessionCount = data.session_count || 0;
-        var distribution = data.stream_distribution || {};
+    function deliveryBadgeStyle(delivery) {
+      if (delivery === 'hls') return 'background:var(--accent);color:#fff;';
+      if (delivery === 'mse') return 'background:#6366f1;color:#fff;';
+      if (delivery === 'stream') return 'background:#0ea5e9;color:#fff;';
+      return 'background:var(--bg-hover);color:var(--text);';
+    }
 
-        var countEl = document.getElementById('stat-active-viewers');
-        if (countEl) countEl.textContent = viewerCount;
-        var sessEl = document.getElementById('stat-active-sessions');
-        if (sessEl) sessEl.textContent = sessionCount;
+    el.innerHTML = '<div id="activity-root"><div style="text-align:center;padding:48px;color:var(--text-muted)">Loading activity...</div></div>';
 
-        var container = document.getElementById('activity-viewers');
-        if (!container) return;
-        if (viewers.length === 0) {
-          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No active viewers</p></div>';
-        } else {
-          var html = '<table class="list-table"><thead><tr>' +
-            '<th>Stream</th><th>Channel</th><th>User</th><th>Delivery</th><th>Client</th><th>Duration</th><th>Address</th>' +
-            '</tr></thead><tbody>';
-          for (var i = 0; i < viewers.length; i++) {
-            var v = viewers[i];
-            var dur = v.duration || '-';
-            if (v.duration_sec > 0) dur = formatDurationSec(v.duration_sec);
-            html += '<tr>' +
-              '<td>' + esc(v.stream_name || '-') + '</td>' +
-              '<td>' + esc(v.channel_name || '-') + '</td>' +
-              '<td>' + esc(v.username || '-') + '</td>' +
-              '<td><span class="badge">' + esc(v.delivery || '-') + '</span></td>' +
-              '<td>' + esc(v.client_name || '-') + '</td>' +
-              '<td>' + esc(dur) + '</td>' +
-              '<td>' + esc(v.remote_addr || '-') + '</td>' +
-              '</tr>';
-          }
-          html += '</tbody></table>';
-          container.innerHTML = html;
+    function renderViewers(viewers) {
+      var root = document.getElementById('activity-root');
+      if (!root) return;
+      root.innerHTML = '';
+
+      var viewerCount = viewers ? viewers.length : 0;
+
+      var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">' +
+        '<h1 class="page-title" style="margin:0">Activity</h1>' +
+        '<span style="font-size:0.95em;color:var(--text-muted)">' + viewerCount + ' active stream' + (viewerCount !== 1 ? 's' : '') + '</span>' +
+        '</div>';
+      root.innerHTML = header;
+
+      if (!viewers || viewers.length === 0) {
+        root.innerHTML += '<div style="text-align:center;padding:64px 16px;color:var(--text-muted)">' +
+          '<div style="font-size:3em;margin-bottom:16px;opacity:0.3">' + icons.play + '</div>' +
+          '<p style="font-size:1.1em;margin:0">No active sessions</p>' +
+          '<p style="font-size:0.9em;margin-top:8px;opacity:0.7">Start playing a stream to see it here</p>' +
+          '</div>';
+        return;
+      }
+
+      var grid = '';
+      for (var i = 0; i < viewers.length; i++) {
+        var v = viewers[i];
+        var displayName = v.stream_name || v.channel_name || 'Unknown Stream';
+
+        grid += '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px">';
+
+        grid += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
+        grid += '<span style="font-size:1.1em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(displayName) + '">' + esc(displayName) + '</span>';
+        grid += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.85em;white-space:nowrap">' +
+          '<span style="width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0"></span>Playing</span>';
+        grid += '</div>';
+
+        if (v.username) {
+          grid += '<div style="font-size:0.9em;color:var(--text-muted)">' + esc(v.username) + '</div>';
         }
 
-        var distEl = document.getElementById('activity-distribution');
-        if (distEl) {
-          var distKeys = Object.keys(distribution);
-          if (distKeys.length > 0) {
-            var dhtml = '<div class="card"><div class="card-title">Stream Distribution</div>';
-            distKeys.sort(function(a, b) { return distribution[b] - distribution[a]; });
-            for (var di = 0; di < distKeys.length; di++) {
-              dhtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
-                '<span>' + esc(distKeys[di]) + '</span>' +
-                '<span class="badge">' + distribution[distKeys[di]] + '</span></div>';
-            }
-            dhtml += '</div>';
-            distEl.innerHTML = dhtml;
-          } else {
-            distEl.innerHTML = '';
-          }
+        grid += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+        if (v.delivery) {
+          grid += '<span class="badge" style="' + deliveryBadgeStyle(v.delivery) + 'font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.delivery.toUpperCase()) + '</span>';
         }
-      } catch (e) {
-        var container = document.getElementById('activity-viewers');
-        if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load activity</p></div>';
+        if (v.client_name) {
+          grid += '<span class="badge" style="background:var(--bg-hover);color:var(--text);font-size:0.8em;padding:2px 8px;border-radius:4px">' + esc(v.client_name) + '</span>';
+        }
+        grid += '</div>';
+
+        grid += '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:0.88em;color:var(--text-muted)">';
+        grid += '<span style="font-weight:500">Duration</span>';
+        grid += '<span class="activity-duration" data-started="' + esc(v.started_at) + '">' + fmtDuration(v.started_at) + '</span>';
+        grid += '<span style="font-weight:500">IP</span>';
+        grid += '<span>' + esc(v.remote_addr || '-') + '</span>';
+        if (v.channel_name) {
+          grid += '<span style="font-weight:500">Channel</span>';
+          grid += '<span>' + esc(v.channel_name) + '</span>';
+        }
+        grid += '</div>';
+
+        grid += '</div>';
+      }
+
+      root.innerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));gap:16px">' + grid + '</div>';
+    }
+
+    var durationTimer = null;
+
+    function updateDurations() {
+      var spans = document.querySelectorAll('.activity-duration');
+      for (var i = 0; i < spans.length; i++) {
+        var started = spans[i].getAttribute('data-started');
+        if (started) spans[i].textContent = fmtDuration(started);
       }
     }
 
-    await refresh();
+    async function fetchAndRender() {
+      try {
+        var resp = await api.get('/api/activity');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var data = await resp.json();
+        var viewers = data.viewers || [];
+        renderViewers(viewers);
+      } catch (e) {
+        var root = document.getElementById('activity-root');
+        if (root) root.innerHTML = '<div style="text-align:center;padding:48px;color:var(--danger)">Failed to load activity: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    await fetchAndRender();
+
     if (activityRefreshTimer) clearInterval(activityRefreshTimer);
+    if (durationTimer) clearInterval(durationTimer);
+
+    durationTimer = setInterval(updateDurations, 1000);
+
     activityRefreshTimer = setInterval(function() {
       if (router.current !== 'activity') {
         clearInterval(activityRefreshTimer);
+        clearInterval(durationTimer);
         activityRefreshTimer = null;
+        durationTimer = null;
         return;
       }
-      refresh();
+      fetchAndRender();
     }, 5000);
   }
 

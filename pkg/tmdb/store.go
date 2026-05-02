@@ -105,6 +105,17 @@ func (s *Store) QueueCount() (int, error) {
 	return count, err
 }
 
+func (s *Store) BlobCount() (int, error) {
+	var count int
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		return b(tx, bucketTMDBBlobs).ForEach(func(_, _ []byte) error {
+			count++
+			return nil
+		})
+	})
+	return count, err
+}
+
 func (s *Store) WriteBlob(tmdbID int, data []byte) error {
 	return s.WriteBlobTyped("movie", tmdbID, data)
 }
