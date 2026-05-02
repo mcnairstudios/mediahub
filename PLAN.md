@@ -34,7 +34,7 @@ See top of file for Source Stream Profile design (unchanged).
 ### Stream 3: Recordings, Activity & Playback
 13. **Recording page overhaul** [M] — Three sections: Active, Scheduled, Completed. Show channel name, program title, duration, file size. Handle stale entries. Scheduled recordings from guide register with cron scheduler, cancellable.
 14. **Activity page** [S] — Active viewers (tuner usage), recent logins (20min window), stream/session info. Reference tvproxy ActivityService.
-15. **IPTV playback fix** [S] — Strategy defaults to transcode when in_video empty. Fix: default to copy when codec unknown, especially for HLS sources.
+15. **IPTV playback fix** [S] ✅ — Strategy defaults to copy when in_video empty. 4 test cases cover unknown codec scenarios. Post-probe updates stream store with discovered codec.
 16. **SAT>IP audio sync** [S] — AC3/MP2 decode errors cause audio underflow every ~25s. Investigate and fix.
 17. **Arbitrary play URL** [S] — Debug menu input: paste URL, detect codec, play. Uses existing detection logic.
 
@@ -75,6 +75,7 @@ See top of file for Source Stream Profile design (unchanged).
 - DLNA now-playing EPG info
 - Jellyfin TMDB enrichment + season posters
 - Channel auto-numbering on startup
+- IPTV playback fix (copy mode default when codec unknown, 4 test cases, post-probe stream update)
 
 ## Delivery Modes (Future)
 
