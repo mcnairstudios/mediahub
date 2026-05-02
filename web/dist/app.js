@@ -633,8 +633,8 @@
 
       var sourcesEl = document.getElementById('dash-sources');
       if (sourcesEl && stats.sources) {
-        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800' };
-        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL' };
+        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800', demo: '#66bb6a' };
+        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL', demo: 'DEMO' };
         var sHtml = '';
         for (var si = 0; si < stats.sources.length; si++) {
           var src = stats.sources[si];
@@ -785,7 +785,7 @@
     var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
-      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'Trailers' : 'M3U';
+      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'Trailers' : src.type === 'demo' ? 'Demo' : 'M3U';
       html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
@@ -3589,6 +3589,7 @@
       '<button class="btn btn-primary" id="add-hdhr-btn">' + icons.plus + ' Add HDHomeRun</button>' +
       '<button class="btn btn-primary" id="add-satip-btn">' + icons.plus + ' Add SAT>IP Source</button>' +
       '<button class="btn btn-primary" id="add-trailers-btn">' + icons.plus + ' Add Apple Trailers</button>' +
+      '<button class="btn btn-primary" id="add-demo-btn">' + icons.plus + ' Add Demo Streams</button>' +
       '<button class="btn btn-ghost" id="discover-hdhr-btn">Discover HDHomeRun</button>' +
       '</div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
@@ -3653,9 +3654,14 @@
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="trailers-name" placeholder="Apple Trailers" value="Apple Trailers"></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-trailers-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-trailers-btn">Cancel</button></div></div>' +
+      '<div id="add-demo-form" style="display:none" class="card">' +
+      '<div class="card-title">New Demo Streams Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="demo-name" placeholder="Demo Streams" value="Demo Streams"></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-demo-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-demo-btn">Cancel</button></div></div>' +
       '<div id="hdhr-discover-modal" style="display:none"></div>';
 
-    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form', 'add-trailers-form'];
+    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form', 'add-trailers-form', 'add-demo-form'];
     var editingSourceId = null;
     var editingSourceType = null;
 
@@ -3807,6 +3813,13 @@
       showSourceFormAsModal('add-trailers-form');
     });
     document.getElementById('cancel-trailers-btn').addEventListener('click', function() { hideAllForms(); });
+    document.getElementById('add-demo-btn').addEventListener('click', function() {
+      resetFormFields('add-demo-form');
+      setFormTitle('add-demo-form', 'New Demo Streams Source');
+      setSubmitBtnText('create-demo-btn', 'Create');
+      showSourceFormAsModal('add-demo-form');
+    });
+    document.getElementById('cancel-demo-btn').addEventListener('click', function() { hideAllForms(); });
 
     async function loadSystems(selectedSystem) {
       var sel = document.getElementById('satip-system');
@@ -3935,6 +3948,32 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'Apple Trailers source created, refreshing...');
+          hideAllForms();
+          editingSourceId = null;
+          editingSourceType = null;
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save source', 'error');
+      }
+    });
+
+    document.getElementById('create-demo-btn').addEventListener('click', async function() {
+      var name = document.getElementById('demo-name').value.trim();
+      if (!name) { toast('Name required', 'error'); return; }
+      try {
+        var payload = { name: name };
+        var r;
+        if (editingSourceId && editingSourceType === 'demo') {
+          r = await api.put('/api/sources/demo/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/demo', payload);
+        }
+        if (r.ok) {
+          toast(editingSourceId ? 'Source updated' : 'Demo streams source created, refreshing...');
           hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
@@ -4509,6 +4548,11 @@
             setSubmitBtnText('create-trailers-btn', 'Update');
             showSourceFormAsModal('add-trailers-form');
             document.getElementById('trailers-name').value = name || '';
+          } else if (type === 'demo') {
+            setFormTitle('add-demo-form', 'Edit Demo Streams Source');
+            setSubmitBtnText('create-demo-btn', 'Update');
+            showSourceFormAsModal('add-demo-form');
+            document.getElementById('demo-name').value = name || '';
           }
         });
       });
