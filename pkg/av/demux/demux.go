@@ -125,7 +125,7 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 		}
 	}
 	if analyzeDur <= 0 {
-		analyzeDur = 5000000
+		analyzeDur = 2000000
 	}
 	d.Set("probesize", fmt.Sprintf("%d", probeSize), 0)
 	d.Set("analyzeduration", fmt.Sprintf("%d", analyzeDur), 0)
