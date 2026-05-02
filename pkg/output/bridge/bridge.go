@@ -43,6 +43,7 @@ type Config struct {
 	VideoCodecParams any
 	AudioCodecParams any
 	AudioOnly        bool
+	Preset           string
 	Log              zerolog.Logger
 }
 
@@ -154,6 +155,10 @@ func New(cfg Config) (*Bridge, error) {
 
 		videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, b.deint != nil, cfg.Framerate)
 
+		preset := cfg.Preset
+		if preset == "" {
+			preset = "ultrafast"
+		}
 		b.videoEnc, err = encode.NewVideoEncoder(encode.EncodeOpts{
 			Codec:       outCodec,
 			HWAccel:     cfg.HWAccel,
@@ -162,6 +167,7 @@ func New(cfg Config) (*Bridge, error) {
 			Height:      outH,
 			EncoderName: cfg.EncoderName,
 			Framerate:   videoFPS,
+			Preset:      preset,
 		})
 		if err != nil {
 			b.closeAll()
@@ -170,16 +176,10 @@ func New(cfg Config) (*Bridge, error) {
 
 		cfg.Log.Info().Int("width", outW).Int("height", outH).Int("fps", videoFPS).Str("codec", outCodec).Str("hwaccel", cfg.HWAccel).Msg("bridge: video encoder created")
 		if ed := b.videoEnc.Extradata(); len(ed) > 0 {
-			cfg.Log.Info().Int("extradata_len", len(ed)).Str("first20", fmt.Sprintf("%x", ed[:min(20, len(ed))])).Msg("bridge: raw encoder extradata")
-			codecName := "h264"
-			if b.videoEnc.CodecID() == astiav.CodecIDHevc {
-				codecName = "hevc"
-			}
-			if converted, cerr := extradata.ToCodecData(codecName, ed); cerr == nil && len(converted) > 0 {
-				b.videoEncoderExtradata = converted
-				b.extractedExtradata = true
-				cfg.Log.Info().Str("codec", codecName).Int("raw", len(ed)).Int("converted", len(converted)).Msg("bridge: converted encoder extradata at init")
-			}
+			b.videoEncoderExtradata = make([]byte, len(ed))
+			copy(b.videoEncoderExtradata, ed)
+			b.extractedExtradata = true
+			cfg.Log.Info().Int("extradata_len", len(ed)).Msg("bridge: encoder extradata (Annex B, ffmpeg muxer will convert)")
 		}
 
 		if !b.extractedExtradata {
@@ -648,7 +648,7 @@ func resolveFramerate(framerateN, framerateD int, interlaced, hasDeinterlacer bo
 			fps = 25
 		}
 	}
-	if interlaced && hasDeinterlacer && fps > 25 {
+	if interlaced && !hasDeinterlacer && fps > 25 {
 		fps = fps / 2
 	}
 	return fps

@@ -95,19 +95,7 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 			muxOpts.VideoHeight = vcp.Height()
 		}
 	}
-	if len(muxOpts.VideoExtradata) > 0 && muxOpts.VideoExtradata[0] != 0x01 {
-		p.needsAnnexBConvert = true
-		codecName := ""
-		if cfg.Video != nil {
-			codecName = cfg.Video.Codec
-		}
-		log.Printf("mse: converting extradata for codec=%s (first byte=0x%02x)", codecName, muxOpts.VideoExtradata[0])
-		if converted, cerr := extradata.ToCodecData(codecName, muxOpts.VideoExtradata); cerr == nil && len(converted) > 0 {
-			log.Printf("mse: converted extradata %d -> %d bytes (first byte=0x%02x)", len(muxOpts.VideoExtradata), len(converted), converted[0])
-			muxOpts.VideoExtradata = converted
-		} else if cerr != nil {
-			log.Printf("mse: extradata conversion failed: %v", cerr)
-		}
+	if len(muxOpts.VideoExtradata) > 0 {
 	}
 	if muxOpts.VideoCodecID == 0 && cfg.Video != nil {
 		codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
@@ -320,9 +308,6 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		return nil
 	}
 
-	if p.needsAnnexBConvert && len(data) > 4 && data[0] == 0 && data[1] == 0 {
-		data = annexBToAVCC(data)
-	}
 	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
 	avPkt, err := conv.ToAVPacket(pkt, p.videoTB)
 	if err != nil {
