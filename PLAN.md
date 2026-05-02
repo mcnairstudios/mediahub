@@ -66,6 +66,22 @@ See top of file for Source Stream Profile design (unchanged).
 - Jellyfin TMDB enrichment + season posters
 - Channel auto-numbering on startup
 
+## Delivery Modes (Future)
+
+Current: MSE (fMP4 segments, browser), HLS (MPEG-TS segments, Jellyfin/Apple TV), Stream (raw mpegts/mp4, Plex/DLNA)
+
+Planned:
+- **DASH** — MPEG-DASH delivery for adaptive bitrate. Useful for multi-quality streaming. Output plugin produces MPD manifest + segments.
+- **WebRTC** — Ultra-low latency delivery for live TV in browser. Was amazing for live playback in testing. Requires signaling server (WHEP/WHIP). Output plugin produces RTP → WebRTC peer connection. Best for browser live TV, not suitable for Jellyfin/Plex.
+
+Delivery mode per client:
+- **Browser live**: WebRTC (lowest latency) or MSE (current, ~3s latency) or HLS (fallback)
+- **Browser VOD**: MSE (seeking support) or HLS
+- **Jellyfin**: HLS (required by Kotlin SDK/ExoPlayer)
+- **Plex**: Stream (raw HTTP chunked, HDHR emulation)
+- **DLNA**: Stream (raw HTTP chunked)
+- **Apple TV**: HLS
+
 ## Backlog (Low Priority)
 
 - Handler CRUD boilerplate extraction (50+ handlers)
