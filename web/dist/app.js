@@ -582,6 +582,11 @@
       (isAdmin ? '<div class="stat-card stat-link" data-page="activity"><div class="stat-value" id="stat-active">-</div><div class="stat-label">Active Now</div></div>' : '') +
       '<div class="stat-card stat-link" data-page="guide"><div class="stat-value" id="stat-epg-programs">-</div><div class="stat-label">EPG Programs</div></div>' +
       '</div>' +
+      '<div class="stat-grid" id="dash-stats-row2" style="margin-top:8px">' +
+      '<div class="stat-card"><div class="stat-value" id="stat-wg">-</div><div class="stat-label">Connectivity</div></div>' +
+      '<div class="stat-card"><div class="stat-value" id="stat-metadata">-</div><div class="stat-label">Metadata</div></div>' +
+      '<div class="stat-card"><div class="stat-value" id="stat-uptime">-</div><div class="stat-label">Uptime</div></div>' +
+      '</div>' +
       '<div class="dash-section" id="dash-sources-section">' +
       '<div class="dash-section-title">' + icons.sources + ' Sources</div>' +
       '<div class="dash-source-grid" id="dash-sources"><div class="skeleton" style="height:80px"></div></div>' +
@@ -590,15 +595,7 @@
       '<div class="dash-section-title">' + icons.epg + ' EPG Status</div>' +
       '<div id="dash-epg"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>' +
-      (isAdmin ? '<div class="dash-section" id="dash-wg-section">' +
-      '<div class="dash-section-title">' + icons.wireguard + ' Connectivity</div>' +
-      '<div id="dash-wg"><div class="skeleton" style="height:60px"></div></div>' +
-      '</div>' : '') +
-      '<div class="dash-section" id="dash-metadata-section">' +
-      '<div class="dash-section-title">' + icons.tmdb + ' Metadata</div>' +
-      '<div id="dash-metadata"><div class="skeleton" style="height:60px"></div></div>' +
-      '</div>' +
-      '<div class="dash-section" id="dash-system-section">' +
+      '<!-- system removed, in tiles --><div style="display:none" id="dash-system-section">' +
       '<div class="dash-section-title">' + icons.settings + ' System</div>' +
       '<div id="dash-system"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>';
@@ -700,45 +697,36 @@
           : '<div style="color:var(--text-muted)">No recordings</div>';
       }
 
-      var wgEl = document.getElementById('dash-wg');
-      if (wgEl && stats.wireguard) {
-        if (stats.wireguard.connected) {
-          wgEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' +
-            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--success)"></span>' +
-            '<span style="color:var(--success);font-weight:600">WireGuard Connected</span></div>';
+      var wgTile = document.getElementById('stat-wg');
+      if (wgTile) {
+        if (stats.wireguard && stats.wireguard.connected) {
+          wgTile.textContent = 'Connected';
+          wgTile.style.color = 'var(--success)';
+          wgTile.style.fontSize = '16px';
+        } else if (stats.wireguard) {
+          wgTile.textContent = 'Disconnected';
+          wgTile.style.color = 'var(--warning)';
+          wgTile.style.fontSize = '16px';
         } else {
-          wgEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px">' +
-            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--warning)"></span>' +
-            '<span style="color:var(--text-dim)">WireGuard Disconnected</span></div>';
+          wgTile.textContent = 'N/A';
+          wgTile.style.fontSize = '16px';
         }
-      } else if (wgEl) {
-        wgEl.innerHTML = '<div style="color:var(--text-muted)">Not configured</div>';
       }
 
-      var sysEl = document.getElementById('dash-system');
-      if (sysEl) {
+      var uptimeTile = document.getElementById('stat-uptime');
+      if (uptimeTile) {
         var uptimeSec = stats.uptime_seconds || 0;
-        var uptimeStr = '';
         if (uptimeSec >= 86400) {
-          var days = Math.floor(uptimeSec / 86400);
-          var hrs = Math.floor((uptimeSec % 86400) / 3600);
-          uptimeStr = days + 'd ' + hrs + 'h';
+          uptimeTile.textContent = Math.floor(uptimeSec / 86400) + 'd ' + Math.floor((uptimeSec % 86400) / 3600) + 'h';
         } else if (uptimeSec >= 3600) {
-          var hrs = Math.floor(uptimeSec / 3600);
-          var mins = Math.floor((uptimeSec % 3600) / 60);
-          uptimeStr = hrs + 'h ' + mins + 'm';
+          uptimeTile.textContent = Math.floor(uptimeSec / 3600) + 'h ' + Math.floor((uptimeSec % 3600) / 60) + 'm';
         } else {
-          uptimeStr = Math.floor(uptimeSec / 60) + 'm';
+          uptimeTile.textContent = Math.floor(uptimeSec / 60) + 'm';
         }
-        var startedStr = stats.started_at ? new Date(stats.started_at).toLocaleString() : '';
-        sysEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
-          '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + esc(uptimeStr) + '</div><div class="stat-label">Uptime</div></div>' +
-          '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:14px;word-break:break-all">' + esc(startedStr) + '</div><div class="stat-label">Started</div></div>' +
-          '</div>';
       }
 
-      var metaEl = document.getElementById('dash-metadata');
-      if (metaEl) {
+      var metaTile = document.getElementById('stat-metadata');
+      if (metaTile) {
         try {
           var metaResults = await Promise.all([
             api.get('/api/tmdb/queue').then(function(r) { return r.json(); }).catch(function() { return {}; }),
@@ -748,19 +736,14 @@
           var recent = metaResults[1] || [];
           var queueCount = (queue.metadata || 0) + (queue.images || 0);
           var resolvedCount = Array.isArray(recent) ? recent.length : 0;
-          var totalVOD = 0;
-          if (stats.sources) {
-            for (var mi = 0; mi < stats.sources.length; mi++) {
-              totalVOD += stats.sources[mi].stream_count || 0;
-            }
+          if (queueCount > 0) {
+            metaTile.textContent = queueCount + ' queued';
+          } else {
+            metaTile.textContent = resolvedCount + ' matched';
           }
-          metaEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
-            (queueCount > 0 ? '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + queueCount + '</div><div class="stat-label">Processing</div></div>' : '') +
-            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + resolvedCount + '</div><div class="stat-label">Recently Matched</div></div>' +
-            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + totalVOD.toLocaleString() + '</div><div class="stat-label">Total Streams</div></div>' +
-            '</div>';
+          metaTile.style.fontSize = '16px';
         } catch (e) {
-          metaEl.innerHTML = '<div style="color:var(--text-muted)">Metadata unavailable</div>';
+          metaTile.textContent = '-';
         }
       }
     } catch (e) {}
