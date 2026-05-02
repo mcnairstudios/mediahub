@@ -583,7 +583,7 @@
       '<div class="stat-card stat-link" data-page="guide"><div class="stat-value" id="stat-epg-programs">-</div><div class="stat-label">EPG Programs</div></div>' +
       '</div>' +
       '<div class="stat-grid" id="dash-stats-row2" style="margin-top:8px">' +
-      '<div class="stat-card"><div class="stat-value" id="stat-wg">-</div><div class="stat-label">Connectivity</div></div>' +
+      '<div class="stat-card"><div class="stat-value" id="stat-wg" style="display:flex;align-items:center;gap:6px;justify-content:center">-</div><div class="stat-label">' + icons.wireguard + ' WireGuard</div></div>' +
       '<div class="stat-card"><div class="stat-value" id="stat-metadata">-</div><div class="stat-label">Metadata</div></div>' +
       '<div class="stat-card"><div class="stat-value" id="stat-uptime">-</div><div class="stat-label">Uptime</div></div>' +
       '</div>' +
@@ -671,8 +671,8 @@
                 '<div class="dash-source-icon" style="background:' + eDot + '20;color:' + eDot + '">' +
                 '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + eDot + '"></span></div>' +
                 '<div class="dash-source-info">' +
-                '<div class="dash-source-name">' + esc(es.name) + '</div>' +
-                '<div class="dash-source-meta">' + (es.channel_count || 0) + ' ch, ' + ((es.program_count || 0)).toLocaleString() + ' progs &middot; ' + esc(eAgo) + '</div>' +
+                '<div class="dash-source-name">' + esc(es.name) + ' <span style="font-weight:400;color:var(--text-muted);font-size:12px">(' + esc(eAgo) + ')</span></div>' +
+                '<div class="dash-source-meta">' + (es.channel_count || 0) + ' channels, ' + ((es.program_count || 0)).toLocaleString() + ' programs</div>' +
                 '</div></div>';
             }
             epgContEl.innerHTML = epgHtml + '</div>';
