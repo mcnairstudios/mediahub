@@ -632,6 +632,317 @@ func TestPlayRecording_PipelineFailure(t *testing.T) {
 	}
 }
 
+func TestStartPlayback_HWAccelFromSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "hevc", AudioCodec: "ac3", Width: 1920, Height: 1080, Interlaced: true}},
+		map[string]string{"default_hwaccel": "vaapi"},
+	)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.HWAccel != "vaapi" {
+		t.Errorf("expected HWAccel vaapi from settings, got %q", capturedCfg.HWAccel)
+	}
+}
+
+func TestStartPlayback_HWAccelClientOverridesSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "hevc", AudioCodec: "ac3", Width: 1920, Height: 1080},
+	})
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryRecord}, nil
+	})
+
+	detector := client.NewDetector([]client.Client{
+		{
+			ID:         "plex",
+			Name:       "Plex",
+			Priority:   10,
+			ListenPort: 8080,
+			IsEnabled:  true,
+			Profile:    client.Profile{HWAccel: "nvenc", VideoCodec: "h264", AudioCodec: "aac"},
+		},
+	})
+
+	deps := PlaybackDeps{
+		StreamStore:    ss,
+		SettingsStore:  newMockSettingsStore(map[string]string{"default_hwaccel": "vaapi"}),
+		SessionMgr:     session.NewManager("/tmp/test-hwaccel-override"),
+		Detector:       detector,
+		OutputReg:      reg,
+		Strategy:       strategy.Resolve,
+		PipelineRunner: runner,
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.HWAccel != "nvenc" {
+		t.Errorf("expected client HWAccel nvenc to override settings, got %q", capturedCfg.HWAccel)
+	}
+}
+
+func TestStartPlayback_DecodeHWAccelFromSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "hevc", AudioCodec: "ac3"}},
+		map[string]string{
+			"default_hwaccel":        "vaapi",
+			"default_decode_hwaccel": "qsv",
+		},
+	)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.DecodeHWAccel != "qsv" {
+		t.Errorf("expected DecodeHWAccel qsv, got %q", capturedCfg.DecodeHWAccel)
+	}
+}
+
+func TestStartPlayback_DecodeHWAccelFallsBackToEncode(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "hevc", AudioCodec: "ac3"}},
+		map[string]string{
+			"default_hwaccel": "vaapi",
+		},
+	)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.DecodeHWAccel != "vaapi" {
+		t.Errorf("expected DecodeHWAccel to fall back to vaapi, got %q", capturedCfg.DecodeHWAccel)
+	}
+}
+
+func TestStartPlayback_MaxBitDepthFromSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "h264", AudioCodec: "aac", BitDepth: 10}},
+		map[string]string{"default_max_bit_depth": "8"},
+	)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.MaxBitDepth != 8 {
+		t.Errorf("expected MaxBitDepth 8, got %d", capturedCfg.MaxBitDepth)
+	}
+}
+
+func TestStartPlayback_EncoderDecoderFromSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "h264", AudioCodec: "aac"}},
+		map[string]string{
+			"encoder_h264": "h264_vaapi",
+			"decoder_h264": "h264_cuvid",
+		},
+	)
+	deps.Strategy = func(in strategy.Input, out strategy.Output) strategy.Decision {
+		return strategy.Decision{
+			NeedsTranscode:      true,
+			NeedsAudioTranscode: true,
+			VideoCodec:          "h264",
+			AudioCodec:          "aac",
+		}
+	}
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.EncoderName != "h264_vaapi" {
+		t.Errorf("expected EncoderName h264_vaapi, got %q", capturedCfg.EncoderName)
+	}
+	if capturedCfg.DecoderName != "h264_cuvid" {
+		t.Errorf("expected DecoderName h264_cuvid, got %q", capturedCfg.DecoderName)
+	}
+}
+
+func TestStartPlayback_AudioLanguageFromSettings(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	deps := newTestPlaybackDepsWithSettings(
+		[]media.Stream{{ID: "stream-1", Name: "Test", URL: "http://example.com/stream"}},
+		map[string]string{"audio_language": "eng"},
+	)
+	deps.PipelineRunner = runner
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.AudioLanguage != "eng" {
+		t.Errorf("expected AudioLanguage eng, got %q", capturedCfg.AudioLanguage)
+	}
+}
+
+func TestStartPlayback_ClientOverrideID(t *testing.T) {
+	var capturedCfg session.PipelineConfig
+	runner := func(sess *session.Session, cfg session.PipelineConfig) (*session.PipelineResult, error) {
+		capturedCfg = cfg
+		return mockPipelineRunner(sess, cfg)
+	}
+
+	ss := store.NewMemoryStreamStore()
+	ss.BulkUpsert(context.Background(), []media.Stream{
+		{ID: "stream-1", Name: "Test", URL: "http://example.com/stream",
+			VideoCodec: "hevc", AudioCodec: "ac3"},
+	})
+
+	reg := output.NewRegistry()
+	reg.Register(output.DeliveryMSE, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryMSE}, nil
+	})
+	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return &mockPlugin{mode: output.DeliveryRecord}, nil
+	})
+
+	mockCS := &mockClientStore{
+		clients: map[string]*client.Client{
+			"jellyfin-client": {
+				ID:        "jellyfin-client",
+				Name:      "Jellyfin",
+				IsEnabled: true,
+				Profile:   client.Profile{VideoCodec: "h264", AudioCodec: "aac", HWAccel: "qsv"},
+			},
+		},
+	}
+
+	deps := PlaybackDeps{
+		StreamStore:      ss,
+		SettingsStore:    newMockSettingsStore(nil),
+		SessionMgr:       session.NewManager("/tmp/test-client-override"),
+		Detector:         client.NewDetector(nil),
+		ClientStore:      mockCS,
+		OutputReg:        reg,
+		Strategy:         strategy.Resolve,
+		PipelineRunner:   runner,
+		ClientOverrideID: "jellyfin-client",
+	}
+	defer deps.SessionMgr.StopAll()
+
+	_, err := StartPlayback(context.Background(), deps, "stream-1", 8080, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedCfg.HWAccel != "qsv" {
+		t.Errorf("expected HWAccel qsv from client override, got %q", capturedCfg.HWAccel)
+	}
+}
+
+type mockClientStore struct {
+	clients map[string]*client.Client
+}
+
+func (m *mockClientStore) Get(_ context.Context, id string) (*client.Client, error) {
+	c, ok := m.clients[id]
+	if !ok {
+		return nil, nil
+	}
+	return c, nil
+}
+
+func (m *mockClientStore) List(_ context.Context) ([]client.Client, error) {
+	var result []client.Client
+	for _, c := range m.clients {
+		result = append(result, *c)
+	}
+	return result, nil
+}
+
+func (m *mockClientStore) Create(_ context.Context, c *client.Client) error {
+	m.clients[c.ID] = c
+	return nil
+}
+
+func (m *mockClientStore) Update(_ context.Context, c *client.Client) error {
+	m.clients[c.ID] = c
+	return nil
+}
+
+func (m *mockClientStore) Delete(_ context.Context, id string) error {
+	delete(m.clients, id)
+	return nil
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
 }

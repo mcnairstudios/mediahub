@@ -197,6 +197,170 @@ func min(a, b int) int {
 	return b
 }
 
+func TestPktDurationUs_DifferentTimebases(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration int64
+		tbNum    int
+		tbDen    int
+		wantUs   int64
+	}{
+		{"90kHz video", 3600, 1, 90000, 40000},
+		{"48kHz audio", 1024, 1, 48000, 21333},
+		{"44.1kHz audio", 1024, 1, 44100, 23219},
+		{"1kHz", 1000, 1, 1000, 1000000},
+		{"25fps", 1, 1, 25, 40000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pkt := astiav.AllocPacket()
+			if pkt == nil {
+				t.Fatal("alloc packet")
+			}
+			defer pkt.Free()
+
+			fc, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fc.Free()
+
+			s := fc.NewStream(nil)
+			if s == nil {
+				t.Fatal("new stream")
+			}
+			s.SetTimeBase(astiav.NewRational(tt.tbNum, tt.tbDen))
+			s.CodecParameters().SetCodecID(astiav.CodecIDH264)
+			s.CodecParameters().SetMediaType(astiav.MediaTypeVideo)
+
+			pkt.SetDuration(tt.duration)
+			dur := pktDurationUs(pkt, s)
+			if dur != tt.wantUs {
+				t.Errorf("pktDurationUs = %d, want %d", dur, tt.wantUs)
+			}
+		})
+	}
+}
+
+func TestPktDurationUs_ZeroDenominator(t *testing.T) {
+	pkt := astiav.AllocPacket()
+	if pkt == nil {
+		t.Fatal("alloc packet")
+	}
+	defer pkt.Free()
+
+	fc, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fc.Free()
+
+	s := fc.NewStream(nil)
+	if s == nil {
+		t.Fatal("new stream")
+	}
+	s.SetTimeBase(astiav.NewRational(0, 0))
+	s.CodecParameters().SetCodecID(astiav.CodecIDH264)
+	s.CodecParameters().SetMediaType(astiav.MediaTypeVideo)
+
+	pkt.SetDuration(3600)
+	dur := pktDurationUs(pkt, s)
+	if dur != 0 {
+		t.Errorf("pktDurationUs with zero den = %d, want 0", dur)
+	}
+}
+
+func TestRescaleTs_90kHzToStreamTimeBase(t *testing.T) {
+	dir := t.TempDir()
+
+	extradata := []byte{
+		0x01, 0x42, 0xC0, 0x1E, 0xFF, 0xE1,
+		0x00, 0x04, 0x67, 0x42, 0xC0, 0x1E,
+		0x01,
+		0x00, 0x02, 0x68, 0xCE,
+	}
+
+	m, err := NewFragmentedMuxer(MuxOpts{
+		OutputDir:      dir,
+		VideoCodecID:   astiav.CodecIDH264,
+		VideoExtradata: extradata,
+		VideoWidth:     640,
+		VideoHeight:    480,
+		VideoTimeBase:  astiav.NewRational(1, 90000),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	streamTB := m.video.stream.TimeBase()
+	if streamTB.Den() == 0 {
+		t.Fatal("stream timebase denominator is 0")
+	}
+
+	pkt := astiav.AllocPacket()
+	data := make([]byte, 500)
+	pkt.FromData(data)
+	pkt.SetPts(90000)
+	pkt.SetDts(90000)
+	pkt.SetDuration(3600)
+	pkt.SetFlags(pkt.Flags().Add(astiav.PacketFlagKey))
+
+	pkt.RescaleTs(astiav.NewRational(1, 90000), streamTB)
+
+	dur := pktDurationUs(pkt, m.video.stream)
+	if dur <= 0 {
+		t.Errorf("rescaled packet duration should be positive, got %d", dur)
+	}
+
+	expectedUs := int64(3600) * 1 * 1_000_000 / 90000
+	tolerance := int64(1000)
+	diff := dur - expectedUs
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > tolerance {
+		t.Errorf("rescaled duration %d us differs from expected %d us by more than %d us", dur, expectedUs, tolerance)
+	}
+
+	pkt.Free()
+}
+
+func TestEnsureMonotonicDTS(t *testing.T) {
+	tm := &trackMuxer{}
+
+	pkt1 := astiav.AllocPacket()
+	defer pkt1.Free()
+	pkt1.SetPts(100)
+	pkt1.SetDts(100)
+	tm.ensureMonotonicDTS(pkt1)
+	if pkt1.Dts() != 100 {
+		t.Errorf("first pkt DTS = %d, want 100", pkt1.Dts())
+	}
+
+	pkt2 := astiav.AllocPacket()
+	defer pkt2.Free()
+	pkt2.SetPts(200)
+	pkt2.SetDts(50)
+	tm.ensureMonotonicDTS(pkt2)
+	if pkt2.Dts() <= 100 {
+		t.Errorf("out-of-order DTS should be corrected: got %d, want > 100", pkt2.Dts())
+	}
+	if pkt2.Pts() < pkt2.Dts() {
+		t.Errorf("PTS (%d) should be >= DTS (%d)", pkt2.Pts(), pkt2.Dts())
+	}
+
+	pkt3 := astiav.AllocPacket()
+	defer pkt3.Free()
+	pkt3.SetPts(300)
+	pkt3.SetDts(300)
+	tm.ensureMonotonicDTS(pkt3)
+	if pkt3.Dts() != 300 {
+		t.Errorf("in-order DTS should be unchanged: got %d, want 300", pkt3.Dts())
+	}
+}
+
 func TestFindBox(t *testing.T) {
 	box := []byte{
 		0x00, 0x00, 0x00, 0x0C,

@@ -2209,6 +2209,27 @@
             return;
           }
           mseState.appending[track] = false;
+          var errMsg = e.message || String(e);
+          if (errMsg.indexOf('append') >= 0 || errMsg.indexOf('CHUNK_DEMUXER') >= 0 || errMsg.indexOf('error') >= 0) {
+            var pStatus = document.getElementById('player-status');
+            if (pStatus) {
+              pStatus.style.color = '#ff6b6b';
+              pStatus.innerHTML = '';
+              pStatus.textContent = 'Playback error ';
+              var retryLink = document.createElement('a');
+              retryLink.textContent = 'Retry';
+              retryLink.href = '#';
+              retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
+              retryLink.onclick = function(ev) {
+                ev.preventDefault();
+                playerState.retryCount = 0;
+                handleRetry();
+              };
+              pStatus.appendChild(retryLink);
+            }
+            var pSpinner = document.getElementById('player-spinner');
+            if (pSpinner) pSpinner.style.display = 'none';
+          }
         });
       }
       next();
@@ -2575,22 +2596,30 @@
       });
     }
 
-    var statsKeyHandler = function(e) {
+    var playerKeyHandler = function(e) {
       if (!document.getElementById('player-wrapper')) {
-        document.removeEventListener('keydown', statsKeyHandler);
+        document.removeEventListener('keydown', playerKeyHandler);
         return;
       }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
       if (e.key === 's' || e.key === 'S') {
         var statsEl = document.getElementById('stats-overlay');
         if (statsEl) statsEl.classList.toggle('visible');
       }
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
+      }
+      if (e.key === 'Escape') {
+        closePlayerOverlay();
+      }
     };
-    document.addEventListener('keydown', statsKeyHandler);
+    document.addEventListener('keydown', playerKeyHandler);
 
     var ctrlTimer = setInterval(function() {
       if (!document.getElementById('player-wrapper')) {
         clearInterval(ctrlTimer);
-        document.removeEventListener('keydown', statsKeyHandler);
+        document.removeEventListener('keydown', playerKeyHandler);
         return;
       }
       var cur = videoEl.currentTime || 0;
@@ -4017,22 +4046,55 @@
         btn.addEventListener('click', async function() {
           var id = this.getAttribute('data-id');
           var self = this;
-          self.style.opacity = '0.5';
           self.style.pointerEvents = 'none';
+          self.style.animation = 'playerspin 1s linear infinite';
+          self.style.color = 'var(--accent)';
+          var card = self.closest('.card');
+          var nameEl = card ? card.querySelector('[style*="font-weight:600"]') : null;
+          var refreshBadge = null;
+          if (nameEl && !nameEl.querySelector('.refresh-badge')) {
+            refreshBadge = document.createElement('span');
+            refreshBadge.className = 'badge badge-warning refresh-badge';
+            refreshBadge.style.cssText = 'margin-left:8px;font-size:11px';
+            refreshBadge.textContent = 'Refreshing...';
+            nameEl.appendChild(refreshBadge);
+          }
+          function stopRefreshUI() {
+            self.style.animation = '';
+            self.style.color = '';
+            self.style.pointerEvents = '';
+            if (refreshBadge && refreshBadge.parentNode) refreshBadge.parentNode.removeChild(refreshBadge);
+          }
           try {
             var r = await api.post('/api/sources/' + id + '/refresh', {});
             if (r.ok || r.status === 202) {
               toast('Refresh started');
-              setTimeout(function() { self.style.opacity = '1'; self.style.pointerEvents = ''; renderSources(el); }, 5000);
+              var pollCount = 0;
+              var pollTimer = setInterval(async function() {
+                pollCount++;
+                if (pollCount > 60) { clearInterval(pollTimer); stopRefreshUI(); renderSources(el); return; }
+                try {
+                  var sr = await api.get('/api/sources');
+                  var srcs = await sr.json();
+                  if (!Array.isArray(srcs)) return;
+                  var src = srcs.find(function(s) { return s.id === id; });
+                  if (src && src.last_refreshed) {
+                    var refreshTime = new Date(src.last_refreshed).getTime();
+                    if (Date.now() - refreshTime < 10000) {
+                      clearInterval(pollTimer);
+                      stopRefreshUI();
+                      renderSources(el);
+                    }
+                  }
+                } catch (pe) {}
+              }, 3000);
             } else {
               toast('Failed to refresh', 'error');
-              self.style.opacity = '1';
-              self.style.pointerEvents = '';
+              stopRefreshUI();
             }
           } catch (err) {
             toast('Failed to refresh', 'error');
-            self.style.opacity = '1';
-            self.style.pointerEvents = '';
+            stopRefreshUI();
           }
         });
       });

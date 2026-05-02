@@ -18,6 +18,6 @@ jobs:
           export GOMAXPROCS=16
           CGO_ENABLED=1 go test ./pkg/... -timeout 120s
       - name: Verify frontend
-        run: node --check web/dist/app.js
+        run: node web/dist/smoke_test.js
       - name: Verify build
         run: CGO_ENABLED=1 go build ./cmd/mediahub/
