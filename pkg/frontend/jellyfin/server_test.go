@@ -113,6 +113,15 @@ func (m *mockStreamStore) ListBySource(_ context.Context, _, _ string) ([]media.
 func (m *mockStreamStore) ListBySourceAndType(_ context.Context, _, _, _ string) ([]media.Stream, error) {
 	return nil, nil
 }
+func (m *mockStreamStore) ListByVODType(_ context.Context, vodType string) ([]media.Stream, error) {
+	var result []media.Stream
+	for _, s := range m.streams {
+		if s.VODType == vodType {
+			result = append(result, s)
+		}
+	}
+	return result, nil
+}
 func (m *mockStreamStore) BulkUpsert(_ context.Context, _ []media.Stream) error { return nil }
 func (m *mockStreamStore) DeleteBySource(_ context.Context, _, _ string) error   { return nil }
 func (m *mockStreamStore) DeleteStaleBySource(_ context.Context, _, _ string, _ []string) ([]string, error) {

@@ -118,11 +118,8 @@ func (s *Server) serveSeriesImage(w http.ResponseWriter, r *http.Request, series
 		return
 	}
 
-	streams, _ := s.streams.List(r.Context())
+	streams, _ := s.streams.ListByVODType(r.Context(), "series")
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if seriesIDFromName(key) != seriesID {
 			continue
@@ -203,11 +200,8 @@ func lookupSeriesNameByHash(s *Server, r *http.Request, h uint32) string {
 	if s.streams == nil {
 		return ""
 	}
-	streams, _ := s.streams.List(r.Context())
+	streams, _ := s.streams.ListByVODType(r.Context(), "series")
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if hashString(key) == h {
 			return key

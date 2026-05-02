@@ -17,6 +17,7 @@ type StreamStore interface {
 	List(ctx context.Context) ([]media.Stream, error)
 	ListBySource(ctx context.Context, sourceType, sourceID string) ([]media.Stream, error)
 	ListBySourceAndType(ctx context.Context, sourceType, sourceID, vodType string) ([]media.Stream, error)
+	ListByVODType(ctx context.Context, vodType string) ([]media.Stream, error)
 	CountBySource(ctx context.Context, sourceType, sourceID string) (int, error)
 	CountBySourceAndType(ctx context.Context, sourceType, sourceID, vodType string) (int, error)
 	BulkUpsert(ctx context.Context, streams []media.Stream) error

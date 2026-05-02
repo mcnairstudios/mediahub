@@ -111,6 +111,28 @@ func (s *StreamStore) ListBySourceAndType(_ context.Context, sourceType, sourceI
 	return result, err
 }
 
+func (s *StreamStore) ListByVODType(_ context.Context, vodType string) ([]media.Stream, error) {
+	var result []media.Stream
+	target := vodTypeKey(vodType)
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		c := tx.Bucket(bucketStreams).Cursor()
+		for k, v := c.Seek(prefixStream); k != nil && bytes.HasPrefix(k, prefixStream); k, v = c.Next() {
+			parsed := streamSchema.Parse(k)
+			if parsed.VODType != target {
+				continue
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) == nil {
+				result = append(result, stream)
+			}
+		}
+		return nil
+	})
+
+	return result, err
+}
+
 func (s *StreamStore) CountBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) (int, error) {
 	count := 0
 	err := s.db.View(func(tx *bbolt.Tx) error {

@@ -20,7 +20,7 @@ func (s *Server) buildMovieItems(ctx context.Context, searchTerm, genres string)
 	if s.streams == nil {
 		return nil
 	}
-	streams, err := s.streams.List(ctx)
+	streams, err := s.streams.ListByVODType(ctx, "movie")
 	if err != nil {
 		return nil
 	}
@@ -29,9 +29,6 @@ func (s *Server) buildMovieItems(ctx context.Context, searchTerm, genres string)
 	var items []BaseItemDto
 
 	for _, st := range streams {
-		if st.VODType != "movie" {
-			continue
-		}
 		if !st.IsLocal {
 			continue
 		}
@@ -57,7 +54,7 @@ func (s *Server) buildSeriesItems(ctx context.Context, searchTerm, genres string
 	if s.streams == nil {
 		return nil
 	}
-	streams, err := s.streams.List(ctx)
+	streams, err := s.streams.ListByVODType(ctx, "series")
 	if err != nil {
 		return nil
 	}
@@ -66,9 +63,6 @@ func (s *Server) buildSeriesItems(ctx context.Context, searchTerm, genres string
 	seriesMap := make(map[string]*BaseItemDto)
 
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		if !st.IsLocal {
 			continue
 		}
@@ -100,7 +94,7 @@ func (s *Server) buildStreamItems(ctx context.Context, searchTerm string) []Base
 	if s.streams == nil {
 		return nil
 	}
-	streams, err := s.streams.List(ctx)
+	allStreams, err := s.streams.List(ctx)
 	if err != nil {
 		return nil
 	}
@@ -109,7 +103,7 @@ func (s *Server) buildStreamItems(ctx context.Context, searchTerm string) []Base
 	movies = s.buildMovieItems(ctx, searchTerm, "")
 	series = s.buildSeriesItems(ctx, searchTerm, "")
 
-	for _, st := range streams {
+	for _, st := range allStreams {
 		if st.VODType == "movie" || st.VODType == "series" {
 			continue
 		}
@@ -583,11 +577,8 @@ func (s *Server) findSeriesItem(ctx context.Context, seriesID string) (BaseItemD
 	if s.streams == nil {
 		return BaseItemDto{}, false
 	}
-	streams, _ := s.streams.List(ctx)
+	streams, _ := s.streams.ListByVODType(ctx, "series")
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if seriesIDFromName(key) != seriesID {
 			continue
@@ -595,7 +586,7 @@ func (s *Server) findSeriesItem(ctx context.Context, seriesID string) (BaseItemD
 		item := s.enrichSeriesItem(key)
 		var childCount int
 		for _, s2 := range streams {
-			if s2.VODType == "series" && seriesKeyFromStream(&s2) == key {
+			if seriesKeyFromStream(&s2) == key {
 				childCount++
 			}
 		}
@@ -613,13 +604,10 @@ func (s *Server) findSeasonItem(ctx context.Context, seasonID string) (BaseItemD
 	if s.streams == nil {
 		return BaseItemDto{}, false
 	}
-	streams, _ := s.streams.List(ctx)
+	streams, _ := s.streams.ListByVODType(ctx, "series")
 	var seriesName string
 	var epCount int
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if hashString(key) != h {
 			continue
@@ -731,16 +719,13 @@ func (s *Server) listSeasons(w http.ResponseWriter, r *http.Request) {
 		s.respondJSON(w, http.StatusOK, emptyResult())
 		return
 	}
-	streams, _ := s.streams.List(r.Context())
+	streams, _ := s.streams.ListByVODType(r.Context(), "series")
 
 	seasonSet := make(map[int]bool)
 	seasonEpCount := make(map[int]int)
 	var name string
 
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if seriesIDFromName(key) != targetID {
 			continue
@@ -815,14 +800,11 @@ func (s *Server) listEpisodes(w http.ResponseWriter, r *http.Request) {
 		s.respondJSON(w, http.StatusOK, emptyResult())
 		return
 	}
-	streams, _ := s.streams.List(r.Context())
+	streams, _ := s.streams.ListByVODType(r.Context(), "series")
 	seen := make(map[string]bool)
 	var items []BaseItemDto
 
 	for _, st := range streams {
-		if st.VODType != "series" {
-			continue
-		}
 		key := seriesKeyFromStream(&st)
 		if seriesIDFromName(key) != targetID {
 			continue
@@ -889,16 +871,13 @@ func (s *Server) listFilters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	streams, _ := s.streams.List(r.Context())
+	streams, _ := s.streams.ListByVODType(r.Context(), "movie")
 
 	genreSet := make(map[string]bool)
 	yearSet := make(map[int]bool)
 	ratingSet := make(map[string]bool)
 
 	for _, st := range streams {
-		if st.VODType != "movie" {
-			continue
-		}
 		if m, ok := s.tmdbCache.GetMovie(st.Name); ok && m != nil {
 			for _, g := range m.Genres {
 				genreSet[g] = true
