@@ -111,8 +111,49 @@ func (s *Server) hlsMediaPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.URL.Path = "/playlist.m3u8"
-	plugin.ServeHTTP(w, r)
+	s.serveRewrittenPlaylist(w, r, plugin, itemID)
+}
+
+func (s *Server) serveRewrittenPlaylist(w http.ResponseWriter, r *http.Request, plugin output.ServablePlugin, itemID string) {
+	rec := &responseCapture{header: http.Header{}}
+	req := r.Clone(r.Context())
+	req.URL.Path = "/playlist.m3u8"
+	plugin.ServeHTTP(rec, req)
+
+	if rec.statusCode != http.StatusOK && rec.statusCode != 0 {
+		w.WriteHeader(rec.statusCode)
+		w.Write(rec.body)
+		return
+	}
+
+	playlist := string(rec.body)
+	segBase := fmt.Sprintf("/Videos/%s/hls/", itemID)
+	var rewritten strings.Builder
+	for _, line := range strings.Split(playlist, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			rewritten.WriteString("\n")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			rewritten.WriteString(line)
+			rewritten.WriteString("\n")
+			continue
+		}
+		if strings.HasSuffix(trimmed, ".ts") || strings.HasSuffix(trimmed, ".m4s") || strings.HasSuffix(trimmed, ".mp4") {
+			rewritten.WriteString(segBase)
+			rewritten.WriteString(trimmed)
+			rewritten.WriteString("\n")
+			continue
+		}
+		rewritten.WriteString(line)
+		rewritten.WriteString("\n")
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write([]byte(rewritten.String()))
 }
 
 func (s *Server) hlsLivePlaylist(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +161,21 @@ func (s *Server) hlsLivePlaylist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) hlsSegment(w http.ResponseWriter, r *http.Request) {
+	itemID := r.PathValue("itemId")
+	streamID := addDashes(itemID)
+	segment := r.PathValue("segment")
+
+	plugin := s.findServablePlugin(streamID)
+	if plugin == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	r.URL.Path = "/" + segment
+	plugin.ServeHTTP(w, r)
+}
+
+func (s *Server) hlsSegmentDirect(w http.ResponseWriter, r *http.Request) {
 	itemID := r.PathValue("itemId")
 	streamID := addDashes(itemID)
 	segment := r.PathValue("segment")
@@ -181,4 +237,23 @@ func (s *Server) videoStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "streaming not yet supported for this source", http.StatusNotImplemented)
+}
+
+type responseCapture struct {
+	header     http.Header
+	statusCode int
+	body       []byte
+}
+
+func (r *responseCapture) Header() http.Header {
+	return r.header
+}
+
+func (r *responseCapture) Write(b []byte) (int, error) {
+	r.body = append(r.body, b...)
+	return len(b), nil
+}
+
+func (r *responseCapture) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
 }

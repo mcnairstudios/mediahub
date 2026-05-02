@@ -188,6 +188,7 @@ func (s *Server) registerMediaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /Videos/{itemId}/main.m3u8", s.hlsMediaPlaylist)
 	mux.HandleFunc("GET /Videos/{itemId}/live.m3u8", s.hlsLivePlaylist)
 	mux.HandleFunc("GET /Videos/{itemId}/hls1/{playlistId}/{segment}", s.hlsSegment)
+	mux.HandleFunc("GET /Videos/{itemId}/hls/{segment...}", s.hlsSegmentDirect)
 	mux.HandleFunc("GET /Playback/BitrateTest", s.bitrateTest)
 }
 

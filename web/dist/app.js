@@ -8036,7 +8036,7 @@
         }
 
         var html = '<table class="list-table"><thead><tr>' +
-          '<th>Name</th><th>UUID</th><th>Port</th><th>Groups</th><th>Max Channels</th><th>Enabled</th><th>Actions</th>' +
+          '<th>Name</th><th>Port</th><th>Groups</th><th>Max Channels</th><th>Enabled</th><th>Actions</th>' +
           '</tr></thead><tbody>';
         for (var i = 0; i < devices.length; i++) {
           var d = devices[i];
@@ -8049,7 +8049,6 @@
           }
           html += '<tr>' +
             '<td>' + esc(d.name) + '</td>' +
-            '<td><span style="font-family:monospace;font-size:12px;color:var(--text-secondary)">' + esc(d.uuid || d.id || '') + '</span></td>' +
             '<td>' + esc(d.port) + '</td>' +
             '<td>' + (groupNames.length > 0 ? groupNames.map(function(n) { return '<span class="badge">' + esc(n) + '</span>'; }).join(' ') : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
             '<td>' + esc(d.max_channels || 0) + '</td>' +
