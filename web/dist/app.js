@@ -1339,27 +1339,42 @@
     var user = api.user;
     var isAdmin = user && user.is_admin;
 
-    var headerButtons = '';
-    if (isAdmin) {
-      headerButtons = '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
-        '<button class="btn btn-primary" id="add-channel-btn">' + icons.plus + ' Add Channel</button>' +
-        '<button class="btn btn-ghost" id="manage-groups-btn">Manage Groups</button>' +
-        '<button class="btn btn-ghost" id="auto-number-btn" title="Auto-assign channel numbers sequentially">#Auto Number</button>' +
-        '<span id="bulk-actions" style="display:none;gap:8px;align-items:center">' +
-        '<button class="btn btn-ghost" id="bulk-enable-btn" style="color:var(--success)">Enable Selected</button>' +
-        '<button class="btn btn-ghost" id="bulk-disable-btn" style="color:var(--danger)">Disable Selected</button>' +
-        '<select class="form-input" id="bulk-group-select" style="width:auto;font-size:12px"><option value="">Assign Group...</option></select>' +
-        '<span id="bulk-count" style="font-size:12px;color:var(--text-muted)"></span>' +
-        '</span>' +
-        '</div>';
-    }
-
-    el.innerHTML = '<h1 class="page-title">Channels</h1>' +
-      headerButtons +
-      '<div class="search-bar">' + icons.search + '<input id="channel-search" placeholder="Search channels..."></div>' +
-      '<div id="channel-list"><div class="skeleton" style="height:200px"></div></div>';
+    el.innerHTML = '<div class="skeleton" style="height:200px"></div>';
 
     var channelEditId = null;
+    var openGroups = {};
+    var groupsInitialized = false;
+
+    try {
+      var groupResp = await api.get('/api/channel-groups');
+      channelGroups = await groupResp.json();
+      if (!Array.isArray(channelGroups)) channelGroups = [];
+    } catch (e) { channelGroups = []; }
+
+    channelStreams = null;
+
+    var nowData = {};
+    try {
+      var nowResp = await api.get('/api/epg/now');
+      var nowList = await nowResp.json();
+      if (Array.isArray(nowList)) {
+        for (var ni = 0; ni < nowList.length; ni++) {
+          nowData[nowList[ni].channel_id] = nowList[ni];
+        }
+      }
+    } catch (e) {}
+
+    var channels = [];
+    try {
+      var resp = await api.get('/api/channels');
+      channels = await resp.json();
+      if (!Array.isArray(channels)) channels = [];
+    } catch (e) {
+      el.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load channels</p></div>';
+      return;
+    }
+
+    var searchTerm = '';
 
     var channelFormBody =
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
@@ -1384,14 +1399,6 @@
       modal.querySelector('.modal-save-btn').id = 'save-channel-btn';
       return modal;
     }
-
-    try {
-      var groupResp = await api.get('/api/channel-groups');
-      channelGroups = await groupResp.json();
-      if (!Array.isArray(channelGroups)) channelGroups = [];
-    } catch (e) { channelGroups = []; }
-
-    channelStreams = null;
 
     async function loadEPGChannelIDs() {
       if (epgChannelIDs) return epgChannelIDs;
@@ -1459,16 +1466,16 @@
       document.addEventListener('click', function(e) { if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
     }
     function renderSelectedStreams() {
-      var container = document.getElementById('ch-selected-streams');
-      if (!container) return;
-      if (selectedStreamIDs.length === 0) { container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No streams assigned</span>'; return; }
+      var selContainer = document.getElementById('ch-selected-streams');
+      if (!selContainer) return;
+      if (selectedStreamIDs.length === 0) { selContainer.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No streams assigned</span>'; return; }
       var streams = channelStreams || [];
-      container.innerHTML = selectedStreamIDs.map(function(id) {
+      selContainer.innerHTML = selectedStreamIDs.map(function(id) {
         var s = streams.find(function(st) { return st.id === id; });
         var name = s ? s.name : id.substring(0, 12) + '...';
         return '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-hover);padding:2px 8px;border-radius:12px;font-size:12px">' + esc(name) + '<button class="stream-rm" data-id="' + esc(id) + '" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 2px;font-size:14px">&times;</button></span>';
       }).join('');
-      container.querySelectorAll('.stream-rm').forEach(function(btn) {
+      selContainer.querySelectorAll('.stream-rm').forEach(function(btn) {
         btn.addEventListener('click', function() { var rid = this.getAttribute('data-id'); selectedStreamIDs = selectedStreamIDs.filter(function(id) { return id !== rid; }); renderSelectedStreams(); });
       });
     }
@@ -1524,29 +1531,43 @@
       });
     }
 
-    if (isAdmin) {
-      document.getElementById('add-channel-btn').addEventListener('click', function() {
-        channelEditId = null;
-        openChannelModal('New Channel', 'Create');
-        document.getElementById('ch-name').value = '';
-        document.getElementById('ch-number').value = '';
-        document.getElementById('ch-logo').value = '';
-        if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = '';
-        document.getElementById('ch-enabled').checked = true;
-        populateForm(null);
-        bindChannelSave();
-      });
+    function openEditChannel(ch) {
+      channelEditId = ch.id;
+      openChannelModal('Edit Channel', 'Update');
+      document.getElementById('ch-name').value = ch.name || '';
+      document.getElementById('ch-number').value = ch.number || '';
+      document.getElementById('ch-logo').value = ch.logo_url || '';
+      if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = ch.tvg_id || '';
+      document.getElementById('ch-enabled').checked = ch.is_enabled !== false;
+      populateForm(ch);
+      bindChannelSave();
+    }
 
-      document.getElementById('manage-groups-btn').addEventListener('click', function() {
-        showGroupManageModal();
-      });
+    function openAddChannel() {
+      channelEditId = null;
+      openChannelModal('New Channel', 'Create');
+      document.getElementById('ch-name').value = '';
+      document.getElementById('ch-number').value = '';
+      document.getElementById('ch-logo').value = '';
+      if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = '';
+      document.getElementById('ch-enabled').checked = true;
+      populateForm(null);
+      bindChannelSave();
+    }
 
-      document.getElementById('auto-epg-btn').addEventListener('click', async function() {
-        if (!confirm('Auto-match EPG channel IDs to channels by name?')) return;
-        try { var r = await api.post('/api/epg/auto-match'); if (r.ok) { var data = await r.json(); toast('Matched ' + (data.matched || 0) + ' channels'); renderChannels(el); } else { toast('Auto-match failed', 'error'); } } catch (err) { toast('Auto-match failed', 'error'); }
-      });
-
-
+    async function deleteChannel(id, name) {
+      if (!confirm('Delete channel "' + name + '"?')) return;
+      try {
+        var r = await api.del('/api/channels/' + id);
+        if (r.ok || r.status === 204) {
+          toast('Channel deleted');
+          renderChannels(el);
+        } else {
+          toast('Failed to delete channel', 'error');
+        }
+      } catch (err) {
+        toast('Failed to delete channel', 'error');
+      }
     }
 
     function showGroupManageModal() {
@@ -1571,16 +1592,16 @@
         try { var r = await api.get('/api/channel-groups'); channelGroups = await r.json(); if (!Array.isArray(channelGroups)) channelGroups = []; } catch (e) { channelGroups = []; }
       }
       function renderGMList() {
-        var container = document.getElementById('gm-group-list');
-        if (!container) return;
-        if (channelGroups.length === 0) { container.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>'; return; }
-        container.innerHTML = channelGroups.map(function(g, idx) {
+        var gmContainer = document.getElementById('gm-group-list');
+        if (!gmContainer) return;
+        if (channelGroups.length === 0) { gmContainer.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>'; return; }
+        gmContainer.innerHTML = channelGroups.map(function(g, idx) {
           var countBadge = g.channel_count ? ' <span style="color:var(--text-muted);font-size:11px">(' + g.channel_count + ' ch)</span>' : '';
           var upBtn = idx > 0 ? '<button class="btn btn-sm btn-ghost gm-up" data-idx="' + idx + '" title="Move up" style="padding:2px 6px">\u25B2</button>' : '<span style="width:28px"></span>';
           var downBtn = idx < channelGroups.length - 1 ? '<button class="btn btn-sm btn-ghost gm-down" data-idx="' + idx + '" title="Move down" style="padding:2px 6px">\u25BC</button>' : '<span style="width:28px"></span>';
           return '<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">' + upBtn + downBtn + '<span style="flex:1">' + esc(g.name) + countBadge + '</span><button class="btn btn-sm btn-danger gm-del" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' + icons.trash + '</button></div>';
         }).join('');
-        container.querySelectorAll('.gm-up').forEach(function(btn) {
+        gmContainer.querySelectorAll('.gm-up').forEach(function(btn) {
           btn.addEventListener('click', async function() {
             var idx = parseInt(this.getAttribute('data-idx'));
             if (idx <= 0) return;
@@ -1589,7 +1610,7 @@
             await refreshGMGroups(); renderGMList();
           });
         });
-        container.querySelectorAll('.gm-down').forEach(function(btn) {
+        gmContainer.querySelectorAll('.gm-down').forEach(function(btn) {
           btn.addEventListener('click', async function() {
             var idx = parseInt(this.getAttribute('data-idx'));
             if (idx >= channelGroups.length - 1) return;
@@ -1598,67 +1619,13 @@
             await refreshGMGroups(); renderGMList();
           });
         });
-        container.querySelectorAll('.gm-del').forEach(function(btn) {
+        gmContainer.querySelectorAll('.gm-del').forEach(function(btn) {
           btn.addEventListener('click', async function() {
             var id = this.getAttribute('data-id'); var name = this.getAttribute('data-name');
             if (!confirm('Delete group "' + name + '"?')) return;
             var r = await api.del('/api/channel-groups/' + id);
             if (r.ok || r.status === 204) { toast('Group deleted'); await refreshGMGroups(); renderGMList(); }
           });
-        });
-      }
-    }
-
-    if (isAdmin) {
-      var autoNumBtn = document.getElementById('auto-number-btn');
-      if (autoNumBtn) {
-        autoNumBtn.addEventListener('click', async function() {
-          if (!confirm('Auto-assign sequential channel numbers to all channels?')) return;
-          try {
-            var r = await api.post('/api/channels/batch', { auto_number: true });
-            if (r.ok) {
-              toast('Channels renumbered');
-              renderChannels(el);
-            } else { toast('Failed to renumber', 'error'); }
-          } catch (err) { toast('Failed to renumber', 'error'); }
-        });
-      }
-
-      var bulkEnableBtn = document.getElementById('bulk-enable-btn');
-      var bulkDisableBtn = document.getElementById('bulk-disable-btn');
-      if (bulkEnableBtn) {
-        bulkEnableBtn.addEventListener('click', async function() {
-          var ids = getSelectedChannelIDs();
-          if (ids.length === 0) return;
-          try {
-            var r = await api.post('/api/channels/batch', { channel_ids: ids, is_enabled: true });
-            if (r.ok) { toast(ids.length + ' channels enabled'); renderChannels(el); }
-            else { toast('Failed to enable channels', 'error'); }
-          } catch (err) { toast('Failed to enable channels', 'error'); }
-        });
-      }
-      if (bulkDisableBtn) {
-        bulkDisableBtn.addEventListener('click', async function() {
-          var ids = getSelectedChannelIDs();
-          if (ids.length === 0) return;
-          try {
-            var r = await api.post('/api/channels/batch', { channel_ids: ids, is_enabled: false });
-            if (r.ok) { toast(ids.length + ' channels disabled'); renderChannels(el); }
-            else { toast('Failed to disable channels', 'error'); }
-          } catch (err) { toast('Failed to disable channels', 'error'); }
-        });
-      }
-
-      var bulkGroupSelect = document.getElementById('bulk-group-select');
-      if (bulkGroupSelect) {
-        for (var bgi = 0; bgi < channelGroups.length; bgi++) {
-          bulkGroupSelect.innerHTML += '<option value="' + esc(channelGroups[bgi].id) + '">' + esc(channelGroups[bgi].name) + '</option>';
-        }
-        bulkGroupSelect.addEventListener('change', async function() {
-          var gid = this.value; if (!gid) return;
-          var ids = getSelectedChannelIDs(); if (ids.length === 0) { toast('Select channels first', 'error'); this.value = ''; return; }
-          try { var r = await api.post('/api/channels/assign-group', { channel_ids: ids, group_id: gid }); if (r.ok) { toast(ids.length + ' channels assigned to group'); renderChannels(el); } else { toast('Failed to assign group', 'error'); } } catch (err) { toast('Failed to assign group', 'error'); }
-          this.value = '';
         });
       }
     }
@@ -1678,167 +1645,348 @@
       if (bulkCount) bulkCount.textContent = count + ' selected';
     }
 
-    var nowData = {};
-    try {
-      var nowResp = await api.get('/api/epg/now');
-      var nowList = await nowResp.json();
-      if (Array.isArray(nowList)) {
-        for (var ni = 0; ni < nowList.length; ni++) {
-          nowData[nowList[ni].channel_id] = nowList[ni];
-        }
-      }
-    } catch (e) {}
+    function buildChannelRow(c) {
+      var logoHtml = c.logo_url
+        ? '<img class="logo" src="' + esc(c.logo_url) + '" style="cursor:pointer;max-width:100px;max-height:40px;object-fit:contain;border-radius:2px;vertical-align:middle" alt="">'
+        : (c.stream_ids && c.stream_ids.length > 0 ? '<span style="cursor:pointer;font-size:20px;color:var(--accent)">' + icons.play + '</span>' : '');
 
-    try {
-      var resp = await api.get('/api/channels');
-      var channels = await resp.json();
-      if (!Array.isArray(channels)) channels = [];
-
-      var groupMap = {};
-      for (var gi = 0; gi < channelGroups.length; gi++) {
-        groupMap[channelGroups[gi].id] = channelGroups[gi].name;
-      }
-
-      renderChannelTable(channels, '', groupMap, isAdmin, el, channelEditId, null, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
-      document.getElementById('channel-search').addEventListener('input', function() {
-        renderChannelTable(channels, this.value.toLowerCase(), groupMap, isAdmin, el, channelEditId, null, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
-      });
-    } catch (e) {
-      document.getElementById('channel-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load channels</p></div>';
-    }
-  }
-
-  function renderChannelTable(channels, filter, groupMap, isAdmin, el, channelEditId, formEl, populateForm, setEditId, nowData, updateBulkCount) {
-    var container = document.getElementById('channel-list');
-    if (!container) return;
-    nowData = nowData || {};
-    var filtered = channels;
-    if (filter) {
-      filtered = channels.filter(function(c) {
-        var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '';
-        return (c.name || '').toLowerCase().indexOf(filter) >= 0 ||
-               groupName.toLowerCase().indexOf(filter) >= 0 ||
-               (c.tvg_id || '').toLowerCase().indexOf(filter) >= 0;
-      });
-    }
-    if (filtered.length === 0) {
-      container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No channels found</p></div>';
-      return;
-    }
-
-    filtered.sort(function(a, b) { return (a.number || 0) - (b.number || 0); });
-
-    var checkCol = isAdmin ? '<th style="width:32px"><input type="checkbox" id="ch-select-all"></th>' : '';
-    var html = '<table class="list-table"><thead><tr>' +
-      checkCol + '<th></th><th>#</th><th>Name</th><th>EPG ID</th><th>Now / Next</th><th>Group</th><th>Streams</th><th>Status</th><th></th>' +
-      '</tr></thead><tbody>';
-    for (var i = 0; i < filtered.length; i++) {
-      var c = filtered[i];
-      var logo = c.logo_url ? '<img class="logo" src="' + esc(c.logo_url) + '" alt="">' : '';
-      var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '-';
-      var streamCount = c.stream_ids ? c.stream_ids.length : 0;
-      var status = c.is_enabled !== false ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
-      var tvgIdCell = c.tvg_id ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(c.tvg_id) + '</span>' : '<span style="color:var(--text-dim);font-size:11px">-</span>';
+      var nameHtml = '<div style="display:flex;flex-direction:column;gap:2px">';
+      nameHtml += '<span style="font-weight:600">' + esc(c.name);
+      if (!c.is_enabled) nameHtml += ' <span class="badge badge-disabled" style="font-size:10px;margin-left:6px">Off</span>';
+      nameHtml += '</span>';
       var nowInfo = nowData[c.id];
-      var nowNextHtml = '';
-      if (nowInfo) {
-        var pct = Math.round((nowInfo.progress || 0) * 100);
-        nowNextHtml = '<div style="font-size:12px;line-height:1.4">' +
-          '<div style="display:flex;align-items:center;gap:4px">' +
-          '<span style="color:var(--success);font-weight:600;font-size:10px">NOW</span> ' +
-          '<span>' + esc(nowInfo.title) + '</span></div>' +
-          '<div style="width:60px;height:3px;background:var(--border);border-radius:2px;margin:2px 0"><div style="width:' + pct + '%;height:100%;background:var(--accent);border-radius:2px"></div></div>' +
-          (nowInfo.next_title ? '<div style="color:var(--text-muted);font-size:11px">Next: ' + esc(nowInfo.next_title) + '</div>' : '') +
-          '</div>';
-      } else {
-        nowNextHtml = '<span style="color:var(--text-muted);font-size:12px">-</span>';
+      if (nowInfo && nowInfo.title) {
+        nameHtml += '<span style="font-size:12px;color:var(--text-muted)">' + esc(nowInfo.title) + '</span>';
       }
+      nameHtml += '</div>';
+
+      var streamCount = c.stream_ids ? c.stream_ids.length : 0;
+
       var checkTd = isAdmin ? '<td><input type="checkbox" class="ch-select" data-id="' + esc(c.id) + '"></td>' : '';
       var actions = '';
       if (c.stream_ids && c.stream_ids.length > 0) {
-        actions += '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_ids[0]) + '" data-name="' + esc(c.name) + '">' + icons.play + '</button>';
+        actions += '<button class="btn btn-sm btn-primary play-btn" data-id="' + esc(c.stream_ids[0]) + '" data-name="' + esc(c.name) + '" style="padding:4px 8px">' + icons.play + '</button>';
       }
       if (isAdmin) {
         actions += '<button class="btn btn-sm btn-ghost ch-edit-btn" data-id="' + esc(c.id) + '" title="Edit">' + icons.edit + '</button>' +
           '<button class="btn btn-sm btn-danger ch-delete-btn" data-id="' + esc(c.id) + '" data-name="' + esc(c.name) + '" title="Delete">' + icons.trash + '</button>';
       }
-      html += '<tr>' +
+
+      return '<tr>' +
         checkTd +
-        '<td>' + logo + '</td>' +
-        '<td>' + esc(c.number || '-') + '</td>' +
-        '<td>' + esc(c.name) + '</td>' +
-        '<td>' + tvgIdCell + '</td>' +
-        '<td>' + nowNextHtml + '</td>' +
-        '<td>' + esc(groupName) + '</td>' +
+        '<td style="width:110px;padding-right:0;text-align:center" class="ch-logo-cell" data-id="' + esc(c.id) + '">' + logoHtml + '</td>' +
+        '<td>' + nameHtml + '</td>' +
         '<td>' + streamCount + '</td>' +
-        '<td>' + status + '</td>' +
-        '<td style="display:flex;gap:4px">' + actions + '</td>' +
+        '<td style="white-space:nowrap"><div style="display:flex;gap:4px;align-items:center">' + actions + '</div></td>' +
         '</tr>';
     }
-    html += '</tbody></table>';
-    container.innerHTML = html;
 
-    if (isAdmin) {
-      var selectAll = document.getElementById('ch-select-all');
-      if (selectAll) {
-        selectAll.addEventListener('change', function() {
-          var checks = document.querySelectorAll('.ch-select');
-          for (var ci = 0; ci < checks.length; ci++) checks[ci].checked = selectAll.checked;
-          if (updateBulkCount) updateBulkCount();
+    function renderTable() {
+      var filtered = channels;
+      if (searchTerm) {
+        var q = searchTerm.toLowerCase();
+        var groupNameMap = {};
+        for (var gni = 0; gni < channelGroups.length; gni++) {
+          groupNameMap[channelGroups[gni].id] = (channelGroups[gni].name || '').toLowerCase();
+        }
+        filtered = channels.filter(function(c) {
+          var gn = groupNameMap[c.group_id] || '';
+          return (c.name || '').toLowerCase().indexOf(q) >= 0 ||
+                 gn.indexOf(q) >= 0 ||
+                 (c.tvg_id || '').toLowerCase().indexOf(q) >= 0;
         });
       }
-      container.querySelectorAll('.ch-select').forEach(function(cb) {
-        cb.addEventListener('change', function() { if (updateBulkCount) updateBulkCount(); });
+
+      filtered.sort(function(a, b) { return (a.number || 0) - (b.number || 0); });
+
+      var grouped = {};
+      var ungrouped = [];
+      var groupMap = {};
+      for (var gmi = 0; gmi < channelGroups.length; gmi++) {
+        groupMap[channelGroups[gmi].id] = channelGroups[gmi];
+      }
+
+      for (var fi = 0; fi < filtered.length; fi++) {
+        var c = filtered[fi];
+        var gid = c.group_id;
+        if (gid && groupMap[gid]) {
+          if (!grouped[gid]) grouped[gid] = [];
+          grouped[gid].push(c);
+        } else {
+          ungrouped.push(c);
+        }
+      }
+
+      if (!groupsInitialized) {
+        for (var ogi = 0; ogi < channelGroups.length; ogi++) {
+          openGroups[channelGroups[ogi].id] = true;
+        }
+        openGroups['__ungrouped__'] = true;
+        groupsInitialized = true;
+      }
+
+      var colCount = isAdmin ? 5 : 4;
+      var checkCol = isAdmin ? '<th style="width:32px"><input type="checkbox" id="ch-select-all"></th>' : '';
+      var countText = searchTerm
+        ? 'Channels (' + filtered.length + ' of ' + channels.length + ')'
+        : 'Channels (' + channels.length + ')';
+
+      var tableContainer = document.getElementById('ch-table-container');
+      if (!tableContainer) return;
+
+      var countEl = document.getElementById('ch-count');
+      if (countEl) countEl.textContent = countText;
+
+      var html = '<table class="list-table"><thead><tr>' +
+        checkCol + '<th style="width:110px;padding-right:0;text-align:center"></th><th>Channel</th><th>Streams</th><th style="width:120px"></th>' +
+        '</tr></thead>';
+
+      var sortedGroups = channelGroups.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+
+      function buildGroupSection(secGid, label, items) {
+        var isOpen = !!openGroups[secGid];
+        var arrowClass = 'group-header-arrow' + (isOpen ? ' open' : '');
+        var section = '<tbody data-gid="' + esc(secGid) + '">' +
+          '<tr class="group-header-row" data-gid="' + esc(secGid) + '"><td colspan="' + colCount + '">' +
+          '<span class="' + arrowClass + '">\u25B6</span>' +
+          esc(label) +
+          '<span class="group-header-count">' + items.length + '</span>' +
+          '</td></tr>';
+        for (var si = 0; si < items.length; si++) {
+          var rowStyle = isOpen ? '' : ' style="display:none"';
+          section += buildChannelRow(items[si]).replace('<tr>', '<tr class="ch-group-item" data-gid="' + esc(secGid) + '"' + rowStyle + '>');
+        }
+        section += '</tbody>';
+        return section;
+      }
+
+      var hasContent = false;
+      for (var sgi = 0; sgi < sortedGroups.length; sgi++) {
+        var group = sortedGroups[sgi];
+        var items = grouped[group.id];
+        if (!items || items.length === 0) continue;
+        hasContent = true;
+        html += buildGroupSection(group.id, group.name || 'Unknown', items);
+      }
+
+      if (ungrouped.length > 0) {
+        hasContent = true;
+        html += buildGroupSection('__ungrouped__', 'Ungrouped', ungrouped);
+      }
+
+      if (!hasContent) {
+        html += '<tbody><tr><td colspan="' + colCount + '" style="padding:40px 16px;text-align:center;color:var(--text-muted)">' +
+          (searchTerm ? 'No matching channels' : 'No channels yet') +
+          '</td></tr></tbody>';
+      }
+
+      html += '</table>';
+      tableContainer.innerHTML = html;
+
+      tableContainer.querySelectorAll('.group-header-row').forEach(function(row) {
+        row.addEventListener('click', function(e) {
+          if (e.target.closest && e.target.closest('button')) return;
+          var rowGid = this.getAttribute('data-gid');
+          openGroups[rowGid] = !openGroups[rowGid];
+          var arrow = this.querySelector('.group-header-arrow');
+          if (arrow) arrow.className = 'group-header-arrow' + (openGroups[rowGid] ? ' open' : '');
+          tableContainer.querySelectorAll('.ch-group-item[data-gid="' + rowGid + '"]').forEach(function(r) {
+            r.style.display = openGroups[rowGid] ? '' : 'none';
+          });
+        });
       });
+
+      if (isAdmin) {
+        var selectAll = document.getElementById('ch-select-all');
+        if (selectAll) {
+          selectAll.addEventListener('change', function() {
+            var checks = document.querySelectorAll('.ch-select');
+            for (var ci = 0; ci < checks.length; ci++) checks[ci].checked = selectAll.checked;
+            updateBulkCount();
+          });
+        }
+        tableContainer.querySelectorAll('.ch-select').forEach(function(cb) {
+          cb.addEventListener('change', function() { updateBulkCount(); });
+        });
+      }
+
+      tableContainer.querySelectorAll('.ch-logo-cell').forEach(function(cell) {
+        cell.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var chId = this.getAttribute('data-id');
+          var ch = channels.find(function(cc) { return cc.id === chId; });
+          if (ch && ch.stream_ids && ch.stream_ids.length > 0) {
+            startPlay(ch.stream_ids[0], ch.name, true);
+          }
+        });
+      });
+
+      tableContainer.querySelectorAll('.play-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
+        });
+      });
+
+      if (isAdmin) {
+        tableContainer.querySelectorAll('.ch-edit-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var chId = this.getAttribute('data-id');
+            var ch = channels.find(function(cc) { return cc.id === chId; });
+            if (ch) openEditChannel(ch);
+          });
+        });
+
+        tableContainer.querySelectorAll('.ch-delete-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            deleteChannel(this.getAttribute('data-id'), this.getAttribute('data-name'));
+          });
+        });
+      }
     }
 
-    container.querySelectorAll('.play-btn').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        startPlay(this.getAttribute('data-id'), this.getAttribute('data-name'), true);
-      });
+    el.innerHTML = '';
+
+    var headerRow = document.createElement('div');
+    headerRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px';
+
+    var chCountEl = document.createElement('h2');
+    chCountEl.id = 'ch-count';
+    chCountEl.style.margin = '0';
+    chCountEl.textContent = 'Channels (' + channels.length + ')';
+    headerRow.appendChild(chCountEl);
+
+    var rightActions = document.createElement('div');
+    rightActions.style.cssText = 'display:flex;align-items:center;gap:8px';
+
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search...';
+    searchInput.style.cssText = 'padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;width:220px;outline:none';
+    var searchTimer = null;
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        searchTerm = searchInput.value;
+        renderTable();
+      }, 300);
     });
+    rightActions.appendChild(searchInput);
 
     if (isAdmin) {
-      container.querySelectorAll('.ch-edit-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          var chId = this.getAttribute('data-id');
-          var ch = null;
-          for (var j = 0; j < channels.length; j++) {
-            if (channels[j].id === chId) { ch = channels[j]; break; }
-          }
-          if (!ch) return;
-          setEditId(chId);
-          openChannelModal('Edit Channel', 'Update');
-          document.getElementById('ch-name').value = ch.name || '';
-          document.getElementById('ch-number').value = ch.number || '';
-          document.getElementById('ch-logo').value = ch.logo_url || '';
-          if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = ch.tvg_id || '';
-          document.getElementById('ch-enabled').checked = ch.is_enabled !== false;
-          populateForm(ch);
-          bindChannelSave();
-        });
-      });
-
-      container.querySelectorAll('.ch-delete-btn').forEach(function(btn) {
-        btn.addEventListener('click', async function() {
-          var id = this.getAttribute('data-id');
-          var name = this.getAttribute('data-name');
-          if (!confirm('Delete channel "' + name + '"?')) return;
-          try {
-            var r = await api.del('/api/channels/' + id);
-            if (r.ok || r.status === 204) {
-              toast('Channel deleted');
-              renderChannels(el);
-            } else {
-              toast('Failed to delete channel', 'error');
-            }
-          } catch (err) {
-            toast('Failed to delete channel', 'error');
-          }
-        });
-      });
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-primary btn-sm';
+      addBtn.style.cssText = 'font-size:18px;padding:4px 12px';
+      addBtn.textContent = '+';
+      addBtn.title = 'Add Channel';
+      addBtn.addEventListener('click', function() { openAddChannel(); });
+      rightActions.appendChild(addBtn);
     }
+
+    headerRow.appendChild(rightActions);
+    el.appendChild(headerRow);
+
+    if (isAdmin) {
+      var toolbarRow = document.createElement('div');
+      toolbarRow.style.cssText = 'display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center';
+
+      var groupsBtn = document.createElement('button');
+      groupsBtn.className = 'btn btn-ghost btn-sm';
+      groupsBtn.textContent = 'Manage Groups';
+      groupsBtn.addEventListener('click', function() { showGroupManageModal(); });
+      toolbarRow.appendChild(groupsBtn);
+
+      var autoNumBtn = document.createElement('button');
+      autoNumBtn.className = 'btn btn-ghost btn-sm';
+      autoNumBtn.textContent = '# Auto Number';
+      autoNumBtn.title = 'Auto-assign channel numbers sequentially';
+      autoNumBtn.addEventListener('click', async function() {
+        if (!confirm('Auto-assign sequential channel numbers to all channels?')) return;
+        try {
+          var r = await api.post('/api/channels/batch', { auto_number: true });
+          if (r.ok) { toast('Channels renumbered'); renderChannels(el); }
+          else { toast('Failed to renumber', 'error'); }
+        } catch (err) { toast('Failed to renumber', 'error'); }
+      });
+      toolbarRow.appendChild(autoNumBtn);
+
+      var autoEpgBtn = document.createElement('button');
+      autoEpgBtn.className = 'btn btn-ghost btn-sm';
+      autoEpgBtn.textContent = 'Auto Match EPG';
+      autoEpgBtn.title = 'Auto-match EPG channel IDs to channels by name';
+      autoEpgBtn.addEventListener('click', async function() {
+        if (!confirm('Auto-match EPG channel IDs to channels by name?')) return;
+        try {
+          var r = await api.post('/api/epg/auto-match');
+          if (r.ok) { var data = await r.json(); toast('Matched ' + (data.matched || 0) + ' channels'); renderChannels(el); }
+          else { toast('Auto-match failed', 'error'); }
+        } catch (err) { toast('Auto-match failed', 'error'); }
+      });
+      toolbarRow.appendChild(autoEpgBtn);
+
+      var bulkSpan = document.createElement('span');
+      bulkSpan.id = 'bulk-actions';
+      bulkSpan.style.cssText = 'display:none;gap:8px;align-items:center;margin-left:auto';
+
+      var bulkEnableBtn = document.createElement('button');
+      bulkEnableBtn.className = 'btn btn-ghost btn-sm';
+      bulkEnableBtn.style.color = 'var(--success)';
+      bulkEnableBtn.textContent = 'Enable Selected';
+      bulkEnableBtn.addEventListener('click', async function() {
+        var ids = getSelectedChannelIDs();
+        if (ids.length === 0) return;
+        try {
+          var r = await api.post('/api/channels/batch', { channel_ids: ids, is_enabled: true });
+          if (r.ok) { toast(ids.length + ' channels enabled'); renderChannels(el); }
+          else { toast('Failed to enable channels', 'error'); }
+        } catch (err) { toast('Failed to enable channels', 'error'); }
+      });
+      bulkSpan.appendChild(bulkEnableBtn);
+
+      var bulkDisableBtn = document.createElement('button');
+      bulkDisableBtn.className = 'btn btn-ghost btn-sm';
+      bulkDisableBtn.style.color = 'var(--danger)';
+      bulkDisableBtn.textContent = 'Disable Selected';
+      bulkDisableBtn.addEventListener('click', async function() {
+        var ids = getSelectedChannelIDs();
+        if (ids.length === 0) return;
+        try {
+          var r = await api.post('/api/channels/batch', { channel_ids: ids, is_enabled: false });
+          if (r.ok) { toast(ids.length + ' channels disabled'); renderChannels(el); }
+          else { toast('Failed to disable channels', 'error'); }
+        } catch (err) { toast('Failed to disable channels', 'error'); }
+      });
+      bulkSpan.appendChild(bulkDisableBtn);
+
+      var bulkGroupSelect = document.createElement('select');
+      bulkGroupSelect.className = 'form-input';
+      bulkGroupSelect.style.cssText = 'width:auto;font-size:12px';
+      bulkGroupSelect.innerHTML = '<option value="">Assign Group...</option>';
+      for (var bgi = 0; bgi < channelGroups.length; bgi++) {
+        bulkGroupSelect.innerHTML += '<option value="' + esc(channelGroups[bgi].id) + '">' + esc(channelGroups[bgi].name) + '</option>';
+      }
+      bulkGroupSelect.addEventListener('change', async function() {
+        var bgid = this.value; if (!bgid) return;
+        var ids = getSelectedChannelIDs(); if (ids.length === 0) { toast('Select channels first', 'error'); this.value = ''; return; }
+        try { var r = await api.post('/api/channels/assign-group', { channel_ids: ids, group_id: bgid }); if (r.ok) { toast(ids.length + ' channels assigned to group'); renderChannels(el); } else { toast('Failed to assign group', 'error'); } } catch (err) { toast('Failed to assign group', 'error'); }
+        this.value = '';
+      });
+      bulkSpan.appendChild(bulkGroupSelect);
+
+      var bulkCountSpan = document.createElement('span');
+      bulkCountSpan.id = 'bulk-count';
+      bulkCountSpan.style.cssText = 'font-size:12px;color:var(--text-muted)';
+      bulkSpan.appendChild(bulkCountSpan);
+
+      toolbarRow.appendChild(bulkSpan);
+      el.appendChild(toolbarRow);
+    }
+
+    var tableContainer = document.createElement('div');
+    tableContainer.id = 'ch-table-container';
+    el.appendChild(tableContainer);
+
+    renderTable();
   }
 
   async function showStreamDetail(streamID, streamName) {

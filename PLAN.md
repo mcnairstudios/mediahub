@@ -3,6 +3,16 @@
 ## Architecture
 See top of file for Source Stream Profile design (unchanged).
 
+## Design Decisions (from user)
+
+1. **Two ways to create channels**: "Add Channel" button on channels page, OR "+" on a stream in streams page. Both open the same modal with different pre-populated fields.
+2. **One stream per channel** for now. No multi-stream failover.
+3. **Combined Library** with tabs (Movies/TV Series), not separate nav items.
+4. **Everything goes through the pipeline** — IPTV HLS, SAT>IP, everything. Same processing path.
+5. **EPG matching at source level** — link an EPG source to a stream source. Channel names/numbers auto-match. Not per-channel manual matching.
+6. **Record from guide** — every EPG entry has a record dot. Records the channel's stream for the program's time window (start→stop from EPG).
+7. **User roles** — standard users see admin channel assignments but eventually users will manage their own channel selections. DLNA/Jellyfin filter by user's channel groups.
+
 ## Sprint: User Feedback (Current)
 
 ### Stream 1: Frontend UX Overhaul
