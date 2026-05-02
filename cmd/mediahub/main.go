@@ -580,6 +580,23 @@ func main() {
 		}
 	}()
 
+	jellyfinPlayback := &jellyfinPlaybackAdapter{
+		deps: orchestrator.PlaybackDeps{
+			StreamStore:        streamStore,
+			SettingsStore:      settingsStore,
+			SourceConfigStore:  sourceConfigStore,
+			SourceProfileStore: sourceProfileStore,
+			ConnRegistry:       connReg,
+			WGService:          wgService,
+			SessionMgr:         sessionMgr,
+			Detector:           detector,
+			ClientStore:        clientStore,
+			OutputReg:          outputReg,
+			Strategy:           strategy.Resolve,
+			ProbeCache:         probeCache,
+			UserAgent:          cfg.UserAgent,
+		},
+	}
 	jellyfinServer := jellyfin.NewServer(jellyfin.ServerDeps{
 		ServerName: "MediaHub",
 		StateDir:   cfg.DataDir,
@@ -593,6 +610,8 @@ func main() {
 		TMDBClient: tmdbClient,
 		ImageCache: tmdbImages,
 		LogoCache:  logoCache,
+		SessionMgr: sessionMgr,
+		Playback:   jellyfinPlayback,
 		Log:        zlog,
 	})
 	jellyfinEnabled := true
@@ -901,6 +920,16 @@ func makeOnRefreshDone(ctx context.Context, store sourceconfig.Store) func(strin
 		sc.Config["last_refreshed"] = time.Now().Format(time.RFC3339)
 		store.Update(ctx, sc)
 	}
+}
+
+type jellyfinPlaybackAdapter struct {
+	deps orchestrator.PlaybackDeps
+}
+
+func (a *jellyfinPlaybackAdapter) StartPlayback(streamID string, port int, headers map[string]string) error {
+	ctx := context.Background()
+	_, err := orchestrator.StartPlayback(ctx, a.deps, streamID, port, headers)
+	return err
 }
 
 func autoNumberChannels(ctx context.Context, store channel.Store) {

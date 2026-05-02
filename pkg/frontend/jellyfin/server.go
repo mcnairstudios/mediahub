@@ -22,6 +22,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/epg"
 	"github.com/mcnairstudios/mediahub/pkg/favorite"
 	"github.com/mcnairstudios/mediahub/pkg/logocache"
+	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/store"
 	realtmdb "github.com/mcnairstudios/mediahub/pkg/tmdb"
 )
@@ -30,6 +31,10 @@ const (
 	viewMoviesID = "f0000000-0000-0000-0000-000000000001"
 	viewTVID     = "f0000000-0000-0000-0000-000000000002"
 )
+
+type PlaybackStarter interface {
+	StartPlayback(streamID string, port int, headers map[string]string) error
+}
 
 type Server struct {
 	serverID   string
@@ -44,6 +49,8 @@ type Server struct {
 	tmdbClient *realtmdb.Client
 	imageCache *realtmdb.ImageCache
 	logoCache  *logocache.Cache
+	sessionMgr *session.Manager
+	playback   PlaybackStarter
 	log        zerolog.Logger
 	tokens     sync.Map
 	state      *persistedState
@@ -62,6 +69,8 @@ type ServerDeps struct {
 	TMDBClient *realtmdb.Client
 	ImageCache *realtmdb.ImageCache
 	LogoCache  *logocache.Cache
+	SessionMgr *session.Manager
+	Playback   PlaybackStarter
 	Log        zerolog.Logger
 }
 
@@ -80,6 +89,8 @@ func NewServer(deps ServerDeps) *Server {
 		tmdbClient: deps.TMDBClient,
 		imageCache: deps.ImageCache,
 		logoCache:  deps.LogoCache,
+		sessionMgr: deps.SessionMgr,
+		playback:   deps.Playback,
 		log:        deps.Log.With().Str("component", "jellyfin").Logger(),
 		state:      state,
 	}

@@ -5535,16 +5535,8 @@
           row.after(detailRow);
           try {
             var gdResp = await api.get('/api/epg/programs?source_id=' + encodeURIComponent(id));
-            var guideData = await gdResp.json();
-            var programs = guideData.programs || {};
-            var HOUR_WIDTH = 240;
-            var PX_PER_MIN = HOUR_WIDTH / 60;
-            var CHANNEL_COL = 200;
-            var windowStart = new Date(guideData.start).getTime();
-            var windowStop = new Date(guideData.stop).getTime();
-            var windowMinutes = (windowStop - windowStart) / 60000;
-            var totalWidth = windowMinutes * PX_PER_MIN;
-            var nowTS = Date.now();
+            var currentPrograms = await gdResp.json();
+            if (!Array.isArray(currentPrograms)) currentPrograms = [];
 
             function fmtTime(d) {
               var dt = new Date(d);
@@ -5552,69 +5544,31 @@
               return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
             }
 
-            var hourMarksHtml = '';
-            for (var m = 0; m < windowMinutes; m += 60) {
-              hourMarksHtml += '<div class="epg-hour-mark" style="width:' + HOUR_WIDTH + 'px">' + fmtTime(windowStart + m * 60000) + '</div>';
+            var byChannel = {};
+            for (var pi = 0; pi < currentPrograms.length; pi++) {
+              var p = currentPrograms[pi];
+              byChannel[p.channel_id] = p;
             }
+            var channelIDs = Object.keys(byChannel).sort();
 
-            var channelIcons = guideData.channel_icons || {};
-            var channelNames = guideData.channel_names || {};
-            var channelIDs = Object.keys(programs).sort(function(a, b) {
-              return (channelNames[a] || a).localeCompare(channelNames[b] || b);
-            });
-            var rowsHtml = '';
-            for (var k = 0; k < channelIDs.length; k++) {
-              var chId = channelIDs[k];
-              var chProgs = programs[chId] || [];
-              var progsHtml = '';
-              for (var pi = 0; pi < chProgs.length; pi++) {
-                var p = chProgs[pi];
-                var pStart = new Date(p.start).getTime();
-                var pStop = new Date(p.stop).getTime();
-                var startMin = Math.max(0, (pStart - windowStart) / 60000);
-                var endMin = Math.min(windowMinutes, (pStop - windowStart) / 60000);
-                var leftPx = startMin * PX_PER_MIN;
-                var widthPx = (endMin - startMin) * PX_PER_MIN - 2;
-                if (widthPx < 2) continue;
-                var isLive = nowTS >= pStart && nowTS < pStop;
-                var isPast = nowTS >= pStop;
-                var cls = 'epg-program' + (isLive ? ' live' : '') + (isPast ? ' past' : '');
-                var timeStr = fmtTime(pStart) + ' - ' + fmtTime(pStop);
-                var tooltip = esc(p.title) + ' (' + timeStr + ')';
-                progsHtml += '<div class="' + cls + '" style="left:' + leftPx + 'px;width:' + widthPx + 'px" title="' + tooltip + '">' +
-                  '<div class="epg-program-title">' + esc(p.title) + '</div>' +
-                  '<div class="epg-program-time">' + timeStr + '</div></div>';
+            if (channelIDs.length === 0) {
+              td.innerHTML = '<div style="padding:12px;color:var(--text-muted)">' + esc(name) + ' — No current programs</div>';
+            } else {
+              var tableHtml = '<div style="margin:8px 0">' +
+                '<div style="font-weight:600;margin-bottom:8px;padding:0 8px">' + esc(name) + ' — ' + channelIDs.length + ' channels with current programs</div>' +
+                '<div style="max-height:400px;overflow-y:auto"><table class="data-table" style="width:100%"><thead><tr>' +
+                '<th>Channel ID</th><th>Current Program</th><th>Time</th>' +
+                '</tr></thead><tbody>';
+              for (var k = 0; k < channelIDs.length; k++) {
+                var chId = channelIDs[k];
+                var prog = byChannel[chId];
+                var timeStr = fmtTime(prog.start_time) + ' - ' + fmtTime(prog.end_time);
+                tableHtml += '<tr><td style="white-space:nowrap">' + esc(chId) + '</td>' +
+                  '<td>' + esc(prog.title) + '</td>' +
+                  '<td style="white-space:nowrap">' + timeStr + '</td></tr>';
               }
-              var chIcon = channelIcons[chId];
-              var chName = channelNames[chId] || chId;
-              var logoHtml = chIcon
-                ? '<img class="epg-channel-logo" src="/logo?url=' + encodeURIComponent(chIcon) + '" loading="lazy" alt="">'
-                : '<div class="epg-channel-logo"></div>';
-              rowsHtml += '<div class="epg-row">' +
-                '<div class="epg-channel" style="cursor:default" title="' + esc(chName) + ' (' + esc(chId) + ')">' +
-                logoHtml +
-                '<span class="epg-channel-name">' + esc(chName) + '</span>' +
-                '</div>' +
-                '<div class="epg-programs" style="width:' + totalWidth + 'px">' + progsHtml + '</div></div>';
-            }
-
-            var nowMin = (nowTS - windowStart) / 60000;
-            var nowPx = nowMin * PX_PER_MIN;
-            var nowLineHtml = (nowMin >= 0 && nowMin <= windowMinutes)
-              ? '<div class="epg-now-line" style="left:' + (CHANNEL_COL + nowPx) + 'px"></div>' : '';
-
-            td.innerHTML = '<div style="margin:8px 0">' +
-              '<div style="font-weight:600;margin-bottom:8px;padding:0 8px">' + esc(name) + ' — ' + channelIDs.length + ' channels</div>' +
-              '<div class="epg-scroll" style="max-height:500px">' +
-              '<div class="epg-header-row">' +
-              '<div class="epg-corner">Channel</div>' +
-              '<div class="epg-timeline">' + hourMarksHtml + '</div></div>' +
-              '<div style="position:relative">' + nowLineHtml + rowsHtml + '</div></div></div>';
-
-            var scrollEl = td.querySelector('.epg-scroll');
-            if (scrollEl && nowMin >= 0 && nowMin <= windowMinutes) {
-              var scrollTarget = nowPx - scrollEl.clientWidth / 2 + CHANNEL_COL;
-              if (scrollTarget > 0) scrollEl.scrollLeft = scrollTarget;
+              tableHtml += '</tbody></table></div></div>';
+              td.innerHTML = tableHtml;
             }
           } catch(err) {
             td.innerHTML = '<div style="padding:12px;color:var(--danger)">Failed to load EPG data</div>';

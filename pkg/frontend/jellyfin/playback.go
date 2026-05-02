@@ -1,9 +1,13 @@
 package jellyfin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/mcnairstudios/mediahub/pkg/output"
 )
 
 func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
@@ -52,17 +56,63 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) hlsMasterPlaylist(w http.ResponseWriter, r *http.Request) {
 	itemID := r.PathValue("itemId")
+	streamID := addDashes(itemID)
+
+	if s.playback != nil {
+		headers := make(map[string]string)
+		for key := range r.Header {
+			headers[key] = r.Header.Get(key)
+		}
+		if err := s.playback.StartPlayback(streamID, 8096, headers); err != nil {
+			s.log.Error().Err(err).Str("stream_id", streamID).Msg("jellyfin: failed to start playback")
+			http.Error(w, "playback failed", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	playlistURL := fmt.Sprintf("/Videos/%s/main.m3u8", itemID)
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	fmt.Fprintln(w, "#EXTM3U")
 	fmt.Fprintf(w, "#EXT-X-STREAM-INF:BANDWIDTH=10000000\n")
 	fmt.Fprintln(w, playlistURL)
 }
 
 func (s *Server) hlsMediaPlaylist(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "session not found", http.StatusNotFound)
+	itemID := r.PathValue("itemId")
+	streamID := addDashes(itemID)
+
+	plugin := s.findServablePlugin(streamID)
+	if plugin == nil {
+		if s.playback != nil {
+			headers := make(map[string]string)
+			for key := range r.Header {
+				headers[key] = r.Header.Get(key)
+			}
+			if err := s.playback.StartPlayback(streamID, 8096, headers); err != nil {
+				s.log.Error().Err(err).Str("stream_id", streamID).Msg("jellyfin: failed to start playback for media playlist")
+				http.Error(w, "session not found", http.StatusNotFound)
+				return
+			}
+			plugin = s.findServablePlugin(streamID)
+		}
+		if plugin == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if err := plugin.WaitReady(ctx); err != nil {
+		s.log.Warn().Err(err).Str("stream_id", streamID).Msg("jellyfin: HLS not ready")
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.URL.Path = "/playlist.m3u8"
+	plugin.ServeHTTP(w, r)
 }
 
 func (s *Server) hlsLivePlaylist(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +120,34 @@ func (s *Server) hlsLivePlaylist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) hlsSegment(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "session not found", http.StatusNotFound)
+	itemID := r.PathValue("itemId")
+	streamID := addDashes(itemID)
+	segment := r.PathValue("segment")
+
+	plugin := s.findServablePlugin(streamID)
+	if plugin == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	r.URL.Path = "/" + segment
+	plugin.ServeHTTP(w, r)
+}
+
+func (s *Server) findServablePlugin(streamID string) output.ServablePlugin {
+	if s.sessionMgr == nil {
+		return nil
+	}
+	sess := s.sessionMgr.Get(streamID)
+	if sess == nil {
+		return nil
+	}
+	for _, p := range sess.FanOut.Plugins() {
+		if sp, ok := p.(output.ServablePlugin); ok {
+			return sp
+		}
+	}
+	return nil
 }
 
 func (s *Server) videoStream(w http.ResponseWriter, r *http.Request) {
