@@ -33,6 +33,7 @@ type Server struct {
 	channels ChannelLister
 	settings SettingsChecker
 	auth     BasicAuthenticator
+	epg      EPGProvider
 	baseURL  string
 	port     int
 	log      zerolog.Logger
@@ -50,6 +51,10 @@ func NewServer(channels ChannelLister, settings SettingsChecker, baseURL string,
 
 func (s *Server) SetAuthenticator(auth BasicAuthenticator) {
 	s.auth = auth
+}
+
+func (s *Server) SetEPG(epg EPGProvider) {
+	s.epg = epg
 }
 
 func (s *Server) UDN() string {
@@ -508,8 +513,9 @@ func (s *Server) browseGroup(ctx context.Context, objectID, browseFlag string, s
 	var b strings.Builder
 	b.WriteString(didlHeader)
 	for _, ch := range page {
+		displayName := s.channelDisplayName(ctx, ch)
 		b.WriteString(fmt.Sprintf(`<item id="ch-%s" parentID="%s" restricted="1">`, xmlEscape(ch.ID), xmlEscape(objectID)))
-		b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(ch.Name)))
+		b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(displayName)))
 		b.WriteString(`<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>`)
 		if !omitArt && ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
 			profile := logoProfile(ch.LogoURL)
@@ -545,10 +551,11 @@ func (s *Server) browseChannelItem(ctx context.Context, objectID, browseFlag str
 	}
 
 	base := s.streamBaseURL()
+	displayName := s.channelDisplayName(ctx, *ch)
 	var b strings.Builder
 	b.WriteString(didlHeader)
 	b.WriteString(fmt.Sprintf(`<item id="ch-%s" parentID="%s" restricted="1">`, xmlEscape(ch.ID), xmlEscape(parentID)))
-	b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(ch.Name)))
+	b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(displayName)))
 	b.WriteString(`<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>`)
 	if !omitArt && ch.LogoURL != "" && strings.HasPrefix(ch.LogoURL, "http") {
 		profile := logoProfile(ch.LogoURL)
@@ -591,6 +598,17 @@ func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
+}
+
+func (s *Server) channelDisplayName(ctx context.Context, ch ChannelItem) string {
+	if s.epg == nil || ch.TvgID == "" {
+		return ch.Name
+	}
+	np, err := s.epg.NowPlaying(ctx, ch.TvgID)
+	if err != nil || np == nil || np.Title == "" {
+		return ch.Name
+	}
+	return ch.Name + " - " + np.Title
 }
 
 func logoProfile(logoURL string) string {

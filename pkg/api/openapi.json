@@ -964,6 +964,42 @@
         }
       }
     },
+    "/api/channels/batch": {
+      "post": {
+        "tags": ["Channels"],
+        "summary": "Batch update channels (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channel_ids": { "type": "array", "items": { "type": "string" } },
+                  "is_enabled": { "type": "boolean" },
+                  "auto_number": { "type": "boolean", "description": "Auto-number all channels sequentially" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch update result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "updated": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/channel-groups": {
       "get": {
         "tags": ["Channels"],

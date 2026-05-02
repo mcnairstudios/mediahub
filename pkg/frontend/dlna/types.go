@@ -28,11 +28,20 @@ type ChannelItem struct {
 	Name    string
 	LogoURL string
 	GroupID string
+	TvgID   string
 }
 
 type GroupItem struct {
 	ID   string
 	Name string
+}
+
+type NowPlayingInfo struct {
+	Title string
+}
+
+type EPGProvider interface {
+	NowPlaying(ctx context.Context, tvgID string) (*NowPlayingInfo, error)
 }
 
 type DLNAUser struct {

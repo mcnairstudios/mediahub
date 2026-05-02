@@ -29,14 +29,21 @@ func (s *Server) serveImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.HasPrefix(itemID, "cccc") || isSeasonItemID(itemID) {
-		seriesID := itemID
 		if isSeasonItemID(itemID) {
-			h, _, ok := parseSeasonItemID(itemID)
+			h, seasonNum, ok := parseSeasonItemID(itemID)
 			if ok {
-				seriesID = seriesIDFromName(lookupSeriesNameByHash(s, r, h))
+				seriesName := lookupSeriesNameByHash(s, r, h)
+				if !isBackdrop {
+					if poster := s.lookupSeasonPoster(seriesName, seasonNum); poster != "" {
+						s.serveTMDBImage(w, r, "w500", poster)
+						return
+					}
+				}
+				s.serveSeriesImage(w, r, seriesIDFromName(seriesName), isBackdrop)
+				return
 			}
 		}
-		s.serveSeriesImage(w, r, seriesID, isBackdrop)
+		s.serveSeriesImage(w, r, itemID, isBackdrop)
 		return
 	}
 
@@ -174,6 +181,22 @@ func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNotFound)
+}
+
+func (s *Server) lookupSeasonPoster(seriesName string, seasonNum int) string {
+	if s.tmdbCache == nil || seriesName == "" {
+		return ""
+	}
+	sr, ok := s.tmdbCache.GetSeries(seriesName)
+	if !ok || sr == nil {
+		return ""
+	}
+	for _, seas := range sr.Seasons {
+		if seas.SeasonNumber == seasonNum && seas.PosterPath != "" {
+			return seas.PosterPath
+		}
+	}
+	return ""
 }
 
 func lookupSeriesNameByHash(s *Server, r *http.Request, h uint32) string {

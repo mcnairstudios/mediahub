@@ -20,15 +20,18 @@ type Movie struct {
 }
 
 type Series struct {
-	ID           int      `json:"id"`
-	Name         string   `json:"name"`
-	Overview     string   `json:"overview"`
-	PosterPath   string   `json:"poster_path,omitempty"`
-	BackdropPath string   `json:"backdrop_path,omitempty"`
-	FirstAirDate string   `json:"first_air_date,omitempty"`
-	Rating       float64  `json:"rating"`
-	Genres       []string `json:"genres,omitempty"`
-	Seasons      []Season `json:"seasons,omitempty"`
+	ID            int          `json:"id"`
+	Name          string       `json:"name"`
+	Overview      string       `json:"overview"`
+	PosterPath    string       `json:"poster_path,omitempty"`
+	BackdropPath  string       `json:"backdrop_path,omitempty"`
+	FirstAirDate  string       `json:"first_air_date,omitempty"`
+	Rating        float64      `json:"rating"`
+	Genres        []string     `json:"genres,omitempty"`
+	Certification string       `json:"certification,omitempty"`
+	Cast          []CastMember `json:"cast,omitempty"`
+	Crew          []CrewMember `json:"crew,omitempty"`
+	Seasons       []Season     `json:"seasons,omitempty"`
 }
 
 type Season struct {

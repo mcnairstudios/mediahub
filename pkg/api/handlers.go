@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -176,6 +179,51 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusOK, filtered)
 }
 
+var validHWAccelValues = map[string]bool{
+	"":              true,
+	"none":          true,
+	"vaapi":         true,
+	"qsv":           true,
+	"nvenc":          true,
+	"videotoolbox":  true,
+}
+
+var validVideoCodecValues = map[string]bool{
+	"":     true,
+	"h264": true,
+	"h265": true,
+	"hevc": true,
+	"av1":  true,
+	"copy": true,
+}
+
+var isoLangPattern = regexp.MustCompile(`^[a-zA-Z]{2,3}$`)
+
+func validateSettingValue(key, value string) error {
+	switch key {
+	case "default_hwaccel", "default_decode_hwaccel":
+		if !validHWAccelValues[value] {
+			return fmt.Errorf("%s must be one of: none, vaapi, qsv, nvenc, videotoolbox, or empty", key)
+		}
+	case "default_max_bit_depth":
+		if value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("default_max_bit_depth must be a positive integer")
+			}
+		}
+	case "recording_video_codec":
+		if !validVideoCodecValues[value] {
+			return fmt.Errorf("recording_video_codec must be one of: h264, h265, hevc, av1, copy, or empty")
+		}
+	case "audio_language", "subtitle_language":
+		if value != "" && !isoLangPattern.MatchString(value) {
+			return fmt.Errorf("%s must be a 2-3 letter ISO language code", key)
+		}
+	}
+	return nil
+}
+
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]string
 	if err := httputil.DecodeJSON(r, &settings); err != nil {
@@ -186,6 +234,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	for key, value := range settings {
 		if !apiSettableKeys[key] {
 			httputil.RespondError(w, http.StatusBadRequest, "unknown setting: "+key)
+			return
+		}
+		if err := validateSettingValue(key, value); err != nil {
+			httputil.RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if err := s.deps.SettingsStore.Set(r.Context(), key, value); err != nil {

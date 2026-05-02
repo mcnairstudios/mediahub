@@ -572,6 +572,7 @@ func main() {
 	dlnaSettings := &dlnaSettingsAdapter{settings: settingsStore, enabled: cfg.DLNAEnabled}
 	dlnaServer := dlna.NewServer(dlnaChannels, dlnaSettings, cfg.BaseURL, cfg.DLNAPort, zlog)
 	dlnaServer.SetAuthenticator(&dlnaAuthAdapter{auth: authService})
+	dlnaServer.SetEPG(&dlnaEPGAdapter{programs: programStore})
 	dlnaServer.RegisterRoutes(mainMux)
 
 	scheduler.Start(ctx)
@@ -806,6 +807,7 @@ func (a *dlnaChannelAdapter) ListChannels(ctx context.Context) ([]dlna.ChannelIt
 			Name:    ch.Name,
 			LogoURL: ch.LogoURL,
 			GroupID: ch.GroupID,
+			TvgID:   ch.TvgID,
 		})
 	}
 	return items, nil
@@ -821,6 +823,7 @@ func (a *dlnaChannelAdapter) GetChannel(ctx context.Context, id string) (*dlna.C
 		Name:    ch.Name,
 		LogoURL: ch.LogoURL,
 		GroupID: ch.GroupID,
+		TvgID:   ch.TvgID,
 	}, nil
 }
 
@@ -874,6 +877,18 @@ func (a *dlnaAuthAdapter) AuthenticateBasic(ctx context.Context, username, passw
 		IsAdmin:         user.IsAdmin,
 		ChannelGroupIDs: user.ChannelGroupIDs,
 	}, nil
+}
+
+type dlnaEPGAdapter struct {
+	programs epg.ProgramStore
+}
+
+func (a *dlnaEPGAdapter) NowPlaying(ctx context.Context, tvgID string) (*dlna.NowPlayingInfo, error) {
+	p, err := a.programs.NowPlaying(ctx, tvgID)
+	if err != nil || p == nil {
+		return nil, err
+	}
+	return &dlna.NowPlayingInfo{Title: p.Title}, nil
 }
 
 func autoNumberChannels(ctx context.Context, store channel.Store) {

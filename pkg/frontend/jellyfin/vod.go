@@ -245,6 +245,7 @@ func (s *Server) enrichSeriesItem(name string) BaseItemDto {
 		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil {
 			item.Overview = sr.Overview
 			item.CommunityRating = sr.Rating
+			item.OfficialRating = sr.Certification
 			item.Genres = sr.Genres
 			item.GenreItems = genreItems(sr.Genres)
 			if sr.FirstAirDate != "" {
@@ -263,6 +264,7 @@ func (s *Server) enrichSeriesItem(name string) BaseItemDto {
 			if sr.BackdropPath != "" {
 				item.BackdropImageTags = []string{"tmdb"}
 			}
+			item.People = s.lookupCast(name, "series")
 		}
 	}
 
@@ -306,6 +308,7 @@ func (s *Server) enrichItemFromTMDB(item *BaseItemDto, name, mediaType string) {
 		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil {
 			item.Overview = sr.Overview
 			item.CommunityRating = sr.Rating
+			item.OfficialRating = sr.Certification
 			item.Genres = sr.Genres
 			item.GenreItems = genreItems(sr.Genres)
 			if sr.FirstAirDate != "" {
@@ -340,6 +343,13 @@ func (s *Server) lookupCast(name, mediaType string) []PersonDto {
 		if m, ok := s.tmdbCache.GetMovie(name); ok && m != nil {
 			cast = m.Cast
 			crew = m.Crew
+		}
+	}
+
+	if len(cast) == 0 && (mediaType == "series" || mediaType == "tv") {
+		if sr, ok := s.tmdbCache.GetSeries(name); ok && sr != nil {
+			cast = sr.Cast
+			crew = sr.Crew
 		}
 	}
 

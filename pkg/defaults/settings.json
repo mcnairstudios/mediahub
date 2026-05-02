@@ -1,4 +1,5 @@
 {
+  "base_url": "",
   "default_hwaccel": "none",
   "recording_video_codec": "copy",
   "default_decode_hwaccel": "",
@@ -12,9 +13,14 @@
   "decoder_mpeg2": "",
   "dlna_enabled": "true",
   "jellyfin_enabled": "true",
+  "debug_enabled": "false",
   "delivery": "hls",
   "container": "mp4",
   "tmdb_api_key": "",
+  "epg_channel_meta": "",
+  "google_client_id": "",
+  "google_client_secret": "",
   "audio_language": "eng",
-  "subtitle_language": ""
+  "subtitle_language": "",
+  "subprocess_transcode": ""
 }
