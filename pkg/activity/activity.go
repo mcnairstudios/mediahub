@@ -19,6 +19,10 @@ type Viewer struct {
 	Delivery    string    `json:"delivery"`
 	StartedAt   time.Time `json:"started_at"`
 	RemoteAddr  string    `json:"remote_addr"`
+	VideoCodec  string    `json:"video_codec,omitempty"`
+	AudioCodec  string    `json:"audio_codec,omitempty"`
+	Resolution  string    `json:"resolution,omitempty"`
+	Transcoding bool      `json:"transcoding"`
 }
 
 type UserSession struct {

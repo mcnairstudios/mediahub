@@ -137,7 +137,19 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channels = s.filterChannelsByUser(r, channels)
+	s.resolveChannelLogos(channels)
 	httputil.RespondJSON(w, http.StatusOK, channels)
+}
+
+func (s *Server) resolveChannelLogos(channels []channel.Channel) {
+	if s.deps.LogoCache == nil {
+		return
+	}
+	for i := range channels {
+		if channels[i].LogoURL != "" {
+			channels[i].LogoURL = s.deps.LogoCache.Resolve(channels[i].LogoURL)
+		}
+	}
 }
 
 var apiSettableKeys = map[string]bool{
@@ -345,13 +357,19 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Activity != nil {
 		user := middleware.UserFromContext(r.Context())
 		v := &activity.Viewer{
-			SessionID:  result.Session.ID,
-			StreamID:   result.Session.StreamID,
-			StreamName: result.Session.StreamName,
-			Delivery:   result.Delivery,
-			StartedAt:  time.Now(),
-			RemoteAddr: stripPort(r.RemoteAddr),
-			ClientName: clientNameFromUA(r.UserAgent()),
+			SessionID:   result.Session.ID,
+			StreamID:    result.Session.StreamID,
+			StreamName:  result.Session.StreamName,
+			Delivery:    result.Delivery,
+			StartedAt:   time.Now(),
+			RemoteAddr:  stripPort(r.RemoteAddr),
+			ClientName:  clientNameFromUA(r.UserAgent()),
+			VideoCodec:  string(result.Decision.VideoCodec),
+			AudioCodec:  string(result.Decision.AudioCodec),
+			Transcoding: result.Decision.NeedsTranscode,
+		}
+		if result.ProbeInfo != nil && result.ProbeInfo.Video != nil {
+			v.Resolution = fmt.Sprintf("%dx%d", result.ProbeInfo.Video.Width, result.ProbeInfo.Video.Height)
 		}
 		if user != nil {
 			v.UserID = user.ID
@@ -704,6 +722,10 @@ func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
 			"duration":     now.Sub(v.StartedAt).Truncate(time.Second).String(),
 			"duration_sec": int(now.Sub(v.StartedAt).Seconds()),
 			"remote_addr":  v.RemoteAddr,
+			"video_codec":  v.VideoCodec,
+			"audio_codec":  v.AudioCodec,
+			"resolution":   v.Resolution,
+			"transcoding":  v.Transcoding,
 		}
 		result = append(result, entry)
 		if v.StreamName != "" {
@@ -821,13 +843,16 @@ func (s *Server) handlePlayURL(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Activity != nil {
 		user := middleware.UserFromContext(r.Context())
 		v := &activity.Viewer{
-			SessionID:  result.Session.ID,
-			StreamID:   result.Session.StreamID,
-			StreamName: req.URL,
-			Delivery:   result.Delivery,
-			StartedAt:  time.Now(),
-			RemoteAddr: stripPort(r.RemoteAddr),
-			ClientName: clientNameFromUA(r.UserAgent()),
+			SessionID:   result.Session.ID,
+			StreamID:    result.Session.StreamID,
+			StreamName:  req.URL,
+			Delivery:    result.Delivery,
+			StartedAt:   time.Now(),
+			RemoteAddr:  stripPort(r.RemoteAddr),
+			ClientName:  clientNameFromUA(r.UserAgent()),
+			VideoCodec:  string(result.Decision.VideoCodec),
+			AudioCodec:  string(result.Decision.AudioCodec),
+			Transcoding: result.Decision.NeedsTranscode,
 		}
 		if user != nil {
 			v.UserID = user.ID

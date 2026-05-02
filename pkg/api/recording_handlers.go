@@ -113,13 +113,16 @@ func (s *Server) handlePlayRecording(w http.ResponseWriter, r *http.Request) {
 
 	if s.deps.Activity != nil {
 		v := &activity.Viewer{
-			SessionID:  result.Session.ID,
-			StreamID:   result.Session.StreamID,
-			StreamName: result.Session.StreamName,
-			Delivery:   result.Delivery,
-			StartedAt:  time.Now(),
-			RemoteAddr: stripPort(r.RemoteAddr),
-			ClientName: clientNameFromUA(r.UserAgent()),
+			SessionID:   result.Session.ID,
+			StreamID:    result.Session.StreamID,
+			StreamName:  result.Session.StreamName,
+			Delivery:    result.Delivery,
+			StartedAt:   time.Now(),
+			RemoteAddr:  stripPort(r.RemoteAddr),
+			ClientName:  clientNameFromUA(r.UserAgent()),
+			VideoCodec:  string(result.Decision.VideoCodec),
+			AudioCodec:  string(result.Decision.AudioCodec),
+			Transcoding: result.Decision.NeedsTranscode,
 		}
 		if user != nil {
 			v.UserID = user.ID
