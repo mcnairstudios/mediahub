@@ -40,6 +40,11 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 				resp.StreamCount = n
 			}
 		}
+		if resp.StreamCount == 0 && s.deps.StreamStore != nil {
+			if n, err := s.deps.StreamStore.CountBySource(r.Context(), cfg.Type, cfg.ID); err == nil && n > 0 {
+				resp.StreamCount = n
+			}
+		}
 
 		src, err := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
 		if err == nil {
