@@ -424,10 +424,16 @@
     }
 
     if (router.current === 'login') {
-      router.current = 'dashboard';
+      router.current = (api.user && api.user.is_admin) ? 'dashboard' : 'channels';
     }
 
-    var page = router.current || 'dashboard';
+    var page = router.current || ((api.user && api.user.is_admin) ? 'dashboard' : 'channels');
+
+    var adminPages = { dashboard: true, activity: true, sources: true, sourceprofiles: true, epgsources: true, streams: true, clients: true, hdhrdevices: true, logos: true, settings: true, users: true, wireguard: true, developer: true, probe: true, playurl: true };
+    if (adminPages[page] && !(api.user && api.user.is_admin)) {
+      page = 'channels';
+      router.current = page;
+    }
     if (page === 'player') {
       app.innerHTML = renderSidebar() + '<div class="main" id="page"></div>';
       app.innerHTML += '<button class="mobile-toggle" id="mobile-toggle">' + icons.menu + '</button>';
@@ -550,7 +556,8 @@
         }
         var result = await resp.json();
         api.token = result.access_token;
-        router.navigate('dashboard');
+        var u = api.user;
+        router.navigate((u && u.is_admin) ? 'dashboard' : 'channels');
       } catch (err) {
         errEl.textContent = 'Connection failed';
         errEl.style.display = 'block';
@@ -880,7 +887,7 @@
   function streamLogoHtml(s) {
     var logoUrl = s.tvg_logo || '';
     if (!logoUrl) return '';
-    return '<img class="stream-group-logo" src="/logo?url=' + encodeURIComponent(logoUrl) + '" loading="lazy" alt="">';
+    return '<img class="stream-group-logo" src="' + esc(logoUrl) + '" loading="lazy" alt="">';
   }
 
   function streamBadgesHtml(s) {
@@ -3284,7 +3291,7 @@
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var s = filtered[i];
-      var logo = s.tvg_logo ? '<img class="logo" src="/logo?url=' + encodeURIComponent(s.tvg_logo) + '" alt="">' : '';
+      var logo = s.tvg_logo ? '<img class="logo" src="' + esc(s.tvg_logo) + '" alt="">' : '';
       html += '<tr>' +
         '<td>' + logo + '</td>' +
         '<td>' + esc(s.name) + '</td>' +
@@ -7272,7 +7279,7 @@
       }
 
       var logoHtml = ch.logo_url
-        ? '<img class="epg-channel-logo" src="/logo?url=' + encodeURIComponent(ch.logo_url) + '" loading="lazy" alt="">'
+        ? '<img class="epg-channel-logo" src="' + esc(ch.logo_url) + '" loading="lazy" alt="">'
         : '<div class="epg-channel-logo"></div>';
 
       return '<div class="epg-row">' +

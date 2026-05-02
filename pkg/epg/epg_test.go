@@ -22,6 +22,9 @@ func (m *mockProgramStore) Range(_ context.Context, _ string, _, _ time.Time) ([
 }
 func (m *mockProgramStore) ListAll(_ context.Context) ([]Program, error)        { return nil, nil }
 func (m *mockProgramStore) ListChannelIDs(_ context.Context) ([]string, error)  { return nil, nil }
+func (m *mockProgramStore) ListBySeriesID(_ context.Context, _ string) ([]Program, error) {
+	return nil, nil
+}
 func (m *mockProgramStore) BulkInsert(_ context.Context, _ []Program) error     { return nil }
 func (m *mockProgramStore) DeleteBySource(_ context.Context, _ string) error    { return nil }
 

@@ -127,6 +127,19 @@ func (s *MemoryProgramStore) ListChannelIDs(_ context.Context) ([]string, error)
 	return result, nil
 }
 
+func (s *MemoryProgramStore) ListBySeriesID(_ context.Context, seriesID string) ([]epg.Program, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []epg.Program
+	for _, p := range s.programs {
+		if p.SeriesID == seriesID {
+			result = append(result, p)
+		}
+	}
+	return result, nil
+}
+
 func (s *MemoryProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

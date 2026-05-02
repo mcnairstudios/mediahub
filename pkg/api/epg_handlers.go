@@ -284,10 +284,22 @@ func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
 	}
 	stop := start.Add(time.Duration(hours) * time.Hour)
 
-	allPrograms, err := s.deps.ProgramStore.ListAll(r.Context())
+	channels, err := s.deps.ChannelStore.List(r.Context())
 	if err != nil {
-		httputil.RespondError(w, http.StatusInternalServerError, "failed to list guide programs")
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
 		return
+	}
+	channels = s.filterChannelsByUser(r, channels)
+
+	tvgIDs := make(map[string]struct{}, len(channels))
+	for _, ch := range channels {
+		if ch.IsEnabled {
+			tvgID := ch.TvgID
+			if tvgID == "" {
+				tvgID = ch.ID
+			}
+			tvgIDs[tvgID] = struct{}{}
+		}
 	}
 
 	type guideProgram struct {
@@ -302,8 +314,12 @@ func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grouped := make(map[string][]guideProgram)
-	for _, p := range allPrograms {
-		if p.StartTime.Before(stop) && p.EndTime.After(start) {
+	for tvgID := range tvgIDs {
+		programs, err := s.deps.ProgramStore.Range(r.Context(), tvgID, start, stop)
+		if err != nil {
+			continue
+		}
+		for _, p := range programs {
 			grouped[p.ChannelID] = append(grouped[p.ChannelID], guideProgram{
 				ChannelID:   p.ChannelID,
 				Title:       p.Title,
@@ -333,6 +349,58 @@ func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
 				result["channel_names"] = names
 			}
 		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleEPGSeries(w http.ResponseWriter, r *http.Request) {
+	seriesID := r.URL.Query().Get("series_id")
+	if seriesID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "series_id required")
+		return
+	}
+
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	programs, err := s.deps.ProgramStore.ListBySeriesID(r.Context(), seriesID)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list series programs")
+		return
+	}
+	if programs == nil {
+		httputil.RespondJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	type seriesProgram struct {
+		ChannelID   string    `json:"channel_id"`
+		Title       string    `json:"title"`
+		Subtitle    string    `json:"subtitle,omitempty"`
+		Description string    `json:"description,omitempty"`
+		Start       time.Time `json:"start"`
+		Stop        time.Time `json:"stop"`
+		EpisodeNum  string    `json:"episode_num,omitempty"`
+		Categories  []string  `json:"categories,omitempty"`
+		IsNew       bool      `json:"is_new,omitempty"`
+	}
+
+	result := make([]seriesProgram, 0, len(programs))
+	for _, p := range programs {
+		result = append(result, seriesProgram{
+			ChannelID:   p.ChannelID,
+			Title:       p.Title,
+			Subtitle:    p.Subtitle,
+			Description: p.Description,
+			Start:       p.StartTime,
+			Stop:        p.EndTime,
+			EpisodeNum:  p.EpisodeNum,
+			Categories:  p.Categories,
+			IsNew:       p.IsNew,
+		})
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, result)

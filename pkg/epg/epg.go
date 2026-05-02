@@ -47,6 +47,7 @@ type ProgramStore interface {
 	Range(ctx context.Context, channelID string, start, end time.Time) ([]Program, error)
 	ListAll(ctx context.Context) ([]Program, error)
 	ListChannelIDs(ctx context.Context) ([]string, error)
+	ListBySeriesID(ctx context.Context, seriesID string) ([]Program, error)
 	BulkInsert(ctx context.Context, programs []Program) error
 	DeleteBySource(ctx context.Context, sourceID string) error
 }
