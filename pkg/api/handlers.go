@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -303,6 +304,7 @@ func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
 		recordings = []recording.Recording{}
 	}
 
+	result := make([]map[string]any, 0, len(recordings))
 	for i := range recordings {
 		rec := &recordings[i]
 		if rec.Status == recording.StatusRecording {
@@ -313,9 +315,19 @@ func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
 				_ = s.deps.RecordingStore.Update(r.Context(), rec)
 			}
 		}
+		entry := recordingResponse(rec)
+		if rec.Status == recording.StatusCompleted && rec.FilePath != "" {
+			if fi, err := os.Stat(rec.FilePath); err == nil {
+				entry["file_size"] = fi.Size()
+				entry["file_exists"] = true
+			} else {
+				entry["file_exists"] = false
+			}
+		}
+		result = append(result, entry)
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, recordings)
+	httputil.RespondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
