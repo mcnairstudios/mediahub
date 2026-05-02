@@ -105,6 +105,23 @@ a:hover{color:var(--accent-hover)}
 .badge-rec-failed{background:rgba(239,68,68,.15);color:var(--danger)}
 .badge-rec-cancelled{background:rgba(156,163,175,.2);color:var(--text-muted)}
 
+.group-header-row{cursor:pointer;user-select:none}
+.group-header-row td{
+  padding:10px 12px;font-size:14px;font-weight:600;color:var(--text);
+  background:var(--bg-card);border-bottom:1px solid var(--border);
+}
+.group-header-row:hover td{background:var(--bg-hover)}
+.group-header-arrow{
+  display:inline-block;font-size:10px;margin-right:8px;
+  transition:transform .15s;color:var(--text-muted);
+}
+.group-header-arrow.open{transform:rotate(90deg)}
+.group-header-count{
+  display:inline-block;background:var(--bg-hover);color:var(--text-muted);
+  font-size:11px;font-weight:500;padding:1px 8px;border-radius:10px;margin-left:8px;
+}
+.group-header-actions{float:right;display:none;gap:4px;align-items:center}
+
 .btn{
   display:inline-flex;align-items:center;gap:6px;
   padding:8px 16px;border-radius:var(--radius);border:none;

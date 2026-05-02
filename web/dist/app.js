@@ -5538,6 +5538,15 @@
             var currentPrograms = await gdResp.json();
             if (!Array.isArray(currentPrograms)) currentPrograms = [];
 
+            var chMetaResp = await api.get('/api/epg/channel-ids');
+            var chMetaList = await chMetaResp.json();
+            var chMeta = {};
+            if (Array.isArray(chMetaList)) {
+              for (var mi = 0; mi < chMetaList.length; mi++) {
+                chMeta[chMetaList[mi].id] = chMetaList[mi];
+              }
+            }
+
             function fmtTime(d) {
               var dt = new Date(d);
               var hh = dt.getHours(); var mm = dt.getMinutes();
@@ -5557,13 +5566,20 @@
               var tableHtml = '<div style="margin:8px 0">' +
                 '<div style="font-weight:600;margin-bottom:8px;padding:0 8px">' + esc(name) + ' — ' + channelIDs.length + ' channels with current programs</div>' +
                 '<div style="max-height:400px;overflow-y:auto"><table class="data-table" style="width:100%"><thead><tr>' +
-                '<th>Channel ID</th><th>Current Program</th><th>Time</th>' +
+                '<th style="width:40px"></th><th>Channel</th><th>Current Program</th><th>Time</th>' +
                 '</tr></thead><tbody>';
               for (var k = 0; k < channelIDs.length; k++) {
                 var chId = channelIDs[k];
                 var prog = byChannel[chId];
+                var meta = chMeta[chId] || {};
+                var iconUrl = meta.icon || '';
+                var logoImg = iconUrl
+                  ? '<img src="/logo?url=' + encodeURIComponent(iconUrl) + '" style="width:28px;height:28px;object-fit:contain;border-radius:4px;background:var(--bg-hover)" loading="lazy" alt="">'
+                  : '<div style="width:28px;height:28px;border-radius:4px;background:var(--bg-hover)"></div>';
+                var displayName = meta.name || chId;
                 var timeStr = fmtTime(prog.start_time) + ' - ' + fmtTime(prog.end_time);
-                tableHtml += '<tr><td style="white-space:nowrap">' + esc(chId) + '</td>' +
+                tableHtml += '<tr><td style="width:40px;text-align:center">' + logoImg + '</td>' +
+                  '<td style="white-space:nowrap" title="' + esc(chId) + '">' + esc(displayName) + '</td>' +
                   '<td>' + esc(prog.title) + '</td>' +
                   '<td style="white-space:nowrap">' + timeStr + '</td></tr>';
               }
