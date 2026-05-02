@@ -416,6 +416,9 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 			}
 		}
 	}
+	if b.audioErrorCount > 0 {
+		b.audioErrorCount = 0
+	}
 	return nil
 }
 
@@ -618,7 +621,10 @@ func (b *Bridge) closeBSFExtractor() {
 
 func (b *Bridge) latchAudioError(err error) {
 	b.audioErrorCount++
-	if b.audioErrorCount <= 10 {
+	if b.audioErrorCount <= 50 {
+		if b.audioErrorCount <= 5 || b.audioErrorCount%10 == 0 {
+			b.log.Warn().Err(err).Int("errors", b.audioErrorCount).Msg("bridge: audio decode error (will keep trying)")
+		}
 		return
 	}
 	if !b.audioLatched {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -29,8 +30,9 @@ func IsEncoderInitError(err error) bool {
 }
 
 const (
-	maxLiveRetries    = 3
+	maxLiveRetries    = 10
 	liveRetryBaseWait = 2 * time.Second
+	liveRetryMaxWait  = 30 * time.Second
 )
 
 type PipelineConfig struct {
@@ -94,6 +96,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 
 	opts := demux.DefaultDemuxOpts()
 	opts.UserAgent = cfg.UserAgent
+	opts.IsLive = cfg.IsLive
 	timeoutSec := cfg.TimeoutSec
 	if timeoutSec <= 0 {
 		timeoutSec = 10
@@ -256,15 +259,20 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			Reader: d,
 			Sink:   sink,
 		})
-		if loopErr == nil {
-			log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended cleanly")
-			return
-		}
 
 		if !cfg.IsLive {
+			if loopErr == nil {
+				log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended cleanly")
+				return
+			}
 			sess.SetError(loopErr)
 			log.Error().Err(loopErr).Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop ended with error")
 			return
+		}
+
+		if loopErr == nil {
+			loopErr = fmt.Errorf("live stream ended unexpectedly (EOF)")
+			log.Warn().Str("stream_id", cfg.StreamID).Msg("pipeline: live demuxloop ended (EOF), will retry")
 		}
 
 		for attempt := 1; attempt <= maxLiveRetries; attempt++ {
@@ -275,6 +283,9 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 			}
 
 			wait := liveRetryBaseWait * time.Duration(1<<(attempt-1))
+			if wait > liveRetryMaxWait {
+				wait = liveRetryMaxWait
+			}
 			log.Warn().Err(loopErr).Int("attempt", attempt).Int("max", maxLiveRetries).Dur("backoff", wait).
 				Str("stream_id", cfg.StreamID).Msg("pipeline: live stream failed, retrying")
 
@@ -286,6 +297,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 
 			for _, c := range sess.DrainClosers() {
 				c.Close()
+			}
+
+			segDir := filepath.Join(sess.OutputDir, "segments")
+			if entries, err := os.ReadDir(segDir); err == nil {
+				for _, e := range entries {
+					if !e.IsDir() {
+						os.Remove(filepath.Join(segDir, e.Name()))
+					}
+				}
 			}
 
 			sess.FanOut.ResetForSeek()
@@ -343,6 +363,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 func (m *Manager) openDemuxAndSink(sess *Session, cfg PipelineConfig, log zerolog.Logger, audioIdx int, info *media.ProbeResult) (*demux.Demuxer, av.PacketSink, error) {
 	opts := demux.DefaultDemuxOpts()
 	opts.UserAgent = cfg.UserAgent
+	opts.IsLive = cfg.IsLive
 	timeoutSec := cfg.TimeoutSec
 	if timeoutSec <= 0 {
 		timeoutSec = 10
@@ -462,6 +483,9 @@ func (m *Manager) RunSubprocessPipelineMethod(sess *Session, cfg PipelineConfig)
 			}
 
 			wait := liveRetryBaseWait * time.Duration(1<<(attempt-1))
+			if wait > liveRetryMaxWait {
+				wait = liveRetryMaxWait
+			}
 			log.Warn().Err(err).Int("attempt", attempt).Int("max", maxLiveRetries).Dur("backoff", wait).
 				Str("stream_id", cfg.StreamID).Msg("subprocess pipeline: live stream failed, retrying")
 

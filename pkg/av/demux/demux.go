@@ -27,6 +27,7 @@ type DemuxOpts struct {
 	ProbeSize        int
 	AnalyzeDuration  int
 	CachedStreamInfo *media.ProbeResult
+	IsLive           bool
 }
 
 const followRetryInterval = 100 * time.Millisecond
@@ -125,7 +126,7 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 	}
 	if analyzeDur <= 0 {
 		if isLive {
-			analyzeDur = 5000000
+			analyzeDur = 0
 		} else {
 			analyzeDur = 5000000
 		}
@@ -133,9 +134,14 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 	d.Set("probesize", fmt.Sprintf("%d", probeSize), 0)
 	d.Set("analyzeduration", fmt.Sprintf("%d", analyzeDur), 0)
 	if isLive {
-		d.Set("fflags", "nobuffer+flush_packets", 0)
+		d.Set("fflags", "nobuffer+igndts+flush_packets", 0)
 		d.Set("flags", "low_delay", 0)
-		d.Set("rtsp_flags", "prefer_tcp", 0)
+		d.Set("rtsp_transport", "tcp", 0)
+		if opts.TimeoutSec > 0 {
+			d.Set("stimeout", fmt.Sprintf("%d", opts.TimeoutSec*1_000_000), 0)
+		} else {
+			d.Set("stimeout", "30000000", 0)
+		}
 	}
 
 	var inputFmt *astiav.InputFormat
@@ -282,11 +288,22 @@ func (d *Demuxer) selectAudio(candidates []audioCandidate, opts DemuxOpts) {
 	}
 }
 
-var retryDelays = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+var retryDelays = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
+
+func (d *Demuxer) isLiveStream() bool {
+	return d.opts.IsLive || strings.HasPrefix(d.url, "rtsp://")
+}
 
 func (d *Demuxer) ReadPacket() (*av.Packet, error) {
 	pkt, err := d.readPacketOnce()
-	if err == nil || errors.Is(err, io.EOF) || !isTransient(err) {
+	if err == nil {
+		return pkt, err
+	}
+
+	isLive := d.isLiveStream()
+	retryableEOF := errors.Is(err, io.EOF) && isLive && !d.opts.Follow
+
+	if !retryableEOF && (errors.Is(err, io.EOF) || !isTransient(err)) {
 		return pkt, err
 	}
 
@@ -299,7 +316,7 @@ func (d *Demuxer) ReadPacket() (*av.Packet, error) {
 		if err == nil {
 			return pkt, nil
 		}
-		if errors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) && !isLive {
 			return nil, io.EOF
 		}
 	}
@@ -436,6 +453,18 @@ func (d *Demuxer) Reconnect() error {
 	}
 	dict.Set("probesize", fmt.Sprintf("%d", probeSize), 0)
 	dict.Set("analyzeduration", fmt.Sprintf("%d", analyzeDur), 0)
+
+	isLive := strings.HasPrefix(d.url, "rtsp://")
+	if isLive {
+		dict.Set("fflags", "nobuffer+igndts+flush_packets", 0)
+		dict.Set("flags", "low_delay", 0)
+		dict.Set("rtsp_transport", "tcp", 0)
+		if d.opts.TimeoutSec > 0 {
+			dict.Set("stimeout", fmt.Sprintf("%d", d.opts.TimeoutSec*1_000_000), 0)
+		} else {
+			dict.Set("stimeout", "30000000", 0)
+		}
+	}
 
 	var inputFmt *astiav.InputFormat
 	if d.opts.FormatHint != "" {

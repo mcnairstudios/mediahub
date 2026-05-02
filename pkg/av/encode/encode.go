@@ -29,6 +29,14 @@ type EncodeOpts struct {
 	Framerate        int
 }
 
+var hevcEncoders = map[string]string{
+	"videotoolbox": "hevc_videotoolbox",
+	"vaapi":        "hevc_vaapi",
+	"qsv":          "hevc_qsv",
+	"nvenc":        "hevc_nvenc",
+	"none":         "libx265",
+}
+
 var encoderTable = map[string]map[string]string{
 	"h264": {
 		"videotoolbox": "h264_videotoolbox",
@@ -37,13 +45,8 @@ var encoderTable = map[string]map[string]string{
 		"nvenc":        "h264_nvenc",
 		"none":         "libx264",
 	},
-	"h265": {
-		"videotoolbox": "hevc_videotoolbox",
-		"vaapi":        "hevc_vaapi",
-		"qsv":          "hevc_qsv",
-		"nvenc":        "hevc_nvenc",
-		"none":         "libx265",
-	},
+	"h265": hevcEncoders,
+	"hevc": hevcEncoders,
 	"av1": {
 		"vaapi": "av1_vaapi",
 		"qsv":   "av1_qsv",
@@ -55,6 +58,7 @@ var encoderTable = map[string]map[string]string{
 var softwareFallback = map[string]string{
 	"h264": "libx264",
 	"h265": "libx265",
+	"hevc": "libx265",
 	"av1":  "libsvtav1",
 }
 

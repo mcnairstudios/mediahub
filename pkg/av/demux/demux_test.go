@@ -302,8 +302,8 @@ func TestDemuxerImplementsInterface(t *testing.T) {
 }
 
 func TestRetryDelays(t *testing.T) {
-	if len(retryDelays) != 3 {
-		t.Fatalf("expected 3 retry delays, got %d", len(retryDelays))
+	if len(retryDelays) != 5 {
+		t.Fatalf("expected 5 retry delays, got %d", len(retryDelays))
 	}
 	if retryDelays[0] != 1*time.Second {
 		t.Fatalf("expected first delay 1s, got %v", retryDelays[0])
@@ -313,6 +313,12 @@ func TestRetryDelays(t *testing.T) {
 	}
 	if retryDelays[2] != 4*time.Second {
 		t.Fatalf("expected third delay 4s, got %v", retryDelays[2])
+	}
+	if retryDelays[3] != 8*time.Second {
+		t.Fatalf("expected fourth delay 8s, got %v", retryDelays[3])
+	}
+	if retryDelays[4] != 16*time.Second {
+		t.Fatalf("expected fifth delay 16s, got %v", retryDelays[4])
 	}
 }
 

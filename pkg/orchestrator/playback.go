@@ -271,6 +271,12 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		recCfg := pluginCfg
 		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
 		recCfg.OutputFormat = "mpegts"
+		if decision.NeedsTranscode {
+			recCfg.VideoCodecParams = pipelineResult.VideoCodecParams
+		}
+		if decision.NeedsAudioTranscode {
+			recCfg.AudioCodecParams = pipelineResult.AudioCodecParams
+		}
 		recPlugin, recErr := deps.OutputReg.Create(output.DeliveryRecord, recCfg)
 		if recErr != nil {
 			log.Printf("record plugin: %v", recErr)
