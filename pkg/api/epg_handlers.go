@@ -507,6 +507,11 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 			if cs := cfg.Config["stream_count"]; cs != "" {
 				count, _ = strconv.Atoi(cs)
 			}
+			if count == 0 && s.deps.StreamStore != nil {
+				if n, cerr := s.deps.StreamStore.CountBySource(r.Context(), cfg.Type, cfg.ID); cerr == nil && n > 0 {
+					count = n
+				}
+			}
 			totalStreams += count
 			sourceBreakdown = append(sourceBreakdown, map[string]any{
 				"id":           cfg.ID,

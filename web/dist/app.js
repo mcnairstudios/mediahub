@@ -601,7 +601,7 @@
           var statusDot = src.is_enabled
             ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success)"></span>'
             : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>';
-          sHtml += '<div class="dash-source-card">' +
+          sHtml += '<div class="dash-source-card" style="cursor:pointer" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
             '<div class="dash-source-icon" style="background:' + color + '20;color:' + color + '">' + label + '</div>' +
             '<div class="dash-source-info">' +
             '<div class="dash-source-name">' + statusDot + ' ' + esc(src.name) + '</div>' +
@@ -609,6 +609,11 @@
             '</div></div>';
         }
         sourcesEl.innerHTML = sHtml || '<div style="color:var(--text-muted)">No sources configured</div>';
+        sourcesEl.querySelectorAll('.dash-source-card[data-source-id]').forEach(function(card) {
+          card.addEventListener('click', function() {
+            router.navigate('streams', { sourceType: this.getAttribute('data-source-type'), sourceId: this.getAttribute('data-source-id') });
+          });
+        });
       }
 
       var epgContEl = document.getElementById('dash-epg');

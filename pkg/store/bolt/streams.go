@@ -114,17 +114,31 @@ func (s *StreamStore) ListBySource(_ context.Context, sourceType, sourceID strin
 
 func (s *StreamStore) ListBySourceAndType(_ context.Context, sourceType, sourceID, vodType string) ([]media.Stream, error) {
 	var result []media.Stream
+	target := vodTypeKey(vodType)
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		c := tx.Bucket(bucketStreams).Cursor()
-		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID, VODType: vodTypeKey(vodType)})
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
+		prefix := streamSchema.Prefix(streamKeyDef{SourceType: sourceType, SourceID: sourceID, VODType: target})
 		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var stream media.Stream
 			if json.Unmarshal(v, &stream) == nil {
 				result = append(result, stream)
 			}
 		}
-		return nil
+		if len(result) > 0 {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+				return nil
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) == nil && stream.SourceType == sourceType && stream.SourceID == sourceID && vodTypeKey(stream.VODType) == target {
+				result = append(result, stream)
+			}
+			return nil
+		})
 	})
 
 	return result, err
@@ -135,7 +149,8 @@ func (s *StreamStore) ListByVODType(_ context.Context, vodType string) ([]media.
 	target := vodTypeKey(vodType)
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		c := tx.Bucket(bucketStreams).Cursor()
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
 		for k, v := c.Seek(prefixStream); k != nil && bytes.HasPrefix(k, prefixStream); k, v = c.Next() {
 			parsed := streamSchema.Parse(k)
 			if parsed.VODType != target {
@@ -146,7 +161,19 @@ func (s *StreamStore) ListByVODType(_ context.Context, vodType string) ([]media.
 				result = append(result, stream)
 			}
 		}
-		return nil
+		if len(result) > 0 {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if bytes.HasPrefix(k, prefixStream) || bytes.HasPrefix(k, prefixIdx) {
+				return nil
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) == nil && vodTypeKey(stream.VODType) == target {
+				result = append(result, stream)
+			}
+			return nil
+		})
 	})
 
 	return result, err
