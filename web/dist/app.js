@@ -201,6 +201,27 @@
     el._timer = setTimeout(function() { el.classList.remove('visible'); }, 3000);
   }
 
+  function showFormModal(title, bodyHtml, opts) {
+    opts = opts || {};
+    var id = opts.id || 'form-modal-' + Date.now();
+    var maxWidth = opts.maxWidth || '520px';
+    var existing = document.getElementById(id);
+    if (existing) existing.remove();
+    var html = '<div class="modal-overlay" id="' + id + '">' +
+      '<div class="modal-content" style="max-width:' + maxWidth + '">' +
+      '<div class="modal-header">' + esc(title) + '</div>' +
+      '<div class="modal-body">' + bodyHtml + '</div>' +
+      '<div class="modal-footer">' +
+      '<button class="btn btn-ghost modal-cancel-btn">Cancel</button>' +
+      '<button class="btn btn-primary modal-save-btn">' + esc(opts.saveLabel || 'Save') + '</button>' +
+      '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    var overlay = document.getElementById(id);
+    overlay.querySelector('.modal-cancel-btn').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    return overlay;
+  }
+
   var icons = {
     dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
     streams: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8l10-5 10 5-10 5z"/><path d="M2 12l10 5 10-5"/><path d="M2 16l10 5 10-5"/></svg>',
@@ -231,6 +252,7 @@
     clients: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="3"/></svg>',
     probe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
     key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
     video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
@@ -330,30 +352,39 @@
     var isAdmin = user && user.is_admin;
     var items = [
       { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-      { id: 'streams', label: 'Streams', icon: 'streams' },
+      { id: 'activity', label: 'Activity', icon: 'stats', adminOnly: true },
       { id: 'channels', label: 'Channels', icon: 'channels' },
       { id: 'library', label: 'Library', icon: 'library' },
-      { id: 'guide', label: 'Guide', icon: 'guide' },
+      { id: 'guide', label: 'EPG Guide', icon: 'guide' },
       { id: 'recordings', label: 'Recordings', icon: 'recordings' },
-      { id: 'favorites', label: 'Favorites', icon: 'favorites' }
+      { id: 'favorites', label: 'Favorites', icon: 'favorites' },
+      { section: 'Admin', adminOnly: true },
+      { id: 'sources', label: 'Sources', icon: 'sources', adminOnly: true },
+      { id: 'epgsources', label: 'EPG Sources', icon: 'epg', adminOnly: true },
+      { id: 'streams', label: 'Streams', icon: 'streams', adminOnly: true },
+      { id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles', adminOnly: true },
+      { id: 'clients', label: 'Clients', icon: 'clients', adminOnly: true },
+      { id: 'settings', label: 'Settings', icon: 'settings', adminOnly: true },
+      { id: 'users', label: 'Users', icon: 'users', adminOnly: true },
+      { id: 'wireguard', label: 'WireGuard', icon: 'wireguard', adminOnly: true },
+      { id: 'hdhrdevices', label: 'HDHR Devices', icon: 'hdhr', adminOnly: true },
+      { id: 'logos', label: 'Logos', icon: 'logos', adminOnly: true },
+      { section: 'Developer', adminOnly: true },
+      { id: 'probe', label: 'Probe', icon: 'probe', adminOnly: true },
+      { id: 'playurl', label: 'Play URL', icon: 'play', adminOnly: true },
+      { id: 'apikeys', label: 'API Keys', icon: 'apikey', adminOnly: true }
     ];
-    if (isAdmin) {
-      items.push({ id: 'activity', label: 'Activity', icon: 'stats' });
-      items.push({ id: 'sources', label: 'Sources', icon: 'sources' });
-      items.push({ id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles' });
-      items.push({ id: 'epgsources', label: 'EPG Sources', icon: 'epg' });
-      items.push({ id: 'clients', label: 'Clients', icon: 'clients' });
-      items.push({ id: 'hdhrdevices', label: 'HDHR Devices', icon: 'hdhr' });
-      items.push({ id: 'logos', label: 'Logos', icon: 'logos' });
-      items.push({ id: 'tmdb', label: 'TMDB', icon: 'tmdb' });
-      items.push({ id: 'probe', label: 'Probe', icon: 'probe' });
-      items.push({ id: 'wireguard', label: 'WireGuard', icon: 'wireguard' });
-      items.push({ id: 'settings', label: 'Settings', icon: 'settings' });
-      items.push({ id: 'users', label: 'Users', icon: 'users' });
-      items.push({ id: 'invites', label: 'Invites', icon: 'invite' });
-    }
-    items.push({ id: 'apikeys', label: 'API Keys', icon: 'apikey' });
-    return items;
+    return items.filter(function(n, i, arr) {
+      if (n.adminOnly && !isAdmin) return false;
+      if (n.section) {
+        var next = null;
+        for (var j = i + 1; j < arr.length; j++) {
+          if (!arr[j].adminOnly || isAdmin) { next = arr[j]; break; }
+        }
+        if (!next || next.section) return false;
+      }
+      return true;
+    });
   }
 
   function renderSidebar() {
@@ -364,6 +395,10 @@
     html += '<div class="sidebar-nav">';
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
+      if (it.section) {
+        html += '<div class="nav-section">' + esc(it.section) + '</div>';
+        continue;
+      }
       var active = router.current === it.id ? ' active' : '';
       html += '<div class="nav-item' + active + '" data-page="' + it.id + '">';
       html += icons[it.icon] || '';
@@ -434,10 +469,9 @@
     else if (page === 'users') renderUsers(pageEl);
     else if (page === 'clients') renderClients(pageEl);
     else if (page === 'logos') renderLogos(pageEl);
-    else if (page === 'tmdb') renderTMDBPage(pageEl);
     else if (page === 'probe') renderProbe(pageEl);
+    else if (page === 'playurl') renderPlayURL(pageEl);
     else if (page === 'hdhrdevices') renderHDHRDevices(pageEl);
-    else if (page === 'invites') renderInvites(pageEl);
     else if (page === 'apikeys') renderAPIKeys(pageEl);
     else renderDashboard(pageEl);
   }
@@ -564,6 +598,10 @@
       '<div class="dash-section-title">' + icons.wireguard + ' Connectivity</div>' +
       '<div id="dash-wg"><div class="skeleton" style="height:60px"></div></div>' +
       '</div>' : '') +
+      '<div class="dash-section" id="dash-metadata-section">' +
+      '<div class="dash-section-title">' + icons.tmdb + ' Metadata</div>' +
+      '<div id="dash-metadata"><div class="skeleton" style="height:60px"></div></div>' +
+      '</div>' +
       '<div class="dash-section" id="dash-system-section">' +
       '<div class="dash-section-title">' + icons.settings + ' System</div>' +
       '<div id="dash-system"><div class="skeleton" style="height:60px"></div></div>' +
@@ -617,23 +655,37 @@
       }
 
       var epgContEl = document.getElementById('dash-epg');
-      if (epgContEl && stats.epg) {
-        var epgInfo = stats.epg;
-        var lastRefreshStr = '';
-        if (epgInfo.last_refreshed) {
-          var refreshDate = new Date(epgInfo.last_refreshed);
-          var ago = Math.floor((Date.now() - refreshDate.getTime()) / 60000);
-          lastRefreshStr = ago < 1 ? 'just now' : ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago / 60) + 'h ago' : Math.floor(ago / 1440) + 'd ago';
+      if (epgContEl) {
+        try {
+          var epgResp = await api.get('/api/epg/sources');
+          var epgSources = await epgResp.json();
+          if (!Array.isArray(epgSources) || epgSources.length === 0) {
+            epgContEl.innerHTML = '<div style="color:var(--text-muted)">No EPG sources configured</div>';
+          } else {
+            var epgHtml = '';
+            for (var ei = 0; ei < epgSources.length; ei++) {
+              var es = epgSources[ei];
+              var eAgo = '';
+              var eColor = 'var(--text-muted)';
+              var eDot = 'var(--text-muted)';
+              if (es.last_refreshed) {
+                var eDate = new Date(es.last_refreshed);
+                var eMin = Math.floor((Date.now() - eDate.getTime()) / 60000);
+                eAgo = eMin < 1 ? 'just now' : eMin < 60 ? eMin + 'm ago' : eMin < 1440 ? Math.floor(eMin / 60) + 'h ago' : Math.floor(eMin / 1440) + 'd ago';
+                eDot = eMin < 1440 ? 'var(--success)' : eMin < 2880 ? 'var(--warning)' : 'var(--danger)';
+              }
+              if (es.last_error) { eDot = 'var(--danger)'; eAgo = es.last_error; }
+              epgHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">' +
+                '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + eDot + ';flex-shrink:0"></span>' +
+                '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">' + esc(es.name) + '</div>' +
+                '<div style="font-size:12px;color:var(--text-muted)">' + (es.channel_count || 0) + ' channels, ' + ((es.program_count || 0)).toLocaleString() + ' programs</div></div>' +
+                '<div style="font-size:12px;color:var(--text-secondary);text-align:right;flex-shrink:0">' + esc(eAgo || 'Never') + '</div></div>';
+            }
+            epgContEl.innerHTML = epgHtml;
+          }
+        } catch (e) {
+          epgContEl.innerHTML = '<div style="color:var(--text-muted)">Could not load EPG sources</div>';
         }
-        epgContEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
-          '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + epgInfo.source_count + '</div><div class="stat-label">Sources</div></div>' +
-          '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + epgInfo.channel_count + '</div><div class="stat-label">Channels Mapped</div></div>' +
-          '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + epgInfo.program_count.toLocaleString() + '</div><div class="stat-label">Programs</div></div>' +
-          (epgInfo.error_count > 0 ? '<div class="stat-card" style="flex:1;min-width:120px;padding:12px;border-color:var(--danger)"><div class="stat-value" style="font-size:20px;color:var(--danger)">' + epgInfo.error_count + '</div><div class="stat-label">Errors</div></div>' : '') +
-          (lastRefreshStr ? '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + esc(lastRefreshStr) + '</div><div class="stat-label">Last Refresh</div></div>' : '') +
-          '</div>';
-      } else if (epgContEl) {
-        epgContEl.innerHTML = '<div style="color:var(--text-muted)">No EPG sources configured</div>';
       }
 
       var recContEl = document.getElementById('dash-recordings');
@@ -686,6 +738,26 @@
           '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + esc(uptimeStr) + '</div><div class="stat-label">Uptime</div></div>' +
           '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:14px;word-break:break-all">' + esc(startedStr) + '</div><div class="stat-label">Started</div></div>' +
           '</div>';
+      }
+
+      var metaEl = document.getElementById('dash-metadata');
+      if (metaEl) {
+        try {
+          var metaResults = await Promise.all([
+            api.get('/api/tmdb/queue').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+            api.get('/api/tmdb/recent').then(function(r) { return r.json(); }).catch(function() { return []; })
+          ]);
+          var queue = metaResults[0] || {};
+          var recent = metaResults[1] || [];
+          var queueCount = (queue.metadata || 0) + (queue.images || 0);
+          var resolvedCount = Array.isArray(recent) ? recent.length : 0;
+          metaEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
+            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + queueCount + '</div><div class="stat-label">Queue</div></div>' +
+            '<div class="stat-card" style="flex:1;min-width:120px;padding:12px"><div class="stat-value" style="font-size:20px">' + resolvedCount + '</div><div class="stat-label">Recently Resolved</div></div>' +
+            '</div>';
+        } catch (e) {
+          metaEl.innerHTML = '<div style="color:var(--text-muted)">Metadata unavailable</div>';
+        }
       }
     } catch (e) {}
   }
@@ -1284,7 +1356,8 @@
   }
 
   var channelGroups = [];
-  var channelStreams = [];
+  var channelStreams = null;
+  var epgChannelIDs = null;
 
   async function renderChannels(el) {
     var user = api.user;
@@ -1299,6 +1372,7 @@
         '<span id="bulk-actions" style="display:none;gap:8px;align-items:center">' +
         '<button class="btn btn-ghost" id="bulk-enable-btn" style="color:var(--success)">Enable Selected</button>' +
         '<button class="btn btn-ghost" id="bulk-disable-btn" style="color:var(--danger)">Disable Selected</button>' +
+        '<select class="form-input" id="bulk-group-select" style="width:auto;font-size:12px"><option value="">Assign Group...</option></select>' +
         '<span id="bulk-count" style="font-size:12px;color:var(--text-muted)"></span>' +
         '</span>' +
         '</div>';
@@ -1307,33 +1381,33 @@
     el.innerHTML = '<h1 class="page-title">Channels</h1>' +
       headerButtons +
       '<div class="search-bar">' + icons.search + '<input id="channel-search" placeholder="Search channels..."></div>' +
-      '<div id="channel-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="channel-form" style="display:none" class="card">' +
-      '<div class="card-title" id="channel-form-title">New Channel</div>' +
-      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
-      '<div class="form-group"><label class="form-label">Number</label><input class="form-input" id="ch-number" type="number" min="0" placeholder="1"></div>' +
-      '<div class="form-group"><label class="form-label">Group</label><select class="form-input" id="ch-group"><option value="">None</option></select></div>' +
-      '<div class="form-group"><label class="form-label">Logo URL</label><input class="form-input" id="ch-logo" placeholder="http://example.com/logo.png"></div>' +
-      '<div class="form-group"><label class="form-label">Streams</label>' +
-      '<select class="form-input" id="ch-streams" multiple style="height:120px"></select>' +
-      '<span class="field-hint">Hold Ctrl/Cmd to select multiple</span></div>' +
-      '<div class="form-group"><label class="form-label"><input type="checkbox" id="ch-enabled" checked> Enabled</label></div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn btn-primary" id="save-channel-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-channel-btn">Cancel</button></div></div>' +
-      '<div id="group-panel" style="display:none" class="card">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center">' +
-      '<div class="card-title">Channel Groups</div>' +
-      '<button class="btn btn-ghost" id="close-groups-btn" style="padding:4px 8px">&times;</button></div>' +
-      '<div id="group-list"></div>' +
-      '<div style="display:flex;gap:8px;margin-top:12px">' +
-      '<input class="form-input" id="new-group-name" placeholder="Group name" style="flex:1">' +
-      '<button class="btn btn-primary" id="create-group-btn">Add</button>' +
-      '</div></div>';
+      '<div id="channel-list"><div class="skeleton" style="height:200px"></div></div>';
 
     var channelEditId = null;
-    var formEl = document.getElementById('channel-form');
-    var groupPanel = document.getElementById('group-panel');
+
+    var channelFormBody =
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ch-name" placeholder="BBC One"></div>' +
+      '<div style="display:flex;gap:12px"><div class="form-group" style="flex:1"><label class="form-label">Number</label><input class="form-input" id="ch-number" type="number" min="0" placeholder="1"></div>' +
+      '<div class="form-group" style="flex:1"><label class="form-label">Group</label><select class="form-input" id="ch-group"><option value="">None</option></select></div></div>' +
+      '<div class="form-group"><label class="form-label">Logo</label>' +
+      '<div style="display:flex;gap:8px;align-items:center"><input class="form-input" id="ch-logo" placeholder="http://example.com/logo.png" style="flex:1">' +
+      '<div id="ch-logo-preview" style="width:32px;height:32px;border-radius:4px;background:var(--bg-hover);flex-shrink:0;overflow:hidden"></div></div></div>' +
+      '<div class="form-group"><label class="form-label">EPG ID (tvg_id)</label>' +
+      '<div style="position:relative"><input class="form-input" id="ch-tvgid" placeholder="Type to search EPG channels..." autocomplete="off">' +
+      '<div id="ch-tvgid-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div></div>' +
+      '<div class="form-group"><label class="form-label">Streams</label>' +
+      '<div style="position:relative"><input class="form-input" id="ch-stream-search" placeholder="Search streams..." autocomplete="off">' +
+      '<div id="ch-stream-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:10;margin-top:2px"></div></div>' +
+      '<div id="ch-selected-streams" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div></div>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="ch-enabled" checked> Enabled</label></div>';
+
+    var selectedStreamIDs = [];
+
+    function openChannelModal(title, saveLabel) {
+      var modal = showFormModal(title, channelFormBody, { id: 'channel-modal', saveLabel: saveLabel, maxWidth: '600px' });
+      modal.querySelector('.modal-save-btn').id = 'save-channel-btn';
+      return modal;
+    }
 
     try {
       var groupResp = await api.get('/api/channel-groups');
@@ -1343,64 +1417,115 @@
 
     channelStreams = null;
 
-    function populateForm(ch) {
-      var groupSelect = document.getElementById('ch-group');
-      groupSelect.innerHTML = '<option value="">None</option>';
-      for (var gi = 0; gi < channelGroups.length; gi++) {
-        var g = channelGroups[gi];
-        var sel = ch && ch.group_id === g.id ? ' selected' : '';
-        groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
+    async function loadEPGChannelIDs() {
+      if (epgChannelIDs) return epgChannelIDs;
+      try { var r = await api.get('/api/epg/channel-ids'); epgChannelIDs = await r.json(); if (!Array.isArray(epgChannelIDs)) epgChannelIDs = []; } catch (e) { epgChannelIDs = []; }
+      return epgChannelIDs;
+    }
+    async function loadStreams() {
+      if (channelStreams) return channelStreams;
+      try { var r = await api.get('/api/streams?fields=slim'); channelStreams = await r.json(); if (!Array.isArray(channelStreams)) channelStreams = []; } catch (e) { channelStreams = []; }
+      return channelStreams;
+    }
+    function updateLogoPreview(url) {
+      var preview = document.getElementById('ch-logo-preview');
+      if (!preview) return;
+      preview.innerHTML = url ? '<img src="' + esc(url) + '" style="width:100%;height:100%;object-fit:contain" onerror="this.style.display=\'none\'">' : '';
+    }
+    function setupTvgIdDropdown() {
+      var input = document.getElementById('ch-tvgid');
+      var dropdown = document.getElementById('ch-tvgid-dropdown');
+      if (!input || !dropdown) return;
+      function show(filter) {
+        loadEPGChannelIDs().then(function(ids) {
+          var s = (filter || '').toLowerCase();
+          var m = ids.filter(function(item) { return (item.id || '').toLowerCase().indexOf(s) >= 0 || (item.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
+          if (m.length === 0) { dropdown.style.display = 'none'; return; }
+          dropdown.innerHTML = m.map(function(item) {
+            var label = item.name ? esc(item.name) + ' <span style="color:var(--text-muted);font-size:11px">(' + esc(item.id) + ')</span>' : esc(item.id);
+            return '<div class="tvgid-opt" data-id="' + esc(item.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + label + '</div>';
+          }).join('');
+          dropdown.style.display = 'block';
+          dropdown.querySelectorAll('.tvgid-opt').forEach(function(opt) {
+            opt.addEventListener('click', function() { input.value = this.getAttribute('data-id'); dropdown.style.display = 'none'; });
+            opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+            opt.addEventListener('mouseleave', function() { this.style.background = ''; });
+          });
+        });
       }
-      var streamSelect = document.getElementById('ch-streams');
-      streamSelect.innerHTML = '<option value="">Loading streams...</option>';
-      var existingStreams = ch && ch.stream_ids ? ch.stream_ids : [];
-      (channelStreams ? Promise.resolve(channelStreams) : api.get('/api/streams?fields=slim').then(function(r) { return r.json(); }).then(function(d) { channelStreams = d; return d; })).then(function(streams) {
-        if (!Array.isArray(streams)) streams = [];
-        streamSelect.innerHTML = '';
-        for (var si = 0; si < streams.length; si++) {
-          var st = streams[si];
-          var selected = existingStreams.indexOf(st.id) >= 0 ? ' selected' : '';
-          streamSelect.innerHTML += '<option value="' + esc(st.id) + '"' + selected + '>' + esc(st.name) + '</option>';
-        }
+      input.addEventListener('focus', function() { show(input.value); });
+      input.addEventListener('input', function() { show(input.value); });
+      document.addEventListener('click', function(e) { if (!input.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
+    }
+    function setupStreamSearch() {
+      var searchInput = document.getElementById('ch-stream-search');
+      var dropdown = document.getElementById('ch-stream-dropdown');
+      if (!searchInput || !dropdown) return;
+      function show(filter) {
+        loadStreams().then(function(streams) {
+          var s = (filter || '').toLowerCase();
+          var m = streams.filter(function(st) { return selectedStreamIDs.indexOf(st.id) < 0 && (st.name || '').toLowerCase().indexOf(s) >= 0; }).slice(0, 50);
+          if (m.length === 0) { dropdown.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:13px">No matching streams</div>'; dropdown.style.display = 'block'; return; }
+          dropdown.innerHTML = m.map(function(st) {
+            var badge = st.source_type ? ' <span style="background:var(--bg-hover);padding:1px 6px;border-radius:3px;font-size:10px;color:var(--text-muted)">' + esc(st.source_type) + '</span>' : '';
+            return '<div class="stream-opt" data-id="' + esc(st.id) + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px">' + esc(st.name) + badge + '</div>';
+          }).join('');
+          dropdown.style.display = 'block';
+          dropdown.querySelectorAll('.stream-opt').forEach(function(opt) {
+            opt.addEventListener('click', function() { selectedStreamIDs.push(this.getAttribute('data-id')); renderSelectedStreams(); searchInput.value = ''; dropdown.style.display = 'none'; });
+            opt.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+            opt.addEventListener('mouseleave', function() { this.style.background = ''; });
+          });
+        });
+      }
+      searchInput.addEventListener('focus', function() { show(searchInput.value); });
+      searchInput.addEventListener('input', function() { show(searchInput.value); });
+      document.addEventListener('click', function(e) { if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'; });
+    }
+    function renderSelectedStreams() {
+      var container = document.getElementById('ch-selected-streams');
+      if (!container) return;
+      if (selectedStreamIDs.length === 0) { container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No streams assigned</span>'; return; }
+      var streams = channelStreams || [];
+      container.innerHTML = selectedStreamIDs.map(function(id) {
+        var s = streams.find(function(st) { return st.id === id; });
+        var name = s ? s.name : id.substring(0, 12) + '...';
+        return '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-hover);padding:2px 8px;border-radius:12px;font-size:12px">' + esc(name) + '<button class="stream-rm" data-id="' + esc(id) + '" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0 2px;font-size:14px">&times;</button></span>';
+      }).join('');
+      container.querySelectorAll('.stream-rm').forEach(function(btn) {
+        btn.addEventListener('click', function() { var rid = this.getAttribute('data-id'); selectedStreamIDs = selectedStreamIDs.filter(function(id) { return id !== rid; }); renderSelectedStreams(); });
       });
     }
+    function populateForm(ch) {
+      var groupSelect = document.getElementById('ch-group');
+      if (groupSelect) {
+        groupSelect.innerHTML = '<option value="">None</option>';
+        for (var gi = 0; gi < channelGroups.length; gi++) {
+          var g = channelGroups[gi];
+          var sel = ch && ch.group_id === g.id ? ' selected' : '';
+          groupSelect.innerHTML += '<option value="' + esc(g.id) + '"' + sel + '>' + esc(g.name) + '</option>';
+        }
+      }
+      var tvgInput = document.getElementById('ch-tvgid');
+      if (tvgInput) tvgInput.value = (ch && ch.tvg_id) || '';
+      setupTvgIdDropdown();
+      var logoInput = document.getElementById('ch-logo');
+      if (logoInput) { logoInput.addEventListener('input', function() { updateLogoPreview(this.value); }); updateLogoPreview((ch && ch.logo_url) || ''); }
+      selectedStreamIDs = ch && ch.stream_ids ? ch.stream_ids.slice() : [];
+      renderSelectedStreams();
+      setupStreamSearch();
+    }
 
-    if (isAdmin) {
-      document.getElementById('add-channel-btn').addEventListener('click', function() {
-        channelEditId = null;
-        document.getElementById('channel-form-title').textContent = 'New Channel';
-        document.getElementById('save-channel-btn').textContent = 'Create';
-        document.getElementById('ch-name').value = '';
-        document.getElementById('ch-number').value = '';
-        document.getElementById('ch-logo').value = '';
-        document.getElementById('ch-enabled').checked = true;
-        populateForm(null);
-        formEl.style.display = 'block';
-        groupPanel.style.display = 'none';
-      });
-
-      document.getElementById('manage-groups-btn').addEventListener('click', function() {
-        formEl.style.display = 'none';
-        groupPanel.style.display = groupPanel.style.display === 'none' ? 'block' : 'none';
-        renderGroupList();
-      });
-
-      document.getElementById('cancel-channel-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
-      document.getElementById('close-groups-btn').addEventListener('click', function() { groupPanel.style.display = 'none'; });
-
+    function bindChannelSave() {
       document.getElementById('save-channel-btn').addEventListener('click', async function() {
         var name = document.getElementById('ch-name').value.trim();
         var number = parseInt(document.getElementById('ch-number').value) || 0;
         var groupId = document.getElementById('ch-group').value;
         var logoUrl = document.getElementById('ch-logo').value.trim();
+        var tvgId = document.getElementById('ch-tvgid') ? document.getElementById('ch-tvgid').value.trim() : '';
         var enabled = document.getElementById('ch-enabled').checked;
-        var streamSelect = document.getElementById('ch-streams');
-        var selectedStreams = [];
-        for (var i = 0; i < streamSelect.options.length; i++) {
-          if (streamSelect.options[i].selected) selectedStreams.push(streamSelect.options[i].value);
-        }
         if (!name) { toast('Name required', 'error'); return; }
-        var payload = { name: name, number: number, group_id: groupId, logo_url: logoUrl, is_enabled: enabled, stream_ids: selectedStreams };
+        var payload = { name: name, number: number, group_id: groupId, logo_url: logoUrl, tvg_id: tvgId, is_enabled: enabled, stream_ids: selectedStreamIDs };
         try {
           var r;
           if (channelEditId) {
@@ -1410,7 +1535,8 @@
           }
           if (r.ok) {
             toast(channelEditId ? 'Channel updated' : 'Channel created');
-            formEl.style.display = 'none';
+            var m = document.getElementById('channel-modal');
+            if (m) m.remove();
             renderChannels(el);
           } else {
             var data = await r.json().catch(function() { return {}; });
@@ -1420,66 +1546,91 @@
           toast('Failed to save channel', 'error');
         }
       });
-
-      document.getElementById('create-group-btn').addEventListener('click', async function() {
-        var name = document.getElementById('new-group-name').value.trim();
-        if (!name) { toast('Group name required', 'error'); return; }
-        try {
-          var r = await api.post('/api/channel-groups', { name: name });
-          if (r.ok) {
-            toast('Group created');
-            document.getElementById('new-group-name').value = '';
-            var groupResp2 = await api.get('/api/channel-groups');
-            channelGroups = await groupResp2.json();
-            if (!Array.isArray(channelGroups)) channelGroups = [];
-            renderGroupList();
-          } else {
-            var data = await r.json().catch(function() { return {}; });
-            toast(data.error || 'Failed to create group', 'error');
-          }
-        } catch (err) {
-          toast('Failed to create group', 'error');
-        }
-      });
     }
 
-    function renderGroupList() {
-      var container = document.getElementById('group-list');
-      if (!container) return;
-      if (channelGroups.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>';
-        return;
-      }
-      var html = '';
-      for (var i = 0; i < channelGroups.length; i++) {
-        var g = channelGroups[i];
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
-          '<span>' + esc(g.name) + '</span>' +
-          '<button class="btn btn-sm btn-danger group-delete-btn" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' + icons.trash + '</button>' +
-          '</div>';
-      }
-      container.innerHTML = html;
-      container.querySelectorAll('.group-delete-btn').forEach(function(btn) {
-        btn.addEventListener('click', async function() {
-          var id = this.getAttribute('data-id');
-          var name = this.getAttribute('data-name');
-          if (!confirm('Delete group "' + name + '"?')) return;
-          try {
-            var r = await api.del('/api/channel-groups/' + id);
-            if (r.ok || r.status === 204) {
-              toast('Group deleted');
-              var groupResp3 = await api.get('/api/channel-groups');
-              channelGroups = await groupResp3.json();
-              if (!Array.isArray(channelGroups)) channelGroups = [];
-              renderGroupList();
-            } else {
-              toast('Failed to delete group', 'error');
-            }
-          } catch (err) {
-            toast('Failed to delete group', 'error');
-          }
-        });
+    if (isAdmin) {
+      document.getElementById('add-channel-btn').addEventListener('click', function() {
+        channelEditId = null;
+        openChannelModal('New Channel', 'Create');
+        document.getElementById('ch-name').value = '';
+        document.getElementById('ch-number').value = '';
+        document.getElementById('ch-logo').value = '';
+        if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = '';
+        document.getElementById('ch-enabled').checked = true;
+        populateForm(null);
+        bindChannelSave();
       });
+
+      document.getElementById('manage-groups-btn').addEventListener('click', function() {
+        showGroupManageModal();
+      });
+
+      document.getElementById('auto-epg-btn').addEventListener('click', async function() {
+        if (!confirm('Auto-match EPG channel IDs to channels by name?')) return;
+        try { var r = await api.post('/api/epg/auto-match'); if (r.ok) { var data = await r.json(); toast('Matched ' + (data.matched || 0) + ' channels'); renderChannels(el); } else { toast('Auto-match failed', 'error'); } } catch (err) { toast('Auto-match failed', 'error'); }
+      });
+
+
+    }
+
+    function showGroupManageModal() {
+      var existing = document.getElementById('group-manage-modal');
+      if (existing) existing.remove();
+      var html = '<div class="modal-overlay" id="group-manage-modal"><div class="modal-content" style="max-width:500px"><div class="modal-header">Channel Groups</div><div class="modal-body">' +
+        '<div id="gm-group-list"></div>' +
+        '<div style="display:flex;gap:8px;margin-top:12px"><input class="form-input" id="gm-new-name" placeholder="New group name" style="flex:1"><button class="btn btn-primary" id="gm-create-btn">Add</button></div>' +
+        '</div><div class="modal-footer"><button class="btn btn-ghost" id="gm-close">Close</button></div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      var overlay = document.getElementById('group-manage-modal');
+      overlay.querySelector('#gm-close').addEventListener('click', function() { overlay.remove(); renderChannels(el); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) { overlay.remove(); renderChannels(el); } });
+      overlay.querySelector('#gm-create-btn').addEventListener('click', async function() {
+        var name = document.getElementById('gm-new-name').value.trim();
+        if (!name) { toast('Name required', 'error'); return; }
+        var r = await api.post('/api/channel-groups', { name: name });
+        if (r.ok) { toast('Group created'); document.getElementById('gm-new-name').value = ''; await refreshGMGroups(); renderGMList(); } else { toast('Failed', 'error'); }
+      });
+      renderGMList();
+      async function refreshGMGroups() {
+        try { var r = await api.get('/api/channel-groups'); channelGroups = await r.json(); if (!Array.isArray(channelGroups)) channelGroups = []; } catch (e) { channelGroups = []; }
+      }
+      function renderGMList() {
+        var container = document.getElementById('gm-group-list');
+        if (!container) return;
+        if (channelGroups.length === 0) { container.innerHTML = '<p style="color:var(--text-muted)">No groups yet</p>'; return; }
+        container.innerHTML = channelGroups.map(function(g, idx) {
+          var countBadge = g.channel_count ? ' <span style="color:var(--text-muted);font-size:11px">(' + g.channel_count + ' ch)</span>' : '';
+          var upBtn = idx > 0 ? '<button class="btn btn-sm btn-ghost gm-up" data-idx="' + idx + '" title="Move up" style="padding:2px 6px">\u25B2</button>' : '<span style="width:28px"></span>';
+          var downBtn = idx < channelGroups.length - 1 ? '<button class="btn btn-sm btn-ghost gm-down" data-idx="' + idx + '" title="Move down" style="padding:2px 6px">\u25BC</button>' : '<span style="width:28px"></span>';
+          return '<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">' + upBtn + downBtn + '<span style="flex:1">' + esc(g.name) + countBadge + '</span><button class="btn btn-sm btn-danger gm-del" data-id="' + esc(g.id) + '" data-name="' + esc(g.name) + '">' + icons.trash + '</button></div>';
+        }).join('');
+        container.querySelectorAll('.gm-up').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var idx = parseInt(this.getAttribute('data-idx'));
+            if (idx <= 0) return;
+            var tmp = channelGroups[idx]; channelGroups[idx] = channelGroups[idx - 1]; channelGroups[idx - 1] = tmp;
+            await api.post('/api/channel-groups/reorder', { group_ids: channelGroups.map(function(g) { return g.id; }) });
+            await refreshGMGroups(); renderGMList();
+          });
+        });
+        container.querySelectorAll('.gm-down').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var idx = parseInt(this.getAttribute('data-idx'));
+            if (idx >= channelGroups.length - 1) return;
+            var tmp = channelGroups[idx]; channelGroups[idx] = channelGroups[idx + 1]; channelGroups[idx + 1] = tmp;
+            await api.post('/api/channel-groups/reorder', { group_ids: channelGroups.map(function(g) { return g.id; }) });
+            await refreshGMGroups(); renderGMList();
+          });
+        });
+        container.querySelectorAll('.gm-del').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = this.getAttribute('data-id'); var name = this.getAttribute('data-name');
+            if (!confirm('Delete group "' + name + '"?')) return;
+            var r = await api.del('/api/channel-groups/' + id);
+            if (r.ok || r.status === 204) { toast('Group deleted'); await refreshGMGroups(); renderGMList(); }
+          });
+        });
+      }
     }
 
     if (isAdmin) {
@@ -1521,6 +1672,19 @@
           } catch (err) { toast('Failed to disable channels', 'error'); }
         });
       }
+
+      var bulkGroupSelect = document.getElementById('bulk-group-select');
+      if (bulkGroupSelect) {
+        for (var bgi = 0; bgi < channelGroups.length; bgi++) {
+          bulkGroupSelect.innerHTML += '<option value="' + esc(channelGroups[bgi].id) + '">' + esc(channelGroups[bgi].name) + '</option>';
+        }
+        bulkGroupSelect.addEventListener('change', async function() {
+          var gid = this.value; if (!gid) return;
+          var ids = getSelectedChannelIDs(); if (ids.length === 0) { toast('Select channels first', 'error'); this.value = ''; return; }
+          try { var r = await api.post('/api/channels/assign-group', { channel_ids: ids, group_id: gid }); if (r.ok) { toast(ids.length + ' channels assigned to group'); renderChannels(el); } else { toast('Failed to assign group', 'error'); } } catch (err) { toast('Failed to assign group', 'error'); }
+          this.value = '';
+        });
+      }
     }
 
     function getSelectedChannelIDs() {
@@ -1559,9 +1723,9 @@
         groupMap[channelGroups[gi].id] = channelGroups[gi].name;
       }
 
-      renderChannelTable(channels, '', groupMap, isAdmin, el, channelEditId, formEl, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
+      renderChannelTable(channels, '', groupMap, isAdmin, el, channelEditId, null, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
       document.getElementById('channel-search').addEventListener('input', function() {
-        renderChannelTable(channels, this.value.toLowerCase(), groupMap, isAdmin, el, channelEditId, formEl, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
+        renderChannelTable(channels, this.value.toLowerCase(), groupMap, isAdmin, el, channelEditId, null, populateForm, function(id) { channelEditId = id; }, nowData, updateBulkCount);
       });
     } catch (e) {
       document.getElementById('channel-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load channels</p></div>';
@@ -1577,7 +1741,8 @@
       filtered = channels.filter(function(c) {
         var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '';
         return (c.name || '').toLowerCase().indexOf(filter) >= 0 ||
-               groupName.toLowerCase().indexOf(filter) >= 0;
+               groupName.toLowerCase().indexOf(filter) >= 0 ||
+               (c.tvg_id || '').toLowerCase().indexOf(filter) >= 0;
       });
     }
     if (filtered.length === 0) {
@@ -1589,7 +1754,7 @@
 
     var checkCol = isAdmin ? '<th style="width:32px"><input type="checkbox" id="ch-select-all"></th>' : '';
     var html = '<table class="list-table"><thead><tr>' +
-      checkCol + '<th></th><th>#</th><th>Name</th><th>Now / Next</th><th>Group</th><th>Streams</th><th>Status</th><th></th>' +
+      checkCol + '<th></th><th>#</th><th>Name</th><th>EPG ID</th><th>Now / Next</th><th>Group</th><th>Streams</th><th>Status</th><th></th>' +
       '</tr></thead><tbody>';
     for (var i = 0; i < filtered.length; i++) {
       var c = filtered[i];
@@ -1597,6 +1762,7 @@
       var groupName = groupMap && groupMap[c.group_id] ? groupMap[c.group_id] : '-';
       var streamCount = c.stream_ids ? c.stream_ids.length : 0;
       var status = c.is_enabled !== false ? '<span class="badge badge-enabled">ON</span>' : '<span class="badge badge-disabled">OFF</span>';
+      var tvgIdCell = c.tvg_id ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(c.tvg_id) + '</span>' : '<span style="color:var(--text-dim);font-size:11px">-</span>';
       var nowInfo = nowData[c.id];
       var nowNextHtml = '';
       if (nowInfo) {
@@ -1625,6 +1791,7 @@
         '<td>' + logo + '</td>' +
         '<td>' + esc(c.number || '-') + '</td>' +
         '<td>' + esc(c.name) + '</td>' +
+        '<td>' + tvgIdCell + '</td>' +
         '<td>' + nowNextHtml + '</td>' +
         '<td>' + esc(groupName) + '</td>' +
         '<td>' + streamCount + '</td>' +
@@ -1666,14 +1833,14 @@
           }
           if (!ch) return;
           setEditId(chId);
-          document.getElementById('channel-form-title').textContent = 'Edit Channel';
-          document.getElementById('save-channel-btn').textContent = 'Update';
+          openChannelModal('Edit Channel', 'Update');
           document.getElementById('ch-name').value = ch.name || '';
           document.getElementById('ch-number').value = ch.number || '';
           document.getElementById('ch-logo').value = ch.logo_url || '';
+          if (document.getElementById('ch-tvgid')) document.getElementById('ch-tvgid').value = ch.tvg_id || '';
           document.getElementById('ch-enabled').checked = ch.is_enabled !== false;
           populateForm(ch);
-          formEl.style.display = 'block';
+          bindChannelSave();
         });
       });
 
@@ -2731,7 +2898,10 @@
       '<div class="form-group" style="flex:1"><label class="form-label">Stop</label><input class="form-input" id="rec-stop" type="datetime-local"></div></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-rec-btn">Schedule</button>' +
       '<button class="btn btn-ghost" id="cancel-rec-btn">Cancel</button></div></div>' +
-      '<div id="recording-list"><div class="skeleton" style="height:200px"></div></div>';
+      '<div id="recording-list"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="rec-section-active"></div>' +
+      '<div id="rec-section-scheduled"></div>' +
+      '<div id="rec-section-completed"></div>';
 
     if (isAdmin) {
       var schedBtn = document.getElementById('schedule-rec-btn');
@@ -2791,140 +2961,121 @@
       });
     }
 
+    function statusBadgeFor(st) {
+      if (st === 'recording') return '<span class="badge badge-rec-active"><span class="recording-dot"></span> Recording</span>';
+      if (st === 'completed') return '<span class="badge badge-rec-completed">Completed</span>';
+      if (st === 'scheduled') return '<span class="badge badge-rec-scheduled">Scheduled</span>';
+      if (st === 'pending') return '<span class="badge badge-rec-pending">Pending</span>';
+      if (st === 'cancelled') return '<span class="badge badge-rec-cancelled">Cancelled</span>';
+      if (st === 'failed') return '<span class="badge badge-rec-failed">Failed</span>';
+      return '<span class="badge badge-disabled">' + esc(st || 'unknown') + '</span>';
+    }
+
+    function renderRecRow(r) {
+      var dateStr = '-';
+      if (r.started_at) dateStr = new Date(r.started_at).toLocaleString();
+      else if (r.scheduled_start) dateStr = new Date(r.scheduled_start).toLocaleString();
+      var durStr = '-';
+      if (r.started_at && r.stopped_at) {
+        durStr = formatDurationSec((new Date(r.stopped_at) - new Date(r.started_at)) / 1000);
+      } else if (r.status === 'recording' && r.started_at) {
+        var elapsed = (Date.now() - new Date(r.started_at).getTime()) / 1000;
+        durStr = '<span class="rec-duration-live" data-started="' + esc(r.started_at) + '">' + formatDurationSec(elapsed) + '</span>';
+      } else if (r.status === 'scheduled' && r.scheduled_start) {
+        var countdown = (new Date(r.scheduled_start).getTime() - Date.now()) / 1000;
+        durStr = countdown > 0 ? '<span class="rec-countdown" data-start="' + esc(r.scheduled_start) + '" style="color:var(--accent)">in ' + formatDurationSec(countdown) + '</span>' : '<span style="color:var(--warning)">starting...</span>';
+      }
+      var sizeStr = formatBytes(r.file_size);
+      var title = r.title || r.stream_name || r.stream_id;
+      if (title === 'Scheduled Recording' && r.channel_name) title = r.channel_name;
+      var actions = '';
+      if (r.status === 'recording' && isAdmin) {
+        actions += '<button class="btn btn-sm btn-danger rec-stop-btn" data-id="' + esc(r.stream_id) + '" title="Stop">' + (icons.stop || 'Stop') + '</button>';
+      }
+      if (r.status === 'completed') {
+        actions += '<button class="btn btn-sm btn-primary rec-play-btn" data-id="' + esc(r.id) + '" data-title="' + esc(title) + '" title="Play">' + icons.play + '</button>';
+        actions += '<a class="btn btn-sm btn-ghost" href="/api/recordings/completed/' + esc(r.id) + '/stream" target="_blank" download title="Download">' + icons.download + '</a>';
+      }
+      if (isAdmin && (r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled')) {
+        actions += '<button class="btn btn-sm btn-icon btn-danger rec-del-btn" data-id="' + esc(r.id) + '" title="Delete">' + icons.trash + '</button>';
+      }
+      if (isAdmin && (r.status === 'scheduled' || r.status === 'pending')) {
+        actions += '<button class="btn btn-sm btn-icon btn-danger rec-cancel-btn" data-id="' + esc(r.id) + '" title="Cancel">' + icons.trash + '</button>';
+      }
+      return '<tr><td>' + esc(title) + '</td><td>' + esc(r.channel_name || '-') + '</td><td>' + statusBadgeFor(r.status) + '</td><td style="font-size:12px">' + esc(dateStr) + '</td><td>' + durStr + '</td><td>' + esc(sizeStr) + '</td><td><div class="actions-cell">' + actions + '</div></td></tr>';
+    }
+
+    function renderRecSection(sectionEl, sectionTitle, recs) {
+      if (!sectionEl) return;
+      if (recs.length === 0) { sectionEl.innerHTML = ''; return; }
+      var html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + esc(sectionTitle) + ' (' + recs.length + ')</div><table class="list-table"><thead><tr><th>Title</th><th>Channel</th><th>Status</th><th>Date</th><th>Duration</th><th>Size</th><th>Actions</th></tr></thead><tbody>';
+      for (var i = 0; i < recs.length; i++) html += renderRecRow(recs[i]);
+      html += '</tbody></table></div>';
+      sectionEl.innerHTML = html;
+    }
+
     async function loadRecordings() {
       try {
         var resp = await api.get('/api/recordings');
         var recordings = await resp.json();
         if (!Array.isArray(recordings)) recordings = [];
-        var container = document.getElementById('recording-list');
-        if (!container) return;
-
         var counts = { recording: 0, scheduled: 0, pending: 0, completed: 0, failed: 0, cancelled: 0 };
+        var activeRecs = [], scheduledRecs = [], completedRecs = [];
         for (var ci = 0; ci < recordings.length; ci++) {
-          var status = recordings[ci].status || 'unknown';
+          var rec = recordings[ci];
+          var status = rec.status || 'unknown';
           if (counts[status] !== undefined) counts[status]++;
           else counts.failed++;
+          if (status === 'recording') activeRecs.push(rec);
+          else if (status === 'scheduled' || status === 'pending') scheduledRecs.push(rec);
+          else completedRecs.push(rec);
         }
         var el1 = document.getElementById('rec-stat-active');
         var el2 = document.getElementById('rec-stat-scheduled');
         var el3 = document.getElementById('rec-stat-completed');
         var el4 = document.getElementById('rec-stat-failed');
         if (el1) el1.textContent = counts.recording;
-        if (el2) el2.textContent = counts.scheduled;
+        if (el2) el2.textContent = counts.scheduled + counts.pending;
         if (el3) el3.textContent = counts.completed;
         if (el4) el4.textContent = counts.failed;
-
+        var fallback = document.getElementById('recording-list');
+        if (fallback) fallback.innerHTML = '';
         if (recordings.length === 0) {
-          container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No recordings yet</p></div>';
+          if (fallback) fallback.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No recordings yet</p></div>';
+          ['rec-section-active','rec-section-scheduled','rec-section-completed'].forEach(function(id) { var e = document.getElementById(id); if (e) e.innerHTML = ''; });
           return;
         }
+        activeRecs.sort(function(a, b) { return (b.started_at || '').localeCompare(a.started_at || ''); });
+        scheduledRecs.sort(function(a, b) { return (a.scheduled_start || '').localeCompare(b.scheduled_start || ''); });
+        completedRecs.sort(function(a, b) { return (b.stopped_at || b.started_at || '').localeCompare(a.stopped_at || a.started_at || ''); });
+        renderRecSection(document.getElementById('rec-section-active'), 'Active', activeRecs);
+        renderRecSection(document.getElementById('rec-section-scheduled'), 'Scheduled', scheduledRecs);
+        renderRecSection(document.getElementById('rec-section-completed'), 'Completed', completedRecs);
 
-        recordings.sort(function(a, b) {
-          var statusOrder = { recording: 0, pending: 1, scheduled: 2, completed: 3, failed: 4, cancelled: 5 };
-          var sa = statusOrder[a.status] !== undefined ? statusOrder[a.status] : 4;
-          var sb = statusOrder[b.status] !== undefined ? statusOrder[b.status] : 4;
-          if (sa !== sb) return sa - sb;
-          var ta = a.started_at || a.scheduled_start || '';
-          var tb = b.started_at || b.scheduled_start || '';
-          return tb.localeCompare(ta);
-        });
-
-        var html = '<table class="list-table"><thead><tr>' +
-          '<th>Title</th><th>Channel</th><th>Status</th><th>Date</th><th>Duration</th><th>Size</th><th>Actions</th>' +
-          '</tr></thead><tbody>';
-        for (var i = 0; i < recordings.length; i++) {
-          var r = recordings[i];
-          var statusBadge = '';
-          if (r.status === 'recording') {
-            statusBadge = '<span class="badge badge-rec-active"><span class="recording-dot"></span> Recording</span>';
-          } else if (r.status === 'completed') {
-            statusBadge = '<span class="badge badge-rec-completed">Completed</span>';
-          } else if (r.status === 'scheduled') {
-            statusBadge = '<span class="badge badge-rec-scheduled">Scheduled</span>';
-          } else if (r.status === 'pending') {
-            statusBadge = '<span class="badge badge-rec-pending">Pending</span>';
-          } else if (r.status === 'cancelled') {
-            statusBadge = '<span class="badge badge-rec-cancelled">Cancelled</span>';
-          } else if (r.status === 'failed') {
-            statusBadge = '<span class="badge badge-rec-failed">Failed</span>';
-          } else {
-            statusBadge = '<span class="badge badge-disabled">' + esc(r.status || 'unknown') + '</span>';
-          }
-
-          var dateStr = '-';
-          if (r.started_at) dateStr = new Date(r.started_at).toLocaleString();
-          else if (r.scheduled_start) dateStr = new Date(r.scheduled_start).toLocaleString();
-
-          var durStr = '-';
-          if (r.started_at && r.stopped_at) {
-            var durSec = (new Date(r.stopped_at) - new Date(r.started_at)) / 1000;
-            durStr = formatDurationSec(durSec);
-          } else if (r.status === 'recording' && r.started_at) {
-            var elapsed = (Date.now() - new Date(r.started_at).getTime()) / 1000;
-            durStr = '<span class="rec-duration-live" data-started="' + esc(r.started_at) + '">' + formatDurationSec(elapsed) + '</span>';
-          }
-
-          var sizeStr = formatBytes(r.file_size);
-
-          var actions = '';
-          if (r.status === 'completed') {
-            actions += '<button class="btn btn-sm btn-primary rec-play-btn" data-id="' + esc(r.id) + '" data-title="' + esc(r.title || r.stream_name || r.id) + '" title="Play">' + icons.play + '</button>';
-            actions += '<a class="btn btn-sm btn-ghost" href="/api/recordings/completed/' + esc(r.id) + '/stream" target="_blank" download title="Download">' + icons.download + '</a>';
-          }
-          if (isAdmin && (r.status === 'completed' || r.status === 'failed')) {
-            actions += '<button class="btn btn-sm btn-icon btn-danger rec-del-btn" data-id="' + esc(r.id) + '" title="Delete">' + icons.trash + '</button>';
-          }
-          if (isAdmin && r.status === 'scheduled') {
-            actions += '<button class="btn btn-sm btn-icon btn-danger rec-cancel-btn" data-id="' + esc(r.id) + '" title="Cancel">' + icons.trash + '</button>';
-          }
-
-          html += '<tr>' +
-            '<td>' + esc(r.title || r.stream_name || r.stream_id) + '</td>' +
-            '<td>' + esc(r.channel_name || '-') + '</td>' +
-            '<td>' + statusBadge + '</td>' +
-            '<td style="font-size:12px">' + esc(dateStr) + '</td>' +
-            '<td>' + durStr + '</td>' +
-            '<td>' + esc(sizeStr) + '</td>' +
-            '<td><div class="actions-cell">' + actions + '</div></td>' +
-            '</tr>';
-        }
-        html += '</tbody></table>';
-        container.innerHTML = html;
-
-        container.querySelectorAll('.rec-play-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            playRecording(this.getAttribute('data-id'), this.getAttribute('data-title'));
+        el.querySelectorAll('.rec-play-btn').forEach(function(btn) { btn.addEventListener('click', function() { playRecording(this.getAttribute('data-id'), this.getAttribute('data-title')); }); });
+        el.querySelectorAll('.rec-stop-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var streamID = this.getAttribute('data-id');
+            if (!confirm('Stop this recording?')) return;
+            try { var sr = await api.del('/api/play/' + encodeURIComponent(streamID) + '/record'); if (sr.ok || sr.status === 204) { toast('Recording stopped'); loadRecordings(); } else { toast('Failed to stop recording', 'error'); } } catch (e) { toast('Failed to stop recording', 'error'); }
           });
         });
-
-        container.querySelectorAll('.rec-del-btn').forEach(function(btn) {
+        el.querySelectorAll('.rec-del-btn').forEach(function(btn) {
           btn.addEventListener('click', async function() {
             var recID = this.getAttribute('data-id');
             if (!confirm('Delete this recording? The file will be removed from disk.')) return;
             var delResp = await api.del('/api/recordings/completed/' + recID).catch(function() {});
-            if (delResp && (delResp.status === 204 || delResp.ok)) {
-              toast('Recording deleted');
-              loadRecordings();
-            } else {
-              toast('Failed to delete recording', 'error');
-            }
+            if (delResp && (delResp.status === 204 || delResp.ok)) { toast('Recording deleted'); loadRecordings(); } else { toast('Failed to delete recording', 'error'); }
           });
         });
-
-        container.querySelectorAll('.rec-cancel-btn').forEach(function(btn) {
+        el.querySelectorAll('.rec-cancel-btn').forEach(function(btn) {
           btn.addEventListener('click', async function() {
             var recID = this.getAttribute('data-id');
             if (!confirm('Cancel this scheduled recording?')) return;
             var delResp = await api.del('/api/recordings/schedule/' + recID).catch(function() {});
-            if (delResp && (delResp.status === 204 || delResp.ok)) {
-              toast('Recording cancelled');
-              loadRecordings();
-            } else {
-              toast('Failed to cancel recording', 'error');
-            }
+            if (delResp && (delResp.status === 204 || delResp.ok)) { toast('Recording cancelled'); loadRecordings(); } else { toast('Failed to cancel recording', 'error'); }
           });
         });
-
       } catch (e) {
         var container = document.getElementById('recording-list');
         if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load recordings</p></div>';
@@ -2935,18 +3086,14 @@
 
     if (recordingRefreshTimer) clearInterval(recordingRefreshTimer);
     recordingRefreshTimer = setInterval(function() {
-      if (router.current !== 'recordings') {
-        clearInterval(recordingRefreshTimer);
-        recordingRefreshTimer = null;
-        return;
-      }
-      var liveDurs = document.querySelectorAll('.rec-duration-live');
-      liveDurs.forEach(function(span) {
+      if (router.current !== 'recordings') { clearInterval(recordingRefreshTimer); recordingRefreshTimer = null; return; }
+      document.querySelectorAll('.rec-duration-live').forEach(function(span) {
         var started = span.getAttribute('data-started');
-        if (started) {
-          var elapsed = (Date.now() - new Date(started).getTime()) / 1000;
-          span.textContent = formatDurationSec(elapsed);
-        }
+        if (started) span.textContent = formatDurationSec((Date.now() - new Date(started).getTime()) / 1000);
+      });
+      document.querySelectorAll('.rec-countdown').forEach(function(span) {
+        var startAt = span.getAttribute('data-start');
+        if (startAt) { var remaining = (new Date(startAt).getTime() - Date.now()) / 1000; span.textContent = remaining > 0 ? 'in ' + formatDurationSec(remaining) : 'starting...'; if (remaining <= 0) span.style.color = 'var(--warning)'; }
       });
     }, 1000);
   }
@@ -3046,9 +3193,11 @@
   async function renderSourceProfiles(el) {
     el.innerHTML = '<h1 class="page-title">Source Profiles</h1>' +
       '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-srcprofile-btn">' + icons.plus + ' Add Source Profile</button></div>' +
-      '<div id="srcprofile-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="srcprofile-form" style="display:none" class="card">' +
-      '<div class="card-title" id="srcprofile-form-title">New Source Profile</div>' +
+      '<div id="srcprofile-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    var editingId = null;
+
+    var spFormBody =
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="sp-name" placeholder="SAT>IP DVB-T2"></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="sp-deinterlace"> Deinterlace</label>' +
       '<div class="field-hint">Apply deinterlace filter for interlaced content (576i/1080i)</div></div>' +
@@ -3062,70 +3211,52 @@
       '<div class="field-hint">10s for local HDHR, 30s for remote IPTV.</div></div>' +
       '<div class="form-group"><label class="form-label">User Agent Override</label><input class="form-input" id="sp-user-agent" placeholder="Empty = use global default"></div>' +
       '<div class="form-group"><label class="form-label">Encoder Bitrate Override (kbps)</label><input class="form-input" id="sp-bitrate" type="number" value="0" min="0" placeholder="0 (auto by resolution)">' +
-      '<div class="field-hint">0 = auto-scale by resolution. Override for bandwidth-limited connections.</div></div>' +
-      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="save-srcprofile-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-srcprofile-btn">Cancel</button></div></div>';
+      '<div class="field-hint">0 = auto-scale by resolution. Override for bandwidth-limited connections.</div></div>';
 
-    var editingId = null;
-
-    document.getElementById('sp-deinterlace').addEventListener('change', function() {
-      document.getElementById('sp-deinterlace-method-group').style.display = this.checked ? 'block' : 'none';
-    });
+    function openSPModal(title, saveLabel) {
+      var modal = showFormModal(title, spFormBody, { id: 'srcprofile-modal', saveLabel: saveLabel });
+      modal.querySelector('.modal-save-btn').addEventListener('click', async function() {
+        var name = document.getElementById('sp-name').value.trim();
+        if (!name) { toast('Name required', 'error'); return; }
+        var payload = {
+          name: name,
+          deinterlace: document.getElementById('sp-deinterlace').checked,
+          deinterlace_method: document.getElementById('sp-deinterlace-method').value,
+          rtsp_protocols: document.getElementById('sp-rtsp-proto').value,
+          rtsp_latency: parseInt(document.getElementById('sp-rtsp-latency').value) || 0,
+          http_timeout_sec: parseInt(document.getElementById('sp-http-timeout').value) || 30,
+          http_user_agent: document.getElementById('sp-user-agent').value.trim(),
+          encoder_bitrate_kbps: parseInt(document.getElementById('sp-bitrate').value) || 0
+        };
+        try {
+          var r;
+          if (editingId) {
+            r = await api.put('/api/source-profiles/' + editingId, payload);
+          } else {
+            r = await api.post('/api/source-profiles', payload);
+          }
+          if (r.ok) {
+            toast(editingId ? 'Profile updated' : 'Profile created');
+            modal.remove();
+            editingId = null;
+            renderSourceProfiles(el);
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to save profile', 'error');
+          }
+        } catch (err) {
+          toast('Failed to save profile', 'error');
+        }
+      });
+      document.getElementById('sp-deinterlace').addEventListener('change', function() {
+        document.getElementById('sp-deinterlace-method-group').style.display = this.checked ? 'block' : 'none';
+      });
+      return modal;
+    }
 
     document.getElementById('add-srcprofile-btn').addEventListener('click', function() {
-      var f = document.getElementById('srcprofile-form');
       editingId = null;
-      document.getElementById('srcprofile-form-title').textContent = 'New Source Profile';
-      document.getElementById('save-srcprofile-btn').textContent = 'Create';
-      document.getElementById('sp-name').value = '';
-      document.getElementById('sp-deinterlace').checked = false;
-      document.getElementById('sp-deinterlace-method').value = 'auto';
-      document.getElementById('sp-deinterlace-method-group').style.display = 'none';
-      document.getElementById('sp-rtsp-proto').value = 'tcp';
-      document.getElementById('sp-rtsp-latency').value = '0';
-      document.getElementById('sp-http-timeout').value = '30';
-      document.getElementById('sp-user-agent').value = '';
-      document.getElementById('sp-bitrate').value = '0';
-      f.style.display = f.style.display === 'none' ? 'block' : 'none';
-    });
-
-    document.getElementById('cancel-srcprofile-btn').addEventListener('click', function() {
-      document.getElementById('srcprofile-form').style.display = 'none';
-      editingId = null;
-    });
-
-    document.getElementById('save-srcprofile-btn').addEventListener('click', async function() {
-      var name = document.getElementById('sp-name').value.trim();
-      if (!name) { toast('Name required', 'error'); return; }
-      var payload = {
-        name: name,
-        deinterlace: document.getElementById('sp-deinterlace').checked,
-        deinterlace_method: document.getElementById('sp-deinterlace-method').value,
-        rtsp_protocols: document.getElementById('sp-rtsp-proto').value,
-        rtsp_latency: parseInt(document.getElementById('sp-rtsp-latency').value) || 0,
-        http_timeout_sec: parseInt(document.getElementById('sp-http-timeout').value) || 30,
-        http_user_agent: document.getElementById('sp-user-agent').value.trim(),
-        encoder_bitrate_kbps: parseInt(document.getElementById('sp-bitrate').value) || 0
-      };
-      try {
-        var r;
-        if (editingId) {
-          r = await api.put('/api/source-profiles/' + editingId, payload);
-        } else {
-          r = await api.post('/api/source-profiles', payload);
-        }
-        if (r.ok) {
-          toast(editingId ? 'Profile updated' : 'Profile created');
-          document.getElementById('srcprofile-form').style.display = 'none';
-          editingId = null;
-          renderSourceProfiles(el);
-        } else {
-          var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to save profile', 'error');
-        }
-      } catch (err) {
-        toast('Failed to save profile', 'error');
-      }
+      openSPModal('New Source Profile', 'Create');
     });
 
     try {
@@ -3146,13 +3277,13 @@
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
         html += '<tr>' +
-          '<td>' + esc(p.name) + '</td>' +
+          '<td>' + esc(p.name) + (p.is_system ? ' <span class="badge badge-info">System</span>' : '') + '</td>' +
           '<td>' + (p.deinterlace ? '<span class="badge badge-enabled">Yes</span>' : '') + '</td>' +
           '<td>' + esc(p.rtsp_protocols || 'tcp') + '</td>' +
           '<td>' + (p.http_timeout_sec ? p.http_timeout_sec + 's' : '30s') + '</td>' +
           '<td><div class="actions-cell">' +
           '<button class="btn btn-sm btn-ghost sp-edit-btn" data-id="' + esc(p.id) + '" data-profile=\'' + esc(JSON.stringify(p)) + '\'>' + icons.edit + '</button>' +
-          '<button class="btn btn-sm btn-icon btn-danger sp-del-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + icons.trash + '</button>' +
+          (p.is_system ? '' : '<button class="btn btn-sm btn-icon btn-danger sp-del-btn" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + icons.trash + '</button>') +
           '</div></td></tr>';
       }
       html += '</tbody></table>';
@@ -3162,8 +3293,7 @@
         btn.addEventListener('click', function() {
           var p = JSON.parse(this.getAttribute('data-profile'));
           editingId = this.getAttribute('data-id');
-          document.getElementById('srcprofile-form-title').textContent = 'Edit Source Profile';
-          document.getElementById('save-srcprofile-btn').textContent = 'Update';
+          openSPModal('Edit Source Profile', 'Update');
           document.getElementById('sp-name').value = p.name || '';
           document.getElementById('sp-deinterlace').checked = !!p.deinterlace;
           document.getElementById('sp-deinterlace-method').value = p.deinterlace_method || 'auto';
@@ -3173,7 +3303,6 @@
           document.getElementById('sp-http-timeout').value = p.http_timeout_sec || '30';
           document.getElementById('sp-user-agent').value = p.http_user_agent || '';
           document.getElementById('sp-bitrate').value = p.encoder_bitrate_kbps || '0';
-          document.getElementById('srcprofile-form').style.display = 'block';
         });
       });
 
@@ -3269,9 +3398,35 @@
     var editingSourceType = null;
 
     function hideAllForms() {
-      allForms.forEach(function(id) { var f = document.getElementById(id); if (f) f.style.display = 'none'; });
+      allForms.forEach(function(id) {
+        var f = document.getElementById(id);
+        if (f) {
+          f.style.display = 'none';
+          f.classList.remove('source-modal-form');
+        }
+      });
+      var overlay = document.getElementById('source-form-overlay');
+      if (overlay) overlay.remove();
       editingSourceId = null;
       editingSourceType = null;
+    }
+
+    function showSourceFormAsModal(formId) {
+      var existingOverlay = document.getElementById('source-form-overlay');
+      if (existingOverlay) existingOverlay.remove();
+      allForms.forEach(function(id) {
+        var f = document.getElementById(id);
+        if (f) { f.style.display = 'none'; f.classList.remove('source-modal-form'); }
+      });
+      var f = document.getElementById(formId);
+      if (!f) return;
+      var overlay = document.createElement('div');
+      overlay.id = 'source-form-overlay';
+      overlay.className = 'modal-overlay';
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) hideAllForms(); });
+      document.body.appendChild(overlay);
+      f.style.display = 'block';
+      f.classList.add('source-modal-form');
     }
 
     var sourceProfileSelectIds = ['src-profile', 'tvp-profile', 'xt-profile', 'hdhr-profile', 'satip-profile'];
@@ -3330,65 +3485,40 @@
     }
 
     document.getElementById('add-m3u-btn').addEventListener('click', function() {
-      var f = document.getElementById('add-m3u-form');
-      var wasHidden = f.style.display === 'none';
-      hideAllForms();
       resetFormFields('add-m3u-form');
       setFormTitle('add-m3u-form', 'New M3U Source');
       setSubmitBtnText('create-m3u-btn', 'Create');
-      if (wasHidden) f.style.display = 'block';
+      showSourceFormAsModal('add-m3u-form');
     });
-    document.getElementById('cancel-m3u-btn').addEventListener('click', function() {
-      document.getElementById('add-m3u-form').style.display = 'none';
-    });
+    document.getElementById('cancel-m3u-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-tvp-btn').addEventListener('click', function() {
-      var f = document.getElementById('add-tvp-form');
-      var wasHidden = f.style.display === 'none';
-      hideAllForms();
       resetFormFields('add-tvp-form');
       setFormTitle('add-tvp-form', 'New TVP Streams Source');
       setSubmitBtnText('create-tvp-btn', 'Create');
-      if (wasHidden) f.style.display = 'block';
+      showSourceFormAsModal('add-tvp-form');
     });
-    document.getElementById('cancel-tvp-btn').addEventListener('click', function() {
-      document.getElementById('add-tvp-form').style.display = 'none';
-    });
+    document.getElementById('cancel-tvp-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-xtream-btn').addEventListener('click', function() {
-      var f = document.getElementById('add-xtream-form');
-      var wasHidden = f.style.display === 'none';
-      hideAllForms();
       resetFormFields('add-xtream-form');
       setFormTitle('add-xtream-form', 'New Xtream Codes Source');
       setSubmitBtnText('create-xtream-btn', 'Create');
-      if (wasHidden) f.style.display = 'block';
+      showSourceFormAsModal('add-xtream-form');
     });
-    document.getElementById('cancel-xtream-btn').addEventListener('click', function() {
-      document.getElementById('add-xtream-form').style.display = 'none';
-    });
+    document.getElementById('cancel-xtream-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-hdhr-btn').addEventListener('click', function() {
-      var f = document.getElementById('add-hdhr-form');
-      var wasHidden = f.style.display === 'none';
-      hideAllForms();
       resetFormFields('add-hdhr-form');
       setFormTitle('add-hdhr-form', 'New HDHomeRun Source');
       setSubmitBtnText('create-hdhr-btn', 'Create');
-      if (wasHidden) f.style.display = 'block';
+      showSourceFormAsModal('add-hdhr-form');
     });
-    document.getElementById('cancel-hdhr-btn').addEventListener('click', function() {
-      document.getElementById('add-hdhr-form').style.display = 'none';
-    });
+    document.getElementById('cancel-hdhr-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-satip-btn').addEventListener('click', function() {
-      var f = document.getElementById('add-satip-form');
-      var wasHidden = f.style.display === 'none';
-      hideAllForms();
       resetFormFields('add-satip-form');
       setFormTitle('add-satip-form', 'New SAT>IP Source');
       setSubmitBtnText('create-satip-btn', 'Create');
-      if (wasHidden) f.style.display = 'block';
+      showSourceFormAsModal('add-satip-form');
     });
-    document.getElementById('cancel-satip-btn').addEventListener('click', function() {
-      document.getElementById('add-satip-form').style.display = 'none';
-    });
+    document.getElementById('cancel-satip-btn').addEventListener('click', function() { hideAllForms(); });
 
     async function loadSystems(selectedSystem) {
       var sel = document.getElementById('satip-system');
@@ -3453,7 +3583,7 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'HDHomeRun source created');
-          document.getElementById('add-hdhr-form').style.display = 'none';
+          hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
           renderSources(el);
@@ -3489,7 +3619,7 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'SAT>IP source created');
-          document.getElementById('add-satip-form').style.display = 'none';
+          hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
           renderSources(el);
@@ -3604,7 +3734,7 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'Source created, refreshing...');
-          document.getElementById('add-m3u-form').style.display = 'none';
+          hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
           renderSources(el);
@@ -3634,7 +3764,7 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'TVP Streams source created' + (token ? ', enrolling...' : ', refreshing...'));
-          document.getElementById('add-tvp-form').style.display = 'none';
+          hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
           renderSources(el);
@@ -3669,9 +3799,7 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'Xtream source created, refreshing...');
-          document.getElementById('add-xtream-form').style.display = 'none';
-          editingSourceId = null;
-          editingSourceType = null;
+          hideAllForms();
           renderSources(el);
         } else {
           var data = await r.json().catch(function() { return {}; });
@@ -3997,6 +4125,9 @@
           editingSourceType = type;
 
           if (type === 'm3u') {
+            setFormTitle('add-m3u-form', 'Edit M3U Source');
+            setSubmitBtnText('create-m3u-btn', 'Update');
+            showSourceFormAsModal('add-m3u-form');
             document.getElementById('src-name').value = name || '';
             document.getElementById('src-url').value = config.url || '';
             document.getElementById('src-username').value = config.username || '';
@@ -4004,19 +4135,19 @@
             document.getElementById('src-wireguard').checked = config.use_wireguard === 'true';
             document.getElementById('src-profile').value = config.source_profile_id || '';
             document.getElementById('src-refresh').value = config.refresh_interval || 'none';
-            setFormTitle('add-m3u-form', 'Edit M3U Source');
-            setSubmitBtnText('create-m3u-btn', 'Update');
-            document.getElementById('add-m3u-form').style.display = 'block';
           } else if (type === 'tvpstreams') {
+            setFormTitle('add-tvp-form', 'Edit TVP Streams Source');
+            setSubmitBtnText('create-tvp-btn', 'Update');
+            showSourceFormAsModal('add-tvp-form');
             document.getElementById('tvp-name').value = name || '';
             document.getElementById('tvp-url').value = config.url || '';
             document.getElementById('tvp-token').value = '';
             document.getElementById('tvp-wireguard').checked = config.use_wireguard === 'true';
             document.getElementById('tvp-profile').value = config.source_profile_id || '';
-            setFormTitle('add-tvp-form', 'Edit TVP Streams Source');
-            setSubmitBtnText('create-tvp-btn', 'Update');
-            document.getElementById('add-tvp-form').style.display = 'block';
           } else if (type === 'xtream') {
+            setFormTitle('add-xtream-form', 'Edit Xtream Codes Source');
+            setSubmitBtnText('create-xtream-btn', 'Update');
+            showSourceFormAsModal('add-xtream-form');
             document.getElementById('xt-name').value = name || '';
             document.getElementById('xt-server').value = config.server || '';
             document.getElementById('xt-username').value = config.username || '';
@@ -4025,17 +4156,17 @@
             document.getElementById('xt-wireguard').checked = config.use_wireguard === 'true';
             document.getElementById('xt-profile').value = config.source_profile_id || '';
             document.getElementById('xt-refresh').value = config.refresh_interval || 'none';
-            setFormTitle('add-xtream-form', 'Edit Xtream Codes Source');
-            setSubmitBtnText('create-xtream-btn', 'Update');
-            document.getElementById('add-xtream-form').style.display = 'block';
           } else if (type === 'hdhr') {
+            setFormTitle('add-hdhr-form', 'Edit HDHomeRun Source');
+            setSubmitBtnText('create-hdhr-btn', 'Update');
+            showSourceFormAsModal('add-hdhr-form');
             document.getElementById('hdhr-name').value = name || '';
             document.getElementById('hdhr-enabled').checked = entry.is_enabled;
             document.getElementById('hdhr-profile').value = config.source_profile_id || '';
-            setFormTitle('add-hdhr-form', 'Edit HDHomeRun Source');
-            setSubmitBtnText('create-hdhr-btn', 'Update');
-            document.getElementById('add-hdhr-form').style.display = 'block';
           } else if (type === 'satip') {
+            setFormTitle('add-satip-form', 'Edit SAT>IP Source');
+            setSubmitBtnText('create-satip-btn', 'Update');
+            showSourceFormAsModal('add-satip-form');
             document.getElementById('satip-name').value = name || '';
             document.getElementById('satip-host').value = config.host || '';
             document.getElementById('satip-port').value = config.http_port || '8875';
@@ -4049,9 +4180,6 @@
             document.getElementById('satip-maxstreams').value = config.max_streams || '0';
             document.getElementById('satip-profile').value = config.source_profile_id || '';
             document.getElementById('satip-enabled').checked = entry.is_enabled;
-            setFormTitle('add-satip-form', 'Edit SAT>IP Source');
-            setSubmitBtnText('create-satip-btn', 'Update');
-            document.getElementById('add-satip-form').style.display = 'block';
           }
         });
       });
@@ -4673,44 +4801,44 @@
   async function renderUsers(el) {
     var currentUser = api.user;
     el.innerHTML = '<h1 class="page-title">Users</h1>' +
-      '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-user-btn">' + icons.plus + ' Add User</button></div>' +
+      '<div style="margin-bottom:16px;display:flex;gap:8px">' +
+      '<button class="btn btn-primary" id="add-user-btn">' + icons.plus + ' Add User</button>' +
+      '<button class="btn btn-ghost" id="invite-user-btn">' + icons.invite + ' Invite User</button>' +
+      '</div>' +
       '<div id="user-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="add-user-form" style="display:none" class="card">' +
-      '<div class="card-title">New User</div>' +
+      '<div id="invite-section"></div>';
+
+    var userFormBody =
       '<div class="form-group"><label class="form-label">Username</label><input class="form-input" id="new-username" placeholder="username"></div>' +
       '<div class="form-group"><label class="form-label">Password</label><input class="form-input" id="new-password" type="password" placeholder="password"></div>' +
       '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="new-email" type="email" placeholder="user@example.com (optional, for Google SSO)"></div>' +
       '<div class="form-group"><label class="form-label">Role</label>' +
-      '<select class="form-input" id="new-role"><option value="standard">Standard</option><option value="admin">Admin</option><option value="jellyfin">Jellyfin</option></select></div>' +
-      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-user-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-user-btn">Cancel</button></div></div>';
+      '<select class="form-input" id="new-role"><option value="standard">Standard</option><option value="admin">Admin</option><option value="jellyfin">Jellyfin</option></select></div>';
 
-    var addBtn = document.getElementById('add-user-btn');
-    var formEl = document.getElementById('add-user-form');
-    addBtn.addEventListener('click', function() { formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none'; });
-    document.getElementById('cancel-user-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
-
-    document.getElementById('create-user-btn').addEventListener('click', async function() {
-      var un = document.getElementById('new-username').value.trim();
-      var pw = document.getElementById('new-password').value;
-      var em = document.getElementById('new-email').value.trim();
-      var role = document.getElementById('new-role').value;
-      if (!un || !pw) { toast('Username and password required', 'error'); return; }
-      var createBody = { username: un, password: pw, role: role };
-      if (em) createBody.email = em;
-      try {
-        var r = await api.post('/api/users', createBody);
-        if (r.ok) {
-          toast('User created');
-          formEl.style.display = 'none';
-          renderUsers(el);
-        } else {
-          var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to create user', 'error');
+    document.getElementById('add-user-btn').addEventListener('click', function() {
+      var modal = showFormModal('New User', userFormBody, { id: 'user-modal', saveLabel: 'Create' });
+      modal.querySelector('.modal-save-btn').addEventListener('click', async function() {
+        var un = document.getElementById('new-username').value.trim();
+        var pw = document.getElementById('new-password').value;
+        var em = document.getElementById('new-email').value.trim();
+        var role = document.getElementById('new-role').value;
+        if (!un || !pw) { toast('Username and password required', 'error'); return; }
+        var createBody = { username: un, password: pw, role: role };
+        if (em) createBody.email = em;
+        try {
+          var r = await api.post('/api/users', createBody);
+          if (r.ok) {
+            toast('User created');
+            modal.remove();
+            renderUsers(el);
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to create user', 'error');
+          }
+        } catch (err) {
+          toast('Failed to create user', 'error');
         }
-      } catch (err) {
-        toast('Failed to create user', 'error');
-      }
+      });
     });
 
     try {
@@ -4945,77 +5073,193 @@
     } catch (e) {
       document.getElementById('user-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load users</p></div>';
     }
+
+    document.getElementById('invite-user-btn').addEventListener('click', function() {
+      showInviteModal(function() { loadInviteSection(); });
+    });
+
+    function showInviteModal(onSuccess) {
+      var existing = document.getElementById('invite-modal');
+      if (existing) existing.remove();
+      var html = '<div class="modal-overlay" id="invite-modal">' +
+        '<div class="modal-content" style="max-width:420px">' +
+        '<div class="modal-header">Create Invite</div>' +
+        '<div class="modal-body">' +
+        '<div class="form-group"><label class="form-label">Role</label>' +
+        '<select class="form-input" id="invite-role">' +
+        '<option value="standard">Standard</option>' +
+        '<option value="admin">Admin</option>' +
+        '<option value="jellyfin">Jellyfin</option>' +
+        '</select></div>' +
+        '<div class="form-group"><label class="form-label">Expires In</label>' +
+        '<input class="form-input" id="invite-expires" value="24h" placeholder="e.g. 24h, 7d, 1h"></div>' +
+        '<div id="invite-result" style="display:none"></div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button class="btn btn-ghost" id="invite-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="invite-create">Create</button>' +
+        '</div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      document.getElementById('invite-cancel').addEventListener('click', function() {
+        document.getElementById('invite-modal').remove();
+      });
+      document.getElementById('invite-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.remove();
+      });
+      document.getElementById('invite-create').addEventListener('click', async function() {
+        var role = document.getElementById('invite-role').value;
+        var expiresIn = document.getElementById('invite-expires').value.trim() || '24h';
+        try {
+          var r = await api.post('/api/invites', { role: role, expires_in: expiresIn });
+          if (r.ok) {
+            var data = await r.json();
+            var resultEl = document.getElementById('invite-result');
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = '<div class="form-group" style="margin-top:12px">' +
+              '<label class="form-label">Invite Token (copy now)</label>' +
+              '<div style="display:flex;gap:8px">' +
+              '<input class="form-input" id="invite-token-display" value="' + esc(data.token || '') + '" readonly style="font-family:monospace;font-size:12px">' +
+              '<button class="btn btn-ghost" id="invite-copy-btn" title="Copy">' + icons.copy + '</button>' +
+              '</div></div>';
+            document.getElementById('invite-copy-btn').addEventListener('click', function() {
+              var inp = document.getElementById('invite-token-display');
+              if (inp) {
+                inp.select();
+                try { navigator.clipboard.writeText(inp.value); toast('Copied to clipboard'); } catch (e) { toast('Select and copy manually', 'error'); }
+              }
+            });
+            document.getElementById('invite-create').style.display = 'none';
+            document.getElementById('invite-cancel').textContent = 'Close';
+            document.getElementById('invite-cancel').addEventListener('click', function() {
+              document.getElementById('invite-modal').remove();
+              if (onSuccess) onSuccess();
+            });
+          } else {
+            var err = await r.json().catch(function() { return {}; });
+            toast(err.error || 'Failed to create invite', 'error');
+          }
+        } catch (e) {
+          toast('Failed to create invite', 'error');
+        }
+      });
+    }
+
+    async function loadInviteSection() {
+      var section = document.getElementById('invite-section');
+      if (!section) return;
+      try {
+        var resp = await api.get('/api/invites');
+        var invites = await resp.json();
+        if (!Array.isArray(invites) || invites.length === 0) {
+          section.innerHTML = '';
+          return;
+        }
+        var html = '<div style="margin-top:32px"><h2 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--text)">Pending Invites</h2>' +
+          '<table class="list-table"><thead><tr>' +
+          '<th>Token</th><th>Role</th><th>Created</th><th>Expires</th><th>Used</th><th></th>' +
+          '</tr></thead><tbody>';
+        for (var i = 0; i < invites.length; i++) {
+          var inv = invites[i];
+          var token = inv.token || '';
+          var truncated = token.length > 16 ? token.substring(0, 16) + '...' : token;
+          var created = inv.created_at ? new Date(inv.created_at).toLocaleString() : '-';
+          var expires = inv.expires_at ? new Date(inv.expires_at).toLocaleString() : '-';
+          var used = inv.used || inv.is_used;
+          html += '<tr>' +
+            '<td><span style="font-family:monospace;font-size:12px">' + esc(truncated) + '</span></td>' +
+            '<td><span class="badge badge-' + esc(inv.role || 'standard') + '">' + esc(inv.role || 'standard') + '</span></td>' +
+            '<td>' + esc(created) + '</td>' +
+            '<td>' + esc(expires) + '</td>' +
+            '<td>' + (used ? '<span class="badge badge-admin">Yes</span>' : '<span class="badge">No</span>') + '</td>' +
+            '<td><div class="actions-cell">' +
+            (!used ? '<button class="btn btn-sm btn-icon btn-danger invite-del-btn" data-token="' + esc(token) + '" title="Delete">' + icons.trash + '</button>' : '') +
+            '</div></td></tr>';
+        }
+        html += '</tbody></table></div>';
+        section.innerHTML = html;
+        section.querySelectorAll('.invite-del-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var token = this.getAttribute('data-token');
+            if (!confirm('Delete this invite?')) return;
+            try {
+              var r = await api.del('/api/invites/' + token);
+              if (r.ok || r.status === 204) {
+                toast('Invite deleted');
+                loadInviteSection();
+              } else {
+                toast('Failed to delete invite', 'error');
+              }
+            } catch (e) {
+              toast('Failed to delete invite', 'error');
+            }
+          });
+        });
+      } catch (e) {
+        section.innerHTML = '';
+      }
+    }
+
+    loadInviteSection();
   }
 
   async function renderWireGuard(el) {
     el.innerHTML = '<h1 class="page-title">WireGuard</h1>' +
       '<div id="wg-status-bar" style="margin-bottom:16px"><div class="skeleton" style="height:48px"></div></div>' +
       '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-wg-btn">' + icons.plus + ' Add Profile</button></div>' +
-      '<div id="wg-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="wg-form" style="display:none" class="card">' +
-      '<div class="card-title" id="wg-form-title">New WireGuard Profile</div>' +
+      '<div id="wg-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    var wgEditId = null;
+    var wgFormBody =
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="wg-name" placeholder="My VPN"></div>' +
       '<div class="form-group"><label class="form-label">Private Key</label><input class="form-input" id="wg-privkey" placeholder="base64 private key"></div>' +
       '<div class="form-group"><label class="form-label">Endpoint</label><input class="form-input" id="wg-endpoint" placeholder="vpn.example.com:51820"></div>' +
       '<div class="form-group"><label class="form-label">Peer Public Key</label><input class="form-input" id="wg-pubkey" placeholder="base64 public key"></div>' +
       '<div class="form-group"><label class="form-label">Address</label><input class="form-input" id="wg-address" placeholder="10.0.0.2/24"></div>' +
       '<div class="form-group"><label class="form-label">Allowed IPs</label><input class="form-input" id="wg-allowedips" value="0.0.0.0/0" placeholder="0.0.0.0/0"></div>' +
-      '<div class="form-group"><label class="form-label">DNS (optional)</label><input class="form-input" id="wg-dns" placeholder="1.1.1.1"></div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn btn-primary" id="save-wg-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-wg-btn">Cancel</button></div></div>';
+      '<div class="form-group"><label class="form-label">DNS (optional)</label><input class="form-input" id="wg-dns" placeholder="1.1.1.1"></div>';
 
-    var wgEditId = null;
-    var addBtn = document.getElementById('add-wg-btn');
-    var formEl = document.getElementById('wg-form');
-    addBtn.addEventListener('click', function() {
-      wgEditId = null;
-      document.getElementById('wg-form-title').textContent = 'New WireGuard Profile';
-      document.getElementById('save-wg-btn').textContent = 'Create';
-      document.getElementById('wg-name').value = '';
-      document.getElementById('wg-privkey').value = '';
-      document.getElementById('wg-endpoint').value = '';
-      document.getElementById('wg-pubkey').value = '';
-      document.getElementById('wg-address').value = '';
-      document.getElementById('wg-allowedips').value = '0.0.0.0/0';
-      document.getElementById('wg-dns').value = '';
-      formEl.style.display = 'block';
-    });
-    document.getElementById('cancel-wg-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
-
-    document.getElementById('save-wg-btn').addEventListener('click', async function() {
-      var payload = {
-        name: document.getElementById('wg-name').value.trim(),
-        private_key: document.getElementById('wg-privkey').value.trim(),
-        endpoint: document.getElementById('wg-endpoint').value.trim(),
-        public_key: document.getElementById('wg-pubkey').value.trim(),
-        address: document.getElementById('wg-address').value.trim(),
-        allowed_ips: document.getElementById('wg-allowedips').value.trim(),
-        dns: document.getElementById('wg-dns').value.trim()
-      };
-      if (!payload.name) { toast('Name required', 'error'); return; }
-      try {
-        var r;
-        if (wgEditId) {
-          r = await api.put('/api/wireguard/profiles/' + wgEditId, payload);
-        } else {
-          if (!payload.private_key || !payload.endpoint || !payload.public_key || !payload.address) {
-            toast('All fields except DNS are required', 'error');
-            return;
+    function openWGModal(title, saveLabel) {
+      var modal = showFormModal(title, wgFormBody, { id: 'wg-modal', saveLabel: saveLabel });
+      modal.querySelector('.modal-save-btn').addEventListener('click', async function() {
+        var payload = {
+          name: document.getElementById('wg-name').value.trim(),
+          private_key: document.getElementById('wg-privkey').value.trim(),
+          endpoint: document.getElementById('wg-endpoint').value.trim(),
+          public_key: document.getElementById('wg-pubkey').value.trim(),
+          address: document.getElementById('wg-address').value.trim(),
+          allowed_ips: document.getElementById('wg-allowedips').value.trim(),
+          dns: document.getElementById('wg-dns').value.trim()
+        };
+        if (!payload.name) { toast('Name required', 'error'); return; }
+        try {
+          var r;
+          if (wgEditId) {
+            r = await api.put('/api/wireguard/profiles/' + wgEditId, payload);
+          } else {
+            if (!payload.private_key || !payload.endpoint || !payload.public_key || !payload.address) {
+              toast('All fields except DNS are required', 'error');
+              return;
+            }
+            r = await api.post('/api/wireguard/profiles', payload);
           }
-          r = await api.post('/api/wireguard/profiles', payload);
+          if (r.ok) {
+            toast(wgEditId ? 'Profile updated' : 'Profile created');
+            modal.remove();
+            renderWireGuard(el);
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to save profile', 'error');
+          }
+        } catch (err) {
+          toast('Failed to save profile', 'error');
         }
-        if (r.ok) {
-          toast(wgEditId ? 'Profile updated' : 'Profile created');
-          formEl.style.display = 'none';
-          renderWireGuard(el);
-        } else {
-          var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to save profile', 'error');
-        }
-      } catch (err) {
-        toast('Failed to save profile', 'error');
-      }
+      });
+      return modal;
+    }
+
+    document.getElementById('add-wg-btn').addEventListener('click', function() {
+      wgEditId = null;
+      openWGModal('New WireGuard Profile', 'Create');
     });
 
     try {
@@ -5176,8 +5420,7 @@
       container.querySelectorAll('.wg-edit-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           wgEditId = this.getAttribute('data-id');
-          document.getElementById('wg-form-title').textContent = 'Edit WireGuard Profile';
-          document.getElementById('save-wg-btn').textContent = 'Update';
+          openWGModal('Edit WireGuard Profile', 'Update');
           document.getElementById('wg-name').value = this.getAttribute('data-name') || '';
           document.getElementById('wg-privkey').value = '';
           document.getElementById('wg-endpoint').value = this.getAttribute('data-endpoint') || '';
@@ -5185,7 +5428,6 @@
           document.getElementById('wg-address').value = this.getAttribute('data-address') || '';
           document.getElementById('wg-allowedips').value = this.getAttribute('data-allowedips') || '0.0.0.0/0';
           document.getElementById('wg-dns').value = this.getAttribute('data-dns') || '';
-          formEl.style.display = 'block';
         });
       });
 
@@ -5216,56 +5458,48 @@
   async function renderEPGSources(el) {
     el.innerHTML = '<h1 class="page-title">EPG Sources</h1>' +
       '<div style="margin-bottom:16px"><button class="btn btn-primary" id="add-epg-btn">' + icons.plus + ' Add EPG Source</button></div>' +
-      '<div id="epg-list"><div class="skeleton" style="height:200px"></div></div>' +
-      '<div id="epg-form" style="display:none" class="card">' +
-      '<div class="card-title" id="epg-form-title">New EPG Source</div>' +
+      '<div id="epg-list"><div class="skeleton" style="height:200px"></div></div>';
+
+    var epgEditId = null;
+    var epgFormBody =
       '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="epg-name" placeholder="UK XMLTV"></div>' +
       '<div class="form-group"><label class="form-label">XMLTV URL</label><input class="form-input" id="epg-url" placeholder="http://example.com/guide.xml"></div>' +
       '<div class="form-group"><label class="form-label">Auto Refresh</label><select class="form-input" id="epg-refresh"><option value="none">None (manual only)</option><option value="hourly">Hourly</option><option value="daily" selected>Daily</option><option value="weekly">Weekly</option></select></div>' +
-      '<div class="form-group"><label class="form-label"><input type="checkbox" id="epg-wireguard"> Route through WireGuard</label></div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn btn-primary" id="save-epg-btn">Create</button>' +
-      '<button class="btn btn-ghost" id="cancel-epg-btn">Cancel</button></div></div>';
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="epg-wireguard"> Route through WireGuard</label></div>';
 
-    var epgEditId = null;
-    var addBtn = document.getElementById('add-epg-btn');
-    var formEl = document.getElementById('epg-form');
-    addBtn.addEventListener('click', function() {
+    function openEPGModal(title, saveLabel) {
+      var modal = showFormModal(title, epgFormBody, { id: 'epg-modal', saveLabel: saveLabel });
+      modal.querySelector('.modal-save-btn').addEventListener('click', async function() {
+        var name = document.getElementById('epg-name').value.trim();
+        var url = document.getElementById('epg-url').value.trim();
+        var refreshInterval = document.getElementById('epg-refresh').value;
+        var wg = document.getElementById('epg-wireguard').checked;
+        if (!name || !url) { toast('Name and URL required', 'error'); return; }
+        try {
+          var r;
+          if (epgEditId) {
+            r = await api.put('/api/epg/sources/' + epgEditId, { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
+          } else {
+            r = await api.post('/api/epg/sources', { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
+          }
+          if (r.ok) {
+            toast(epgEditId ? 'EPG source updated' : 'EPG source created');
+            modal.remove();
+            renderEPGSources(el);
+          } else {
+            var data = await r.json().catch(function() { return {}; });
+            toast(data.error || 'Failed to save EPG source', 'error');
+          }
+        } catch (err) {
+          toast('Failed to save EPG source', 'error');
+        }
+      });
+      return modal;
+    }
+
+    document.getElementById('add-epg-btn').addEventListener('click', function() {
       epgEditId = null;
-      document.getElementById('epg-form-title').textContent = 'New EPG Source';
-      document.getElementById('save-epg-btn').textContent = 'Create';
-      document.getElementById('epg-name').value = '';
-      document.getElementById('epg-url').value = '';
-      document.getElementById('epg-refresh').value = 'daily';
-      document.getElementById('epg-wireguard').checked = false;
-      formEl.style.display = 'block';
-    });
-    document.getElementById('cancel-epg-btn').addEventListener('click', function() { formEl.style.display = 'none'; });
-
-    document.getElementById('save-epg-btn').addEventListener('click', async function() {
-      var name = document.getElementById('epg-name').value.trim();
-      var url = document.getElementById('epg-url').value.trim();
-      var refreshInterval = document.getElementById('epg-refresh').value;
-      var wg = document.getElementById('epg-wireguard').checked;
-      if (!name || !url) { toast('Name and URL required', 'error'); return; }
-      try {
-        var r;
-        if (epgEditId) {
-          r = await api.put('/api/epg/sources/' + epgEditId, { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
-        } else {
-          r = await api.post('/api/epg/sources', { name: name, url: url, refresh_interval: refreshInterval, use_wireguard: wg });
-        }
-        if (r.ok) {
-          toast(epgEditId ? 'EPG source updated' : 'EPG source created');
-          formEl.style.display = 'none';
-          renderEPGSources(el);
-        } else {
-          var data = await r.json().catch(function() { return {}; });
-          toast(data.error || 'Failed to save EPG source', 'error');
-        }
-      } catch (err) {
-        toast('Failed to save EPG source', 'error');
-      }
+      openEPGModal('New EPG Source', 'Create');
     });
 
     try {
@@ -5433,13 +5667,11 @@
           var id = this.getAttribute('data-id');
           var cfg = epgSourceConfigs[id] || {};
           epgEditId = id;
-          document.getElementById('epg-form-title').textContent = 'Edit EPG Source';
-          document.getElementById('save-epg-btn').textContent = 'Update';
+          openEPGModal('Edit EPG Source', 'Update');
           document.getElementById('epg-name').value = cfg.name || '';
           document.getElementById('epg-url').value = cfg.url || '';
           document.getElementById('epg-refresh').value = cfg.refresh_interval || 'daily';
           document.getElementById('epg-wireguard').checked = !!cfg.use_wireguard;
-          formEl.style.display = 'block';
         });
       });
 
@@ -5472,41 +5704,71 @@
   async function renderActivity(el) {
     el.innerHTML = '<h1 class="page-title">Activity</h1>' +
       '<div class="stat-grid">' +
-      '<div class="stat-card"><div class="stat-value" id="stat-active-count">-</div><div class="stat-label">Active Viewers</div></div>' +
+      '<div class="stat-card"><div class="stat-value" id="stat-active-viewers">-</div><div class="stat-label">Active Viewers</div></div>' +
+      '<div class="stat-card"><div class="stat-value" id="stat-active-sessions">-</div><div class="stat-label">Active Sessions</div></div>' +
       '</div>' +
-      '<div id="activity-list"><div class="skeleton" style="height:200px"></div></div>';
+      '<div id="activity-viewers"><div class="skeleton" style="height:200px"></div></div>' +
+      '<div id="activity-distribution" style="margin-top:16px"></div>';
 
     async function refresh() {
       try {
         var resp = await api.get('/api/activity');
-        var viewers = await resp.json();
-        if (!Array.isArray(viewers)) viewers = [];
-        var countEl = document.getElementById('stat-active-count');
-        if (countEl) countEl.textContent = viewers.length;
-        var container = document.getElementById('activity-list');
+        var data = await resp.json();
+        var viewers = data.viewers || [];
+        var viewerCount = data.viewer_count || viewers.length;
+        var sessionCount = data.session_count || 0;
+        var distribution = data.stream_distribution || {};
+
+        var countEl = document.getElementById('stat-active-viewers');
+        if (countEl) countEl.textContent = viewerCount;
+        var sessEl = document.getElementById('stat-active-sessions');
+        if (sessEl) sessEl.textContent = sessionCount;
+
+        var container = document.getElementById('activity-viewers');
         if (!container) return;
         if (viewers.length === 0) {
           container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No active viewers</p></div>';
-          return;
+        } else {
+          var html = '<table class="list-table"><thead><tr>' +
+            '<th>Stream</th><th>Channel</th><th>User</th><th>Delivery</th><th>Client</th><th>Duration</th><th>Address</th>' +
+            '</tr></thead><tbody>';
+          for (var i = 0; i < viewers.length; i++) {
+            var v = viewers[i];
+            var dur = v.duration || '-';
+            if (v.duration_sec > 0) dur = formatDurationSec(v.duration_sec);
+            html += '<tr>' +
+              '<td>' + esc(v.stream_name || '-') + '</td>' +
+              '<td>' + esc(v.channel_name || '-') + '</td>' +
+              '<td>' + esc(v.username || '-') + '</td>' +
+              '<td><span class="badge">' + esc(v.delivery || '-') + '</span></td>' +
+              '<td>' + esc(v.client_name || '-') + '</td>' +
+              '<td>' + esc(dur) + '</td>' +
+              '<td>' + esc(v.remote_addr || '-') + '</td>' +
+              '</tr>';
+          }
+          html += '</tbody></table>';
+          container.innerHTML = html;
         }
-        var html = '<table class="list-table"><thead><tr>' +
-          '<th>Stream</th><th>User</th><th>Delivery</th><th>Client</th><th>Duration</th><th>Address</th>' +
-          '</tr></thead><tbody>';
-        for (var i = 0; i < viewers.length; i++) {
-          var v = viewers[i];
-          html += '<tr>' +
-            '<td>' + esc(v.stream_name) + '</td>' +
-            '<td>' + esc(v.username || '-') + '</td>' +
-            '<td><span class="badge">' + esc(v.delivery || '-') + '</span></td>' +
-            '<td>' + esc(v.client_name || '-') + '</td>' +
-            '<td>' + esc(v.duration || '-') + '</td>' +
-            '<td>' + esc(v.remote_addr || '-') + '</td>' +
-            '</tr>';
+
+        var distEl = document.getElementById('activity-distribution');
+        if (distEl) {
+          var distKeys = Object.keys(distribution);
+          if (distKeys.length > 0) {
+            var dhtml = '<div class="card"><div class="card-title">Stream Distribution</div>';
+            distKeys.sort(function(a, b) { return distribution[b] - distribution[a]; });
+            for (var di = 0; di < distKeys.length; di++) {
+              dhtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
+                '<span>' + esc(distKeys[di]) + '</span>' +
+                '<span class="badge">' + distribution[distKeys[di]] + '</span></div>';
+            }
+            dhtml += '</div>';
+            distEl.innerHTML = dhtml;
+          } else {
+            distEl.innerHTML = '';
+          }
         }
-        html += '</tbody></table>';
-        container.innerHTML = html;
       } catch (e) {
-        var container = document.getElementById('activity-list');
+        var container = document.getElementById('activity-viewers');
         if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load activity</p></div>';
       }
     }
@@ -6734,7 +6996,9 @@
     });
 
     var sortedGroupIds = Object.keys(grouped).sort(function(a, b) {
-      return (groupMap[a].name || '').localeCompare(groupMap[b].name || '');
+      var ga = groupMap[a] || {}; var gb = groupMap[b] || {};
+      if ((ga.sort_order || 0) !== (gb.sort_order || 0)) return (ga.sort_order || 0) - (gb.sort_order || 0);
+      return (ga.name || '').localeCompare(gb.name || '');
     });
 
     function parseGuideData() {
@@ -6792,8 +7056,11 @@
           ' data-desc="' + esc(p.description || '') + '"' +
           ' data-cats="' + esc((p.categories || []).join(', ')) + '"' +
           ' data-pstart="' + esc(p.start || '') + '"' +
-          ' data-pstop="' + esc(p.stop || '') + '">' +
+          ' data-pstop="' + esc(p.stop || '') + '"' +
+          ' data-series-id="' + esc(p.series_id || '') + '"' +
+          ' data-episode-num="' + esc(p.episode_num || '') + '">' +
           recBtnHtml +
+          (p.series_id ? '<span class="epg-series-icon" title="Series: ' + esc(p.series_id) + '" style="position:absolute;top:2px;right:2px;font-size:10px;opacity:0.7">\u{1F517}</span>' : '') +
           '<div class="epg-program-title">' + esc(p.title) + '</div>' +
           '<div class="epg-program-time">' + timeStr + '</div>' +
           '</div>';
@@ -6955,6 +7222,8 @@
             isFuture: pStart ? new Date(pStart).getTime() > Date.now() : false,
             start: pStart,
             stop: pStop,
+            seriesID: prog.dataset.seriesId || '',
+            episodeNum: prog.dataset.episodeNum || '',
           });
           return;
         }
@@ -7068,6 +7337,13 @@
         catsEl.style.cssText = 'font-size:12px;color:var(--accent);margin-bottom:12px;';
         catsEl.textContent = opts.categories;
         body.appendChild(catsEl);
+      }
+
+      if (opts.seriesID) {
+        var seriesEl = document.createElement('div');
+        seriesEl.style.cssText = 'font-size:12px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:4px;';
+        seriesEl.innerHTML = '\u{1F517} Series link: ' + esc(opts.seriesID) + (opts.episodeNum ? ' | Episode: ' + esc(opts.episodeNum) : '');
+        body.appendChild(seriesEl);
       }
 
       if (opts.description) {
@@ -8208,6 +8484,68 @@
     await loadAPIKeys();
   }
 
+  async function renderPlayURL(el) {
+    el.innerHTML = '<h1 class="page-title">Play URL</h1>' +
+      '<div class="card">' +
+      '<div class="card-title">Play a Stream URL</div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+      '<input class="form-input" id="playurl-input" placeholder="http://example.com/stream.m3u8 or rtsp://..." style="flex:1">' +
+      '<button class="btn btn-primary" id="playurl-btn">' + icons.play + ' Play</button>' +
+      '</div>' +
+      '<div id="playurl-status"></div>' +
+      '</div>';
+
+    var playUrlInput = document.getElementById('playurl-input');
+    var playUrlBtn = document.getElementById('playurl-btn');
+    var playUrlStatus = document.getElementById('playurl-status');
+
+    async function doPlay() {
+      var url = playUrlInput.value.trim();
+      if (!url) { toast('Enter a URL to play', 'error'); return; }
+      playUrlStatus.innerHTML = '<div style="display:flex;align-items:center;gap:12px;padding:20px;color:var(--text-dim)">' +
+        '<div class="spinner-ring" style="width:24px;height:24px;border-width:3px"></div>' +
+        '<span>Starting playback...</span></div>';
+      try {
+        var resp = await api.post('/api/play/url', { url: url });
+        if (!resp.ok) {
+          var errData = await resp.json().catch(function() { return {}; });
+          playUrlStatus.innerHTML = '<div style="padding:16px;color:var(--danger)">' + esc(errData.error || 'Failed to start playback') + '</div>';
+          return;
+        }
+        var data = await resp.json();
+        playUrlStatus.innerHTML = '<div class="card" style="margin-top:12px">' +
+          '<div class="card-title">Playback Started</div>' +
+          '<div style="margin-bottom:8px">Session: <code>' + esc(data.session_id || '-') + '</code></div>' +
+          '<div style="margin-bottom:8px">Delivery: <span class="badge">' + esc(data.delivery || '-') + '</span></div>' +
+          (data.decision ? '<div style="margin-bottom:8px">Transcode: ' + (data.decision.needs_transcode ? 'Yes' : 'Copy') + ' | Video: ' + esc(String(data.decision.video_codec)) + ' | Audio: ' + esc(String(data.decision.audio_codec)) + '</div>' : '') +
+          '<div style="display:flex;gap:8px;margin-top:12px">' +
+          '<button class="btn btn-primary" id="playurl-open">Open in Player</button>' +
+          '<button class="btn btn-danger" id="playurl-stop">Stop</button>' +
+          '</div></div>';
+        var streamId = data.stream_id;
+        document.getElementById('playurl-open').addEventListener('click', function() {
+          playerState.cleanup();
+          playerState.streamID = streamId;
+          playerState.sessionID = data.session_id;
+          playerState.delivery = data.delivery;
+          router.current = 'player';
+          router.params = { streamID: streamId, delivery: data.delivery, endpoints: data.endpoints, isLive: true };
+          render();
+        });
+        document.getElementById('playurl-stop').addEventListener('click', async function() {
+          await api.del('/api/play/' + encodeURIComponent(streamId)).catch(function() {});
+          toast('Playback stopped');
+          playUrlStatus.innerHTML = '';
+        });
+      } catch (e) {
+        playUrlStatus.innerHTML = '<div style="padding:16px;color:var(--danger)">' + esc(e.message) + '</div>';
+      }
+    }
+
+    playUrlBtn.addEventListener('click', doPlay);
+    playUrlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doPlay(); });
+  }
+
   var pages = {
     dashboard: renderDashboard,
     streams: renderStreams,
@@ -8227,6 +8565,7 @@
     logos: renderLogos,
     tmdb: renderTMDBPage,
     probe: renderProbe,
+    playurl: renderPlayURL,
     player: renderPlayer,
     hdhrdevices: renderHDHRDevices,
     invites: renderInvites,

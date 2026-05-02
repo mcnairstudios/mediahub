@@ -262,6 +262,23 @@ type GroupStore struct {
 	db *bbolt.DB
 }
 
+func (s *GroupStore) Get(_ context.Context, id string) (*channel.Group, error) {
+	var g *channel.Group
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketGroups)
+		key := groupSchema.Key(groupKeyDef{GroupID: id})
+		data := b.Get(key)
+		if data == nil {
+			return nil
+		}
+		g = &channel.Group{}
+		return json.Unmarshal(data, g)
+	})
+
+	return g, err
+}
+
 func (s *GroupStore) List(_ context.Context) ([]channel.Group, error) {
 	var result []channel.Group
 
@@ -281,6 +298,18 @@ func (s *GroupStore) List(_ context.Context) ([]channel.Group, error) {
 }
 
 func (s *GroupStore) Create(_ context.Context, g *channel.Group) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketGroups)
+		data, err := json.Marshal(g)
+		if err != nil {
+			return err
+		}
+		key := groupSchema.Key(groupKeyDef{GroupID: g.ID})
+		return b.Put(key, data)
+	})
+}
+
+func (s *GroupStore) Update(_ context.Context, g *channel.Group) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketGroups)
 		data, err := json.Marshal(g)

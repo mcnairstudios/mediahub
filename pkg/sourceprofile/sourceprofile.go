@@ -3,8 +3,9 @@ package sourceprofile
 import "context"
 
 type Profile struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	IsSystem bool   `json:"is_system,omitempty"`
 
 	Deinterlace       bool   `json:"deinterlace"`
 	DeinterlaceMethod string `json:"deinterlace_method,omitempty"`

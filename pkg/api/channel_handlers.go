@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/channel"
@@ -187,6 +188,27 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to list groups")
 		return
 	}
+
+	channels, chErr := s.deps.ChannelStore.List(r.Context())
+	if chErr == nil {
+		counts := make(map[string]int)
+		for _, ch := range channels {
+			if ch.GroupID != "" {
+				counts[ch.GroupID]++
+			}
+		}
+		for i := range groups {
+			groups[i].ChannelCount = counts[groups[i].ID]
+		}
+	}
+
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].SortOrder != groups[j].SortOrder {
+			return groups[i].SortOrder < groups[j].SortOrder
+		}
+		return groups[i].Name < groups[j].Name
+	})
+
 	httputil.RespondJSON(w, http.StatusOK, groups)
 }
 
@@ -216,6 +238,47 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusCreated, g)
 }
 
+func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "group ID required")
+		return
+	}
+
+	existing, err := s.deps.GroupStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get group")
+		return
+	}
+	if existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, "group not found")
+		return
+	}
+
+	var req struct {
+		Name      *string `json:"name"`
+		SortOrder *int    `json:"sort_order"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.SortOrder != nil {
+		existing.SortOrder = *req.SortOrder
+	}
+
+	if err := s.deps.GroupStore.Update(r.Context(), existing); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update group")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, existing)
+}
+
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -229,6 +292,56 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleReorderGroups(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GroupIDs []string `json:"group_ids"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	for i, id := range req.GroupIDs {
+		g, err := s.deps.GroupStore.Get(r.Context(), id)
+		if err != nil || g == nil {
+			continue
+		}
+		g.SortOrder = i
+		s.deps.GroupStore.Update(r.Context(), g)
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{"updated": len(req.GroupIDs)})
+}
+
+func (s *Server) handleBulkAssignGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChannelIDs []string `json:"channel_ids"`
+		GroupID    string   `json:"group_id"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+	if len(req.ChannelIDs) == 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "channel_ids required")
+		return
+	}
+
+	updated := 0
+	for _, id := range req.ChannelIDs {
+		ch, err := s.deps.ChannelStore.Get(r.Context(), id)
+		if err != nil || ch == nil {
+			continue
+		}
+		ch.GroupID = req.GroupID
+		if s.deps.ChannelStore.Update(r.Context(), ch) == nil {
+			updated++
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{"updated": updated})
 }
 
 func (s *Server) handleBatchUpdateChannels(w http.ResponseWriter, r *http.Request) {

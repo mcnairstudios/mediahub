@@ -112,6 +112,21 @@ func (s *MemoryProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
 	return result, nil
 }
 
+func (s *MemoryProgramStore) ListChannelIDs(_ context.Context) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	var result []string
+	for _, p := range s.programs {
+		if _, ok := seen[p.ChannelID]; !ok {
+			seen[p.ChannelID] = struct{}{}
+			result = append(result, p.ChannelID)
+		}
+	}
+	return result, nil
+}
+
 func (s *MemoryProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

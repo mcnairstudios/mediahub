@@ -1185,7 +1185,7 @@ func TestScheduledRecordingsEmptyReturnsArray(t *testing.T) {
 	}
 }
 
-func TestActivityEmptyReturnsArray(t *testing.T) {
+func TestActivityEmptyReturnsObject(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.close()
 
@@ -1206,8 +1206,11 @@ func TestActivityEmptyReturnsArray(t *testing.T) {
 	resp.Body.Close()
 
 	trimmed := strings.TrimSpace(string(body))
-	if trimmed != "[]" {
-		t.Fatalf("expected [], got %q", trimmed)
+	if !strings.Contains(trimmed, "\"viewers\":[]") {
+		t.Fatalf("expected viewers:[] in response, got %q", trimmed)
+	}
+	if !strings.Contains(trimmed, "\"session_count\":0") {
+		t.Fatalf("expected session_count:0 in response, got %q", trimmed)
 	}
 }
 

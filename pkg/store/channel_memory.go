@@ -111,6 +111,17 @@ func NewMemoryGroupStore() *MemoryGroupStore {
 	}
 }
 
+func (s *MemoryGroupStore) Get(_ context.Context, id string) (*channel.Group, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	g, ok := s.groups[id]
+	if !ok {
+		return nil, nil
+	}
+	return &g, nil
+}
+
 func (s *MemoryGroupStore) List(_ context.Context) ([]channel.Group, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -123,6 +134,14 @@ func (s *MemoryGroupStore) List(_ context.Context) ([]channel.Group, error) {
 }
 
 func (s *MemoryGroupStore) Create(_ context.Context, g *channel.Group) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.groups[g.ID] = *g
+	return nil
+}
+
+func (s *MemoryGroupStore) Update(_ context.Context, g *channel.Group) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -6,15 +6,17 @@ import (
 )
 
 type Viewer struct {
-	SessionID  string    `json:"session_id"`
-	StreamID   string    `json:"stream_id"`
-	StreamName string    `json:"stream_name"`
-	UserID     string    `json:"user_id"`
-	Username   string    `json:"username"`
-	ClientName string    `json:"client_name"`
-	Delivery   string    `json:"delivery"`
-	StartedAt  time.Time `json:"started_at"`
-	RemoteAddr string    `json:"remote_addr"`
+	SessionID   string    `json:"session_id"`
+	StreamID    string    `json:"stream_id"`
+	StreamName  string    `json:"stream_name"`
+	ChannelID   string    `json:"channel_id,omitempty"`
+	ChannelName string    `json:"channel_name,omitempty"`
+	UserID      string    `json:"user_id"`
+	Username    string    `json:"username"`
+	ClientName  string    `json:"client_name"`
+	Delivery    string    `json:"delivery"`
+	StartedAt   time.Time `json:"started_at"`
+	RemoteAddr  string    `json:"remote_addr"`
 }
 
 type Service struct {

@@ -30,6 +30,7 @@ type Program struct {
 	Categories  []string  `json:"categories,omitempty"`
 	Rating      string    `json:"rating,omitempty"`
 	EpisodeNum  string    `json:"episode_num,omitempty"`
+	SeriesID    string    `json:"series_id,omitempty"`
 	IsNew       bool      `json:"is_new"`
 }
 
@@ -45,6 +46,7 @@ type ProgramStore interface {
 	NowPlaying(ctx context.Context, channelID string) (*Program, error)
 	Range(ctx context.Context, channelID string, start, end time.Time) ([]Program, error)
 	ListAll(ctx context.Context) ([]Program, error)
+	ListChannelIDs(ctx context.Context) ([]string, error)
 	BulkInsert(ctx context.Context, programs []Program) error
 	DeleteBySource(ctx context.Context, sourceID string) error
 }

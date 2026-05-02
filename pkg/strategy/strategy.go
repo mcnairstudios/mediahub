@@ -42,6 +42,7 @@ func Resolve(in Input, out Output) Decision {
 	needsTranscode := false
 
 	isDefaultOrCopy := outVideo == media.VideoCopy || outVideo == "" || outVideo == "default"
+	inputUnknown := srcVideo == "" || in.VideoCodec == ""
 
 	if in.Interlaced {
 		d.Deinterlace = true
@@ -57,9 +58,15 @@ func Resolve(in Input, out Output) Decision {
 	}
 
 	if !isDefaultOrCopy {
-		if outVideo != srcVideo {
+		if inputUnknown {
+			needsTranscode = false
+		} else if outVideo != srcVideo {
 			needsTranscode = true
 		}
+	}
+
+	if inputUnknown && isDefaultOrCopy {
+		needsTranscode = false
 	}
 
 	d.NeedsTranscode = needsTranscode

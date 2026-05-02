@@ -16,8 +16,10 @@ type Channel struct {
 }
 
 type Group struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	SortOrder    int    `json:"sort_order"`
+	ChannelCount int    `json:"channel_count,omitempty"`
 }
 
 type Store interface {
@@ -31,7 +33,9 @@ type Store interface {
 }
 
 type GroupStore interface {
+	Get(ctx context.Context, id string) (*Group, error)
 	List(ctx context.Context) ([]Group, error)
 	Create(ctx context.Context, g *Group) error
+	Update(ctx context.Context, g *Group) error
 	Delete(ctx context.Context, id string) error
 }

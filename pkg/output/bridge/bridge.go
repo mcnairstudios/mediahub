@@ -61,6 +61,7 @@ type Bridge struct {
 	audioTB              astiav.Rational
 	audioLatched         bool
 	audioErrorCount      int
+	audioPacketCount     int
 	stopped              bool
 	videoEncoderExtradata []byte
 	extractedExtradata   bool
@@ -371,9 +372,15 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 		return nil
 	}
 
+	b.audioPacketCount++
+
 	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}
 	avPkt, err := conv.ToAVPacket(pkt, b.audioTB)
 	if err != nil {
+		if b.audioPacketCount <= 5 {
+			b.log.Debug().Int("pkt", b.audioPacketCount).Msg("bridge: skipping initial audio packet error")
+			return nil
+		}
 		b.latchAudioError(err)
 		return nil
 	}
@@ -381,6 +388,10 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 	frames, err := b.audioDec.Decode(avPkt)
 	avPkt.Free()
 	if err != nil {
+		if b.audioPacketCount <= 5 {
+			b.log.Debug().Int("pkt", b.audioPacketCount).Msg("bridge: skipping initial audio decode error")
+			return nil
+		}
 		b.latchAudioError(err)
 		return nil
 	}
@@ -516,6 +527,8 @@ func (b *Bridge) ResetForSeek() {
 		b.audioFifo.Reset()
 	}
 	b.audioLatched = false
+	b.audioPacketCount = 0
+	b.audioErrorCount = 0
 	if sr, ok := b.downstream.(seekResetter); ok {
 		sr.ResetForSeek()
 	}
@@ -621,7 +634,7 @@ func (b *Bridge) closeBSFExtractor() {
 
 func (b *Bridge) latchAudioError(err error) {
 	b.audioErrorCount++
-	if b.audioErrorCount <= 50 {
+	if b.audioErrorCount <= 100 {
 		if b.audioErrorCount <= 5 || b.audioErrorCount%10 == 0 {
 			b.log.Warn().Err(err).Int("errors", b.audioErrorCount).Msg("bridge: audio decode error (will keep trying)")
 		}

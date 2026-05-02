@@ -44,6 +44,7 @@ func SeedDefaults(ctx context.Context, store Store, defs []defaults.SourceProfil
 		p := Profile{
 			ID:                generateID(),
 			Name:              d.Name,
+			IsSystem:          true,
 			Deinterlace:       d.Deinterlace,
 			DeinterlaceMethod: d.DeinterlaceMethod,
 			RTSPProtocols:     d.RTSPProtocols,

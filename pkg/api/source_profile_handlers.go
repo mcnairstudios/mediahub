@@ -57,6 +57,7 @@ func (s *Server) handleCreateSourceProfile(w http.ResponseWriter, r *http.Reques
 	}
 
 	p.ID = generateSourceProfileID()
+	p.IsSystem = false
 
 	if err := s.deps.SourceProfileStore.Create(r.Context(), &p); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to create source profile")
@@ -90,6 +91,7 @@ func (s *Server) handleUpdateSourceProfile(w http.ResponseWriter, r *http.Reques
 	}
 
 	req.ID = id
+	req.IsSystem = existing.IsSystem
 	if err := s.deps.SourceProfileStore.Update(r.Context(), &req); err != nil {
 		httputil.RespondError(w, http.StatusInternalServerError, "failed to update source profile")
 		return
@@ -112,6 +114,10 @@ func (s *Server) handleDeleteSourceProfile(w http.ResponseWriter, r *http.Reques
 	}
 	if existing == nil {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if existing.IsSystem {
+		httputil.RespondError(w, http.StatusForbidden, "cannot delete system source profile")
 		return
 	}
 

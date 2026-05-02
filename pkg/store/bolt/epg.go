@@ -163,6 +163,28 @@ func (s *ProgramStore) ListAll(_ context.Context) ([]epg.Program, error) {
 	return result, err
 }
 
+func (s *ProgramStore) ListChannelIDs(_ context.Context) ([]string, error) {
+	seen := make(map[string]struct{})
+	var result []string
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketEPGPrograms)
+		c := b.Cursor()
+		for k, v := c.Seek(prefixProgram); k != nil && bytes.HasPrefix(k, prefixProgram); k, v = c.Next() {
+			var p epg.Program
+			if json.Unmarshal(v, &p) == nil {
+				if _, ok := seen[p.ChannelID]; !ok {
+					seen[p.ChannelID] = struct{}{}
+					result = append(result, p.ChannelID)
+				}
+			}
+		}
+		return nil
+	})
+
+	return result, err
+}
+
 func (s *ProgramStore) BulkInsert(_ context.Context, programs []epg.Program) error {
 	const batchSize = 5000
 	for i := 0; i < len(programs); i += batchSize {

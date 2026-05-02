@@ -25,6 +25,7 @@ type Programme struct {
 	Categories  []string
 	Rating      string
 	EpisodeNum  string
+	SeriesID    string
 	IsNew       bool
 	Credits     Credits
 }
@@ -51,17 +52,17 @@ type xmlIcon struct {
 }
 
 type xmlProgramme struct {
-	Start           string          `xml:"start,attr"`
-	Stop            string          `xml:"stop,attr"`
-	Channel         string          `xml:"channel,attr"`
-	Title           string          `xml:"title"`
-	SubTitle        string          `xml:"sub-title"`
-	Desc            string          `xml:"desc"`
-	Categories      []string        `xml:"category"`
-	Rating          xmlRating       `xml:"rating"`
-	EpisodeNum      xmlEpisodeNum   `xml:"episode-num"`
-	PreviouslyShown *xmlPrevShown   `xml:"previously-shown"`
-	Credits         xmlCredits      `xml:"credits"`
+	Start           string           `xml:"start,attr"`
+	Stop            string           `xml:"stop,attr"`
+	Channel         string           `xml:"channel,attr"`
+	Title           string           `xml:"title"`
+	SubTitle        string           `xml:"sub-title"`
+	Desc            string           `xml:"desc"`
+	Categories      []string         `xml:"category"`
+	Rating          xmlRating        `xml:"rating"`
+	EpisodeNums     []xmlEpisodeNum  `xml:"episode-num"`
+	PreviouslyShown *xmlPrevShown    `xml:"previously-shown"`
+	Credits         xmlCredits       `xml:"credits"`
 }
 
 type xmlRating struct {
@@ -129,7 +130,33 @@ func Parse(r io.Reader) ([]Channel, []Programme, error) {
 			actors = []string{}
 		}
 
-		episodeNum := strings.TrimSpace(xp.EpisodeNum.Value)
+		var episodeNum string
+		var seriesID string
+		for _, en := range xp.EpisodeNums {
+			val := strings.TrimSpace(en.Value)
+			if val == "" {
+				continue
+			}
+			sys := strings.ToLower(en.System)
+			switch sys {
+			case "crid":
+				seriesID = val
+			case "dd_progid":
+				if seriesID == "" {
+					parts := strings.SplitN(val, ".", 2)
+					if len(parts) > 0 {
+						seriesID = parts[0]
+					}
+				}
+				if episodeNum == "" {
+					episodeNum = val
+				}
+			default:
+				if episodeNum == "" {
+					episodeNum = val
+				}
+			}
+		}
 		isNew := episodeNum != "" && xp.PreviouslyShown == nil
 
 		programmes = append(programmes, Programme{
@@ -142,6 +169,7 @@ func Parse(r io.Reader) ([]Channel, []Programme, error) {
 			Categories:  categories,
 			Rating:      xp.Rating.Value,
 			EpisodeNum:  episodeNum,
+			SeriesID:    seriesID,
 			IsNew:       isNew,
 			Credits: Credits{
 				Directors: directors,

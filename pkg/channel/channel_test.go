@@ -57,9 +57,11 @@ func TestMockSatisfiesStore(t *testing.T) {
 
 type mockGroupStore struct{}
 
-func (m *mockGroupStore) List(_ context.Context) ([]Group, error)  { return nil, nil }
-func (m *mockGroupStore) Create(_ context.Context, _ *Group) error { return nil }
-func (m *mockGroupStore) Delete(_ context.Context, _ string) error { return nil }
+func (m *mockGroupStore) Get(_ context.Context, _ string) (*Group, error) { return nil, nil }
+func (m *mockGroupStore) List(_ context.Context) ([]Group, error)         { return nil, nil }
+func (m *mockGroupStore) Create(_ context.Context, _ *Group) error        { return nil }
+func (m *mockGroupStore) Update(_ context.Context, _ *Group) error        { return nil }
+func (m *mockGroupStore) Delete(_ context.Context, _ string) error        { return nil }
 
 func TestMockSatisfiesGroupStore(t *testing.T) {
 	var _ GroupStore = (*mockGroupStore)(nil)

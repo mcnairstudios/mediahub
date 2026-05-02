@@ -36,6 +36,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/epg/guide", s.authenticated(s.handleEPGGuide))
 	s.mux.Handle("GET /api/epg/now", s.authenticated(s.handleEPGNow))
 	s.mux.Handle("GET /api/epg/programs", s.authenticated(s.handleEPGPrograms))
+	s.mux.Handle("GET /api/epg/channel-ids", s.authenticated(s.handleListEPGChannelIDs))
+	s.mux.Handle("POST /api/epg/auto-match", s.adminOnly(s.handleAutoMatchEPG))
 	s.mux.Handle("GET /api/dashboard/stats", s.authenticated(s.handleDashboardStats))
 	s.mux.Handle("GET /api/recordings", s.authenticated(s.handleListRecordings))
 	s.mux.Handle("GET /api/recordings/completed/{id}", s.authenticated(s.handleGetRecording))
@@ -54,7 +56,10 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/channels/batch", s.adminOnly(s.handleBatchUpdateChannels))
 	s.mux.Handle("GET /api/channel-groups", s.authenticated(s.handleListGroups))
 	s.mux.Handle("POST /api/channel-groups", s.adminOnly(s.handleCreateGroup))
+	s.mux.Handle("PUT /api/channel-groups/{id}", s.adminOnly(s.handleUpdateGroup))
 	s.mux.Handle("DELETE /api/channel-groups/{id}", s.adminOnly(s.handleDeleteGroup))
+	s.mux.Handle("POST /api/channel-groups/reorder", s.adminOnly(s.handleReorderGroups))
+	s.mux.Handle("POST /api/channels/assign-group", s.adminOnly(s.handleBulkAssignGroup))
 
 	s.mux.Handle("POST /api/play/{streamID}", s.authenticated(s.handleStartPlayback))
 	s.mux.Handle("DELETE /api/play/{streamID}", s.authenticated(s.handleStopPlayback))
@@ -170,6 +175,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/output/playlist.m3u", s.handleOutputM3U)
 	s.mux.HandleFunc("GET /api/output/epg.xml", s.handleOutputEPG)
 	s.mux.HandleFunc("GET /channel/{id}", s.handleChannelStream)
+
+	s.mux.Handle("POST /api/play/url", s.adminOnly(s.handlePlayURL))
+	s.mux.Handle("DELETE /api/play/url", s.adminOnly(s.handleStopPlayURL))
 
 	s.mux.Handle("POST /api/probe", s.adminOnly(s.handleProbe))
 

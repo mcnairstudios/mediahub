@@ -210,6 +210,7 @@ func (s *Server) refreshEPGSource(ctx context.Context, src *epg.Source) {
 				Categories:  p.Categories,
 				Rating:      p.Rating,
 				EpisodeNum:  p.EpisodeNum,
+				SeriesID:    p.SeriesID,
 				IsNew:       p.IsNew,
 			})
 		}
@@ -295,6 +296,8 @@ func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
 		Start       time.Time `json:"start"`
 		Stop        time.Time `json:"stop"`
 		Categories  []string  `json:"categories,omitempty"`
+		SeriesID    string    `json:"series_id,omitempty"`
+		EpisodeNum  string    `json:"episode_num,omitempty"`
 	}
 
 	grouped := make(map[string][]guideProgram)
@@ -307,6 +310,8 @@ func (s *Server) handleEPGGuide(w http.ResponseWriter, r *http.Request) {
 				Start:       p.StartTime,
 				Stop:        p.EndTime,
 				Categories:  p.Categories,
+				SeriesID:    p.SeriesID,
+				EpisodeNum:  p.EpisodeNum,
 			})
 		}
 	}
@@ -825,4 +830,126 @@ func (s *Server) handleUpdateChannelLogo(w http.ResponseWriter, r *http.Request)
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, ch)
+}
+
+func (s *Server) handleListEPGChannelIDs(w http.ResponseWriter, r *http.Request) {
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, []string{})
+		return
+	}
+
+	ids, err := s.deps.ProgramStore.ListChannelIDs(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list EPG channel IDs")
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+
+	var epgMeta map[string]map[string]string
+	if metaStr, _ := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta"); metaStr != "" {
+		json.Unmarshal([]byte(metaStr), &epgMeta)
+	}
+
+	type epgChannelInfo struct {
+		ID   string `json:"id"`
+		Name string `json:"name,omitempty"`
+		Icon string `json:"icon,omitempty"`
+	}
+
+	result := make([]epgChannelInfo, 0, len(ids))
+	for _, id := range ids {
+		info := epgChannelInfo{ID: id}
+		if epgMeta != nil {
+			if names, ok := epgMeta["names"]; ok {
+				info.Name = names[id]
+			}
+			if icons, ok := epgMeta["icons"]; ok {
+				info.Icon = icons[id]
+			}
+		}
+		result = append(result, info)
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleAutoMatchEPG(w http.ResponseWriter, r *http.Request) {
+	channels, err := s.deps.ChannelStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+
+	if s.deps.ProgramStore == nil {
+		httputil.RespondJSON(w, http.StatusOK, map[string]int{"matched": 0})
+		return
+	}
+
+	epgIDs, err := s.deps.ProgramStore.ListChannelIDs(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list EPG channels")
+		return
+	}
+
+	var epgMeta map[string]map[string]string
+	if metaStr, _ := s.deps.SettingsStore.Get(r.Context(), "epg_channel_meta"); metaStr != "" {
+		json.Unmarshal([]byte(metaStr), &epgMeta)
+	}
+
+	epgNames := make(map[string]string, len(epgIDs))
+	if epgMeta != nil {
+		if names, ok := epgMeta["names"]; ok {
+			for id, name := range names {
+				epgNames[id] = name
+			}
+		}
+	}
+
+	normalizedEPG := make(map[string]string, len(epgIDs))
+	for _, id := range epgIDs {
+		name := epgNames[id]
+		if name != "" {
+			normalizedEPG[normalizeChannelName(name)] = id
+		}
+		normalizedEPG[normalizeChannelName(id)] = id
+	}
+
+	matched := 0
+	for i := range channels {
+		ch := &channels[i]
+		if ch.TvgID != "" {
+			continue
+		}
+
+		for _, epgID := range epgIDs {
+			if strings.EqualFold(ch.Name, epgID) {
+				ch.TvgID = epgID
+				s.deps.ChannelStore.Update(r.Context(), ch)
+				matched++
+				break
+			}
+		}
+		if ch.TvgID != "" {
+			continue
+		}
+
+		normalized := normalizeChannelName(ch.Name)
+		if epgID, ok := normalizedEPG[normalized]; ok {
+			ch.TvgID = epgID
+			s.deps.ChannelStore.Update(r.Context(), ch)
+			matched++
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]int{"matched": matched})
+}
+
+func normalizeChannelName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	for _, suffix := range []string{" hd", " sd", " fhd", " uhd", " 4k", " +1", " (hd)", " (sd)"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	return strings.TrimSpace(s)
 }

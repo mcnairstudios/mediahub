@@ -229,6 +229,58 @@ func TestResolve_TranscodeVideoCodecResolved(t *testing.T) {
 	}
 }
 
+func TestResolve_UnknownCodec_CopyDefault(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "", AudioCodec: "", Width: 0, Height: 0},
+		Output{VideoCodec: "copy", AudioCodec: "aac", Container: "mp4"},
+	)
+	if d.NeedsTranscode {
+		t.Error("expected copy when input codec unknown and output is copy")
+	}
+	if d.VideoCodec != media.VideoCopy {
+		t.Errorf("expected video copy, got %s", d.VideoCodec)
+	}
+}
+
+func TestResolve_UnknownCodec_DefaultOutput(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "", AudioCodec: "", Width: 0, Height: 0},
+		Output{VideoCodec: "default", AudioCodec: "aac", Container: "mp4"},
+	)
+	if d.NeedsTranscode {
+		t.Error("expected copy when input codec unknown and output is default")
+	}
+	if d.VideoCodec != media.VideoCopy {
+		t.Errorf("expected video copy, got %s", d.VideoCodec)
+	}
+}
+
+func TestResolve_UnknownCodec_EmptyOutput(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "", AudioCodec: "", Width: 0, Height: 0},
+		Output{VideoCodec: "", AudioCodec: "aac", Container: "mp4"},
+	)
+	if d.NeedsTranscode {
+		t.Error("expected copy when both input and output codecs are empty")
+	}
+	if d.VideoCodec != media.VideoCopy {
+		t.Errorf("expected video copy, got %s", d.VideoCodec)
+	}
+}
+
+func TestResolve_UnknownCodec_ExplicitTranscode(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "", AudioCodec: "", Width: 0, Height: 0},
+		Output{VideoCodec: "h264", AudioCodec: "aac", Container: "mp4"},
+	)
+	if d.NeedsTranscode {
+		t.Error("expected copy when input codec unknown even with explicit output codec")
+	}
+	if d.VideoCodec != media.VideoCopy {
+		t.Errorf("expected video copy, got %s", d.VideoCodec)
+	}
+}
+
 func TestResolve_DefaultVideoWithHeightReduction(t *testing.T) {
 	d := Resolve(
 		Input{VideoCodec: "h265", AudioCodec: "aac", Width: 3840, Height: 2160},

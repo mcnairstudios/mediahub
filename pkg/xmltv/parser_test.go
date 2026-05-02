@@ -338,3 +338,45 @@ func TestParseMultipleChannelsAndProgrammes(t *testing.T) {
 		t.Errorf("programme[2] ChannelID = %q, want %q", programmes[2].ChannelID, "bbc2.uk")
 	}
 }
+
+func TestParseSeriesID(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+  <programme start="20260425180000 +0100" stop="20260425190000 +0100" channel="bbc1.uk">
+    <title>EastEnders</title>
+    <episode-num system="onscreen">S01E05</episode-num>
+    <episode-num system="crid">crid://bbc.co.uk/eastenders</episode-num>
+  </programme>
+  <programme start="20260425190000 +0100" stop="20260425200000 +0100" channel="bbc1.uk">
+    <title>News</title>
+    <episode-num system="dd_progid">SH123456.0001</episode-num>
+  </programme>
+  <programme start="20260425200000 +0100" stop="20260425210000 +0100" channel="bbc1.uk">
+    <title>Film</title>
+  </programme>
+</tv>`
+
+	_, programmes, err := Parse(strings.NewReader(xml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(programmes) != 3 {
+		t.Fatalf("expected 3 programmes, got %d", len(programmes))
+	}
+
+	if programmes[0].SeriesID != "crid://bbc.co.uk/eastenders" {
+		t.Errorf("programme[0] SeriesID = %q, want %q", programmes[0].SeriesID, "crid://bbc.co.uk/eastenders")
+	}
+	if programmes[0].EpisodeNum != "S01E05" {
+		t.Errorf("programme[0] EpisodeNum = %q, want %q", programmes[0].EpisodeNum, "S01E05")
+	}
+
+	if programmes[1].SeriesID != "SH123456" {
+		t.Errorf("programme[1] SeriesID = %q, want %q", programmes[1].SeriesID, "SH123456")
+	}
+
+	if programmes[2].SeriesID != "" {
+		t.Errorf("programme[2] SeriesID = %q, want empty", programmes[2].SeriesID)
+	}
+}

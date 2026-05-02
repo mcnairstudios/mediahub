@@ -290,6 +290,19 @@ func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
 	if recordings == nil {
 		recordings = []recording.Recording{}
 	}
+
+	for i := range recordings {
+		rec := &recordings[i]
+		if rec.Status == recording.StatusRecording {
+			sess := s.deps.SessionMgr.Get(rec.StreamID)
+			if sess == nil {
+				rec.Status = recording.StatusFailed
+				rec.StoppedAt = time.Now()
+				_ = s.deps.RecordingStore.Update(r.Context(), rec)
+			}
+		}
+	}
+
 	httputil.RespondJSON(w, http.StatusOK, recordings)
 }
 
@@ -654,29 +667,50 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Activity == nil {
-		httputil.RespondJSON(w, http.StatusOK, []any{})
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{
+			"viewers":       []any{},
+			"session_count": 0,
+		})
 		return
 	}
 
 	viewers := s.deps.Activity.List()
 	now := time.Now()
 	result := make([]map[string]any, 0, len(viewers))
+	streamCounts := make(map[string]int)
 	for _, v := range viewers {
-		result = append(result, map[string]any{
-			"session_id":  v.SessionID,
-			"stream_id":   v.StreamID,
-			"stream_name": v.StreamName,
-			"user_id":     v.UserID,
-			"username":    v.Username,
-			"client_name": v.ClientName,
-			"delivery":    v.Delivery,
-			"started_at":  v.StartedAt.Format(time.RFC3339),
-			"duration":    now.Sub(v.StartedAt).Truncate(time.Second).String(),
-			"remote_addr": v.RemoteAddr,
-		})
+		entry := map[string]any{
+			"session_id":   v.SessionID,
+			"stream_id":    v.StreamID,
+			"stream_name":  v.StreamName,
+			"channel_id":   v.ChannelID,
+			"channel_name": v.ChannelName,
+			"user_id":      v.UserID,
+			"username":     v.Username,
+			"client_name":  v.ClientName,
+			"delivery":     v.Delivery,
+			"started_at":   v.StartedAt.Format(time.RFC3339),
+			"duration":     now.Sub(v.StartedAt).Truncate(time.Second).String(),
+			"duration_sec": int(now.Sub(v.StartedAt).Seconds()),
+			"remote_addr":  v.RemoteAddr,
+		}
+		result = append(result, entry)
+		if v.StreamName != "" {
+			streamCounts[v.StreamName]++
+		}
 	}
 
-	httputil.RespondJSON(w, http.StatusOK, result)
+	sessionCount := 0
+	if s.deps.SessionMgr != nil {
+		sessionCount = s.deps.SessionMgr.ActiveCount()
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"viewers":            result,
+		"session_count":      sessionCount,
+		"viewer_count":       len(viewers),
+		"stream_distribution": streamCounts,
+	})
 }
 
 func (s *Server) recordingDeps() orchestrator.RecordingDeps {
@@ -706,6 +740,144 @@ func (s *Server) playbackDeps() orchestrator.PlaybackDeps {
 		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
 	}
+}
+
+func (s *Server) handlePlayURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+	if req.URL == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "url required")
+		return
+	}
+
+	streamID := "url:" + fmt.Sprintf("%x", hashURL(req.URL))
+
+	tempStream := &media.Stream{
+		ID:   streamID,
+		URL:  req.URL,
+		Name: req.URL,
+	}
+	if s.deps.StreamStore != nil {
+		_ = s.deps.StreamStore.BulkUpsert(r.Context(), []media.Stream{*tempStream})
+	}
+
+	deps := s.playbackDeps()
+
+	if profileName := r.URL.Query().Get("profile"); profileName != "" {
+		if s.deps.ClientStore != nil {
+			clients, _ := s.deps.ClientStore.List(r.Context())
+			for _, c := range clients {
+				if c.Name == profileName {
+					deps.ClientOverrideID = c.ID
+					break
+				}
+			}
+		}
+	}
+
+	headers := make(map[string]string)
+	for key := range r.Header {
+		headers[key] = r.Header.Get(key)
+	}
+
+	result, err := orchestrator.StartPlayback(r.Context(), deps, streamID, 0, headers)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.deps.Activity != nil {
+		user := middleware.UserFromContext(r.Context())
+		v := &activity.Viewer{
+			SessionID:  result.Session.ID,
+			StreamID:   result.Session.StreamID,
+			StreamName: req.URL,
+			Delivery:   result.Delivery,
+			StartedAt:  time.Now(),
+			RemoteAddr: r.RemoteAddr,
+		}
+		if user != nil {
+			v.UserID = user.ID
+			v.Username = user.Username
+		}
+		s.deps.Activity.Add(v)
+	}
+
+	resp := map[string]any{
+		"session_id": result.Session.ID,
+		"stream_id":  streamID,
+		"is_new":     result.IsNew,
+		"delivery":   result.Delivery,
+	}
+	if result.Decision.VideoCodec != "" {
+		resp["decision"] = map[string]any{
+			"needs_transcode":       result.Decision.NeedsTranscode,
+			"needs_audio_transcode": result.Decision.NeedsAudioTranscode,
+			"video_codec":           result.Decision.VideoCodec,
+			"audio_codec":           result.Decision.AudioCodec,
+			"container":             result.Decision.Container,
+		}
+	}
+
+	base := "/api/play/" + streamID
+	switch result.Delivery {
+	case "hls":
+		resp["endpoints"] = map[string]string{
+			"playlist": base + "/hls/playlist.m3u8",
+		}
+	case "mse":
+		resp["endpoints"] = map[string]string{
+			"video_init":    base + "/mse/video/init",
+			"audio_init":    base + "/mse/audio/init",
+			"video_segment": base + "/mse/video/segment",
+			"audio_segment": base + "/mse/audio/segment",
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, resp)
+}
+
+func hashURL(u string) uint64 {
+	var h uint64 = 14695981039346656037
+	for i := 0; i < len(u); i++ {
+		h ^= uint64(u[i])
+		h *= 1099511628211
+	}
+	return h
+}
+
+func (s *Server) handleStopPlayURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+	if req.URL == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "url required")
+		return
+	}
+
+	streamID := "url:" + fmt.Sprintf("%x", hashURL(req.URL))
+
+	if s.deps.Activity != nil {
+		if sess := s.deps.SessionMgr.Get(streamID); sess != nil {
+			s.deps.Activity.Remove(sess.ID)
+		}
+	}
+
+	deps := orchestrator.PlaybackDeps{
+		SessionMgr: s.deps.SessionMgr,
+	}
+	orchestrator.StopPlayback(deps, streamID)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) filterChannelsByUser(r *http.Request, channels []channel.Channel) []channel.Channel {
