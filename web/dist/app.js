@@ -2789,7 +2789,7 @@
         function pollSegments(track, baseUrl, gen) {
           var seq = 1;
           function poll() {
-            if (mseState.stopped || !playerState.currentStreamID) return;
+            if (!mseState || mseState.stopped || !playerState.currentStreamID) return;
             fetch(baseUrl + '?seq=' + seq + '&gen=' + gen, { headers: authHeaders(), cache: 'no-store' })
               .then(function(resp) {
                 if (mseState.stopped) return;
@@ -2830,7 +2830,7 @@
                 setTimeout(poll, 50);
               })
               .catch(function() {
-                if (!mseState.stopped) setTimeout(poll, 1000);
+                if (mseState && !mseState.stopped) setTimeout(poll, 1000);
               });
           }
           poll();
