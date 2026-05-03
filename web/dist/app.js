@@ -2422,11 +2422,6 @@
       if (isRecording) {
         resp = await api.post('/api/recordings/completed/' + recID + '/play', deliveryPref ? { delivery: deliveryPref } : undefined);
       } else {
-        var available = PlayerRegistry.available();
-        if (!deliveryPref && available.length > 0) {
-          var preferred = available.indexOf('mse') >= 0 ? 'mse' : available[0];
-          deliveryPref = PlayerRegistry.get(preferred).serverParams().delivery;
-        }
         resp = await api.post('/api/play/' + streamID, deliveryPref ? { delivery: deliveryPref } : undefined);
       }
       if (!resp.ok) {

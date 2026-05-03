@@ -256,6 +256,12 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 			} else {
 				v.Extradata = nil
 			}
+			if decision.Deinterlace && v.Interlaced {
+				v.Interlaced = false
+				if v.FramerateN > 0 && v.FramerateD > 0 {
+					v.FramerateN = v.FramerateN / 2
+				}
+			}
 		}
 		pluginCfg.Video = &v
 	}
