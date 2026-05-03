@@ -394,9 +394,6 @@ func (e *Encoder) Encode(frame *astiav.Frame) ([]*astiav.Packet, error) {
 			}
 			return packets, fmt.Errorf("encode: receive packet: %w", err)
 		}
-		if e.inputTimeBase.Num() > 0 && e.inputTimeBase.Den() > 0 {
-			pkt.RescaleTs(e.inputTimeBase, e.codecCtx.TimeBase())
-		}
 		packets = append(packets, pkt)
 		e.hasEncoded = true
 	}
