@@ -380,8 +380,8 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 				return fmt.Errorf("bridge: scale: %w", err)
 			}
 		}
-		if b.hwVideoPath && b.audioPacketCount < 3 {
-			b.log.Info().Int64("frame_pts", frame.Pts()).Str("pixfmt", frame.PixelFormat().Name()).Msg("bridge: HW frame before encode")
+		if !b.extractedExtradata {
+			b.log.Info().Int64("frame_pts", frame.Pts()).Str("pixfmt", frame.PixelFormat().Name()).Bool("hw_path", b.hwVideoPath).Msg("bridge: first frames before encode")
 		}
 		encPkts, err := b.videoEnc.Encode(frame)
 		frame.Free()
@@ -396,6 +396,9 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			copy(encData, encPkt.Data())
 			encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
 			encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
+			if !b.extractedExtradata {
+				b.log.Info().Int64("raw_pts", encPkt.Pts()).Int64("raw_dts", encPkt.Dts()).Int64("raw_dur", encPkt.Duration()).Int64("nanos_pts", encPTS).Int64("nanos_dts", encDTS).Str("enc_tb", b.videoEnc.TimeBase().String()).Msg("bridge: encoded pkt PTS")
+			}
 			isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
 
 			if !b.extractedExtradata && b.videoEnc != nil {
