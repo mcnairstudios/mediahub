@@ -869,6 +869,105 @@ func (s *Server) handleDeleteDemoSource(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleCreateSpaceXSource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+	if req.Name == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "name required")
+		return
+	}
+
+	sc := &sourceconfig.SourceConfig{
+		ID:        uuid.New().String(),
+		Type:      string(source.TypeSpaceX),
+		Name:      req.Name,
+		IsEnabled: true,
+		Config:    map[string]string{},
+	}
+
+	if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to create source")
+		return
+	}
+
+	go func() {
+		ctx := r.Context()
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeSpaceX, sc.ID)
+		if err != nil {
+			return
+		}
+		src.Refresh(ctx)
+	}()
+
+	httputil.RespondJSON(w, http.StatusCreated, sc)
+}
+
+func (s *Server) handleUpdateSpaceXSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
+		return
+	}
+	if existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
+		return
+	}
+
+	var req struct {
+		Name      *string `json:"name"`
+		IsEnabled *bool   `json:"is_enabled"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.IsEnabled != nil {
+		existing.IsEnabled = *req.IsEnabled
+	}
+
+	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update source")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleDeleteSpaceXSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeSpaceX), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
+		return
+	}
+
+	if err := s.deps.SourceConfigStore.Delete(r.Context(), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

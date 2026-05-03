@@ -15,6 +15,7 @@ const (
 	TypeTVPStreams SourceType = "tvpstreams"
 	TypeTrailers   SourceType = "trailers"
 	TypeDemo       SourceType = "demo"
+	TypeSpaceX     SourceType = "spacex"
 )
 
 const (

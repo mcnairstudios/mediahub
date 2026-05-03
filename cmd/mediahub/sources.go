@@ -16,6 +16,7 @@ import (
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
 	demosource "github.com/mcnairstudios/mediahub/pkg/source/demo"
+	spacexsource "github.com/mcnairstudios/mediahub/pkg/source/spacex"
 	trailerssource "github.com/mcnairstudios/mediahub/pkg/source/trailers"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
@@ -231,5 +232,22 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 			StreamStore: deps.StreamStore,
 		}
 		return demosource.New(demoCfg), nil
+	})
+
+	reg.Register(source.TypeSpaceX, func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		sxCfg := spacexsource.Config{
+			ID:          sc.ID,
+			Name:        sc.Name,
+			IsEnabled:   sc.IsEnabled,
+			StreamStore: deps.StreamStore,
+		}
+		return spacexsource.New(sxCfg), nil
 	})
 }
