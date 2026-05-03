@@ -403,6 +403,36 @@ func extractSegmentURIs(content string) []string {
 	return uris
 }
 
+func avgFileSize(files []string) int64 {
+	if len(files) == 0 {
+		return 0
+	}
+	var total int64
+	var count int64
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err == nil && info != nil {
+			total += info.Size()
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return total / count
+}
+
+func totalFileSize(files []string) int64 {
+	var total int64
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err == nil && info != nil {
+			total += info.Size()
+		}
+	}
+	return total
+}
+
 func segmentFiles(dir, ext string) []string {
 	pattern := filepath.Join(dir, "seg*."+ext)
 	matches, _ := filepath.Glob(pattern)
@@ -893,30 +923,69 @@ func TestHLS100_26_EXTINFLeTargetDuration(t *testing.T) {
 
 func TestHLS100_27_TotalDurationMatchesSource(t *testing.T) {
 	f := getFixture(t)
-	cases := []struct {
-		dir      string
-		expected float64
-	}{
-		{f.tsH264Dir, 10}, {f.fmp4H265Dir, 10}, {f.fmp4H264Dir, 10},
-		{f.tsVidOnlyDir, 5}, {f.tsShortDir, 2},
-		{f.ourTSH264Dir, 10}, {f.ourFMP4H265Dir, 10}, {f.ourFMP4H264Dir, 10},
-		{f.ourTSVidOnlyDir, 5}, {f.ourTSShortDir, 2},
-	}
-	for _, tc := range cases {
-		t.Run(filepath.Base(tc.dir), func(t *testing.T) {
-			content := readPlaylist(tc.dir)
-			if content == "" {
-				t.Skip("no playlist")
-			}
-			var total float64
-			for _, d := range extractEXTINFs(content) {
-				total += d
-			}
-			if math.Abs(total-tc.expected) > 1.0 {
-				t.Errorf("total EXTINF %.3f differs from expected %.0f by > 1s", total, tc.expected)
-			}
-		})
-	}
+
+	t.Run("absolute", func(t *testing.T) {
+		cases := []struct {
+			dir      string
+			expected float64
+		}{
+			{f.tsH264Dir, 10}, {f.fmp4H265Dir, 10}, {f.fmp4H264Dir, 10},
+			{f.tsVidOnlyDir, 5}, {f.tsShortDir, 2},
+			{f.ourTSH264Dir, 10}, {f.ourFMP4H265Dir, 10}, {f.ourFMP4H264Dir, 10},
+			{f.ourTSVidOnlyDir, 5}, {f.ourTSShortDir, 2},
+		}
+		for _, tc := range cases {
+			t.Run(filepath.Base(tc.dir), func(t *testing.T) {
+				content := readPlaylist(tc.dir)
+				if content == "" {
+					t.Skip("no playlist")
+				}
+				var total float64
+				for _, d := range extractEXTINFs(content) {
+					total += d
+				}
+				if math.Abs(total-tc.expected) > 1.0 {
+					t.Errorf("total EXTINF %.3f differs from expected %.0f by > 1s", total, tc.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("vs_ffmpeg_reference", func(t *testing.T) {
+		pairs := []struct {
+			refDir string
+			ourDir string
+		}{
+			{f.tsH264Dir, f.ourTSH264Dir},
+			{f.fmp4H264Dir, f.ourFMP4H264Dir},
+			{f.tsVidOnlyDir, f.ourTSVidOnlyDir},
+			{f.tsShortDir, f.ourTSShortDir},
+		}
+		for _, p := range pairs {
+			t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+				refContent := readPlaylist(p.refDir)
+				ourContent := readPlaylist(p.ourDir)
+				if refContent == "" || ourContent == "" {
+					t.Skip("missing playlists")
+				}
+				var refTotal, ourTotal float64
+				for _, d := range extractEXTINFs(refContent) {
+					refTotal += d
+				}
+				for _, d := range extractEXTINFs(ourContent) {
+					ourTotal += d
+				}
+				if refTotal <= 0 {
+					t.Skip("reference total is 0")
+				}
+				ratio := ourTotal / refTotal
+				t.Logf("total duration: ref=%.3f ours=%.3f ratio=%.3f", refTotal, ourTotal, ratio)
+				if ratio > 1.05 || ratio < 0.95 {
+					t.Errorf("our total duration %.3f is %.1f%% of ffmpeg's %.3f (must be 95-105%%)", ourTotal, ratio*100, refTotal)
+				}
+			})
+		}
+	})
 }
 
 func TestHLS100_28_FFprobeDurationMatchesEXTINF(t *testing.T) {
@@ -1178,8 +1247,8 @@ func TestHLS100_37_AudioSampleCountConsistent(t *testing.T) {
 				}
 				expectedFrames := (extinfs[i] * 48000.0) / 1024.0
 				ratio := float64(fc) / expectedFrames
-				if ratio < 0.5 || ratio > 2.0 {
-					t.Errorf("seg %d: audio frames=%d expected~%.0f ratio=%.2f", i, fc, expectedFrames, ratio)
+				if ratio < 0.7 || ratio > 1.3 {
+					t.Errorf("seg %d: audio frames=%d expected~%.0f ratio=%.2f (must be 0.7-1.3)", i, fc, expectedFrames, ratio)
 				}
 			}
 		})
@@ -1470,32 +1539,53 @@ func TestHLS100_52_NoEmptyTSSegments(t *testing.T) {
 
 func TestHLS100_53_TSSegmentSizesReasonable(t *testing.T) {
 	f := getFixture(t)
-	runOnDirs(t, "size_range", allTSDirs(f), func(t *testing.T, dir string) {
-		segs := segmentFiles(dir, "ts")
-		if len(segs) < 2 {
-			t.Skip("need >= 2 segments")
-		}
-		var sizes []int64
-		for _, seg := range segs {
-			info, _ := os.Stat(seg)
-			if info != nil {
-				sizes = append(sizes, info.Size())
+
+	t.Run("internal_consistency", func(t *testing.T) {
+		runOnDirs(t, "size_range", allTSDirs(f), func(t *testing.T, dir string) {
+			segs := segmentFiles(dir, "ts")
+			if len(segs) < 2 {
+				t.Skip("need >= 2 segments")
 			}
-		}
-		if len(sizes) < 2 {
-			t.Skip("insufficient size data")
-		}
-		var minS, maxS int64 = sizes[0], sizes[0]
-		for _, s := range sizes {
-			if s < minS {
-				minS = s
+			var sizes []int64
+			for _, seg := range segs {
+				info, _ := os.Stat(seg)
+				if info != nil {
+					sizes = append(sizes, info.Size())
+				}
 			}
-			if s > maxS {
-				maxS = s
+			if len(sizes) < 2 {
+				t.Skip("insufficient size data")
 			}
+			var minS, maxS int64 = sizes[0], sizes[0]
+			for _, s := range sizes {
+				if s < minS {
+					minS = s
+				}
+				if s > maxS {
+					maxS = s
+				}
+			}
+			if maxS > minS*10 {
+				t.Errorf("segment size range too wide: min=%d max=%d (ratio=%.1f)", minS, maxS, float64(maxS)/float64(minS))
+			}
+		})
+	})
+
+	t.Run("vs_ffmpeg_reference", func(t *testing.T) {
+		refSegs := segmentFiles(f.tsH264Dir, "ts")
+		ourSegs := segmentFiles(f.ourTSH264Dir, "ts")
+		if len(refSegs) == 0 || len(ourSegs) == 0 {
+			t.Skip("missing segments")
 		}
-		if maxS > minS*10 {
-			t.Errorf("segment size range too wide: min=%d max=%d (ratio=%.1f)", minS, maxS, float64(maxS)/float64(minS))
+		refAvg := avgFileSize(refSegs)
+		ourAvg := avgFileSize(ourSegs)
+		if refAvg == 0 {
+			t.Skip("reference avg size is 0")
+		}
+		ratio := float64(ourAvg) / float64(refAvg)
+		t.Logf("TS avg segment size: ref=%d ours=%d ratio=%.2f", refAvg, ourAvg, ratio)
+		if ratio > 1.3 || ratio < 0.7 {
+			t.Errorf("our avg TS segment size %d is %.2fx ffmpeg's %d (must be 0.7x-1.3x)", ourAvg, ratio, refAvg)
 		}
 	})
 }
@@ -1840,21 +1930,32 @@ func TestHLS100_69_SegmentNoFtypOrMoov(t *testing.T) {
 
 func TestHLS100_70_SegmentSizesReasonable(t *testing.T) {
 	f := getFixture(t)
-	runOnDirs(t, "size_reasonable", allFMP4Dirs(f), func(t *testing.T, dir string) {
-		segs := segmentFiles(dir, "m4s")
-		for _, seg := range segs {
-			info, _ := os.Stat(seg)
-			if info == nil {
-				continue
+	pairs := []struct {
+		refDir string
+		ourDir string
+	}{
+		{f.fmp4H264Dir, f.ourFMP4H264Dir},
+		{f.fmp4H265Dir, f.ourFMP4H265Dir},
+	}
+	for _, p := range pairs {
+		t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+			refSegs := segmentFiles(p.refDir, "m4s")
+			ourSegs := segmentFiles(p.ourDir, "m4s")
+			if len(refSegs) == 0 || len(ourSegs) == 0 {
+				t.Skip("missing segments")
 			}
-			if info.Size() < 100 {
-				t.Errorf("%s: too small (%d bytes)", filepath.Base(seg), info.Size())
+			refAvg := avgFileSize(refSegs)
+			ourAvg := avgFileSize(ourSegs)
+			if refAvg == 0 {
+				t.Skip("reference avg size is 0")
 			}
-			if info.Size() > 50*1024*1024 {
-				t.Errorf("%s: too large (%d bytes)", filepath.Base(seg), info.Size())
+			ratio := float64(ourAvg) / float64(refAvg)
+			t.Logf("fMP4 avg segment size: ref=%d ours=%d ratio=%.2f", refAvg, ourAvg, ratio)
+			if ratio > 1.3 || ratio < 0.7 {
+				t.Errorf("our avg segment size %d is %.2fx ffmpeg's %d (must be 0.7x-1.3x)", ourAvg, ratio, refAvg)
 			}
-		}
-	})
+		})
+	}
 }
 
 func TestHLS100_71_H264_avcCProfile(t *testing.T) {
@@ -2109,15 +2210,27 @@ func TestHLS100_80_CodecStringExtractable(t *testing.T) {
 
 func TestHLS100_81_10sSourceProduces10s(t *testing.T) {
 	f := getFixture(t)
-	dirs := []string{f.tsH264Dir, f.fmp4H264Dir, f.ourTSH264Dir, f.ourFMP4H264Dir}
-	for _, dir := range dirs {
-		t.Run(filepath.Base(dir), func(t *testing.T) {
-			dur := hls100_ffprobeDuration(filepath.Join(dir, "playlist.m3u8"))
-			if dur <= 0 {
-				t.Skip("ffprobe returned no duration")
+	pairs := []struct {
+		refDir string
+		ourDir string
+	}{
+		{f.tsH264Dir, f.ourTSH264Dir},
+		{f.fmp4H264Dir, f.ourFMP4H264Dir},
+	}
+	for _, p := range pairs {
+		t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+			refDur := hls100_ffprobeDuration(filepath.Join(p.refDir, "playlist.m3u8"))
+			ourDur := hls100_ffprobeDuration(filepath.Join(p.ourDir, "playlist.m3u8"))
+			if refDur <= 0 {
+				t.Skip("ffprobe returned no reference duration")
 			}
-			if math.Abs(dur-10.0) > 1.5 {
-				t.Errorf("ffprobe total duration %.3f, expected ~10s", dur)
+			if ourDur <= 0 {
+				t.Skip("ffprobe returned no our duration")
+			}
+			ratio := ourDur / refDur
+			t.Logf("duration: ref=%.3f ours=%.3f ratio=%.3f", refDur, ourDur, ratio)
+			if ratio > 1.05 || ratio < 0.95 {
+				t.Errorf("our duration %.3f is %.1f%% of ffmpeg's %.3f (must be 95-105%%)", ourDur, ratio*100, refDur)
 			}
 		})
 	}
@@ -2125,76 +2238,78 @@ func TestHLS100_81_10sSourceProduces10s(t *testing.T) {
 
 func TestHLS100_82_25fpsFrameCount(t *testing.T) {
 	f := getFixture(t)
-	dirs := []struct {
-		dir string
-		ext string
-		dur float64
-	}{
-		{f.tsH264Dir, "ts", 10},
-		{f.ourTSH264Dir, "ts", 10},
+	refSegs := segmentFiles(f.tsH264Dir, "ts")
+	ourSegs := segmentFiles(f.ourTSH264Dir, "ts")
+
+	countFrames := func(segs []string) int {
+		var total int
+		for _, seg := range segs {
+			fc := hls100_ffprobeFrameCount(seg, "v:0")
+			if fc > 0 {
+				total += fc
+			}
+		}
+		return total
 	}
-	for _, tc := range dirs {
-		t.Run(filepath.Base(tc.dir), func(t *testing.T) {
-			segs := segmentFiles(tc.dir, tc.ext)
-			var total int
-			for _, seg := range segs {
-				fc := hls100_ffprobeFrameCount(seg, "v:0")
-				if fc > 0 {
-					total += fc
-				}
-			}
-			expected := tc.dur * 25.0
-			if math.Abs(float64(total)-expected) > 10 {
-				t.Errorf("total frames=%d, expected~%.0f", total, expected)
-			}
-		})
+
+	refFrames := countFrames(refSegs)
+	ourFrames := countFrames(ourSegs)
+	if refFrames <= 0 {
+		t.Skip("no reference frame count")
+	}
+	ratio := float64(ourFrames) / float64(refFrames)
+	t.Logf("frame count: ref=%d ours=%d ratio=%.3f", refFrames, ourFrames, ratio)
+	if ratio > 1.05 || ratio < 0.95 {
+		t.Errorf("our frame count %d is %.1f%% of ffmpeg's %d (must be 95-105%%)", ourFrames, ratio*100, refFrames)
 	}
 }
 
 func TestHLS100_83_PlaybackRate(t *testing.T) {
 	f := getFixture(t)
-	dirs := []struct {
-		dir string
-		ext string
-	}{
-		{f.tsH264Dir, "ts"},
-		{f.ourTSH264Dir, "ts"},
+
+	measureRate := func(dir, ext string) float64 {
+		segs := segmentFiles(dir, ext)
+		if len(segs) == 0 {
+			return 0
+		}
+		var totalFrames int
+		var minPTS, maxPTS float64
+		first := true
+		for _, seg := range segs {
+			fc := hls100_ffprobeFrameCount(seg, "v:0")
+			if fc > 0 {
+				totalFrames += fc
+			}
+			pts := hls100_ffprobePacketPTSTime(seg, "v:0")
+			for _, p := range pts {
+				if first || p < minPTS {
+					minPTS = p
+				}
+				if first || p > maxPTS {
+					maxPTS = p
+				}
+				first = false
+			}
+		}
+		ptsRange := maxPTS - minPTS
+		if ptsRange > 0 && totalFrames > 0 {
+			return float64(totalFrames) / ptsRange
+		}
+		return 0
 	}
-	for _, tc := range dirs {
-		t.Run(filepath.Base(tc.dir), func(t *testing.T) {
-			segs := segmentFiles(tc.dir, tc.ext)
-			if len(segs) == 0 {
-				t.Skip("no segments")
-			}
-			var totalFrames int
-			var minPTS, maxPTS float64
-			first := true
-			for _, seg := range segs {
-				fc := hls100_ffprobeFrameCount(seg, "v:0")
-				if fc > 0 {
-					totalFrames += fc
-				}
-				pts := hls100_ffprobePacketPTSTime(seg, "v:0")
-				for _, p := range pts {
-					if first || p < minPTS {
-						minPTS = p
-					}
-					if first || p > maxPTS {
-						maxPTS = p
-					}
-					first = false
-				}
-			}
-			ptsRange := maxPTS - minPTS
-			if ptsRange > 0 && totalFrames > 0 {
-				rate := float64(totalFrames) / ptsRange
-				expected := 25.0
-				ratio := rate / expected
-				if ratio < 0.8 || ratio > 1.2 {
-					t.Errorf("playback rate %.2f fps (expected ~25, ratio=%.2f)", rate, ratio)
-				}
-			}
-		})
+
+	refRate := measureRate(f.tsH264Dir, "ts")
+	ourRate := measureRate(f.ourTSH264Dir, "ts")
+	if refRate <= 0 {
+		t.Skip("no reference rate")
+	}
+	if ourRate <= 0 {
+		t.Skip("no our rate")
+	}
+	ratio := ourRate / refRate
+	t.Logf("playback rate: ref=%.2f ours=%.2f ratio=%.3f", refRate, ourRate, ratio)
+	if ratio < 0.95 || ratio > 1.05 {
+		t.Errorf("our playback rate %.2f fps is %.1f%% of ffmpeg's %.2f fps (must be 95-105%%)", ourRate, ratio*100, refRate)
 	}
 }
 
@@ -2613,10 +2728,14 @@ func TestHLS100_99_OurTotalDurationMatchesFFmpeg(t *testing.T) {
 			for _, d := range extractEXTINFs(ourContent) {
 				ourTotal += d
 			}
-			if math.Abs(ourTotal-refTotal) > 0.5 {
-				t.Errorf("duration mismatch: ref=%.3f ours=%.3f (diff=%.3f)", refTotal, ourTotal, ourTotal-refTotal)
+			if refTotal <= 0 {
+				t.Skip("reference total is 0")
 			}
-			t.Logf("duration: ref=%.3f ours=%.3f", refTotal, ourTotal)
+			ratio := ourTotal / refTotal
+			t.Logf("duration: ref=%.3f ours=%.3f ratio=%.3f", refTotal, ourTotal, ratio)
+			if ratio > 1.05 || ratio < 0.95 {
+				t.Errorf("our total duration %.3f is %.1f%% of ffmpeg's %.3f (must be 95-105%%)", ourTotal, ratio*100, refTotal)
+			}
 		})
 	}
 }
@@ -2659,6 +2778,100 @@ func TestHLS100_100_OurInitBoxTypesMatchFFmpeg(t *testing.T) {
 				if !found {
 					t.Errorf("our init.mp4 missing top-level box %q (present in reference)", box)
 				}
+			}
+		})
+	}
+}
+
+func TestHLS100_101_TotalOutputSizeMatchesFFmpeg(t *testing.T) {
+	f := getFixture(t)
+	pairs := []struct {
+		refDir string
+		ourDir string
+		ext    string
+	}{
+		{f.tsH264Dir, f.ourTSH264Dir, "ts"},
+		{f.fmp4H264Dir, f.ourFMP4H264Dir, "m4s"},
+	}
+	for _, p := range pairs {
+		t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+			refSegs := segmentFiles(p.refDir, p.ext)
+			ourSegs := segmentFiles(p.ourDir, p.ext)
+			if len(refSegs) == 0 || len(ourSegs) == 0 {
+				t.Skip("missing segments")
+			}
+			refTotal := totalFileSize(refSegs)
+			ourTotal := totalFileSize(ourSegs)
+			if refTotal == 0 {
+				t.Skip("reference total size is 0")
+			}
+			ratio := float64(ourTotal) / float64(refTotal)
+			t.Logf("total output size: ref=%d ours=%d ratio=%.2f", refTotal, ourTotal, ratio)
+			if ratio > 1.3 || ratio < 0.7 {
+				t.Errorf("our total output size %d is %.2fx ffmpeg's %d (must be 0.7x-1.3x)", ourTotal, ratio, refTotal)
+			}
+		})
+	}
+}
+
+func TestHLS100_102_InitSegmentSizeMatchesFFmpeg(t *testing.T) {
+	f := getFixture(t)
+	pairs := []struct {
+		refDir string
+		ourDir string
+	}{
+		{f.fmp4H264Dir, f.ourFMP4H264Dir},
+		{f.fmp4H265Dir, f.ourFMP4H265Dir},
+	}
+	for _, p := range pairs {
+		t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+			refInit := filepath.Join(p.refDir, "init.mp4")
+			ourInit := filepath.Join(p.ourDir, "init.mp4")
+			refInfo, err := os.Stat(refInit)
+			if err != nil {
+				t.Skip("no reference init.mp4")
+			}
+			ourInfo, err := os.Stat(ourInit)
+			if err != nil {
+				t.Skip("no our init.mp4")
+			}
+			refSize := refInfo.Size()
+			ourSize := ourInfo.Size()
+			if refSize == 0 {
+				t.Skip("reference init size is 0")
+			}
+			ratio := float64(ourSize) / float64(refSize)
+			t.Logf("init.mp4 size: ref=%d ours=%d ratio=%.2f", refSize, ourSize, ratio)
+			if ratio > 1.3 || ratio < 0.7 {
+				t.Errorf("our init.mp4 size %d is %.2fx ffmpeg's %d (must be 0.7x-1.3x)", ourSize, ratio, refSize)
+			}
+		})
+	}
+}
+
+func TestHLS100_103_PlaylistLineCountMatchesFFmpeg(t *testing.T) {
+	f := getFixture(t)
+	pairs := []struct {
+		refDir string
+		ourDir string
+	}{
+		{f.tsH264Dir, f.ourTSH264Dir},
+		{f.fmp4H264Dir, f.ourFMP4H264Dir},
+	}
+	for _, p := range pairs {
+		t.Run(filepath.Base(p.ourDir), func(t *testing.T) {
+			refLines := playlistLines(p.refDir)
+			ourLines := playlistLines(p.ourDir)
+			if len(refLines) == 0 || len(ourLines) == 0 {
+				t.Skip("missing playlists")
+			}
+			diff := len(ourLines) - len(refLines)
+			if diff < 0 {
+				diff = -diff
+			}
+			t.Logf("playlist lines: ref=%d ours=%d diff=%d", len(refLines), len(ourLines), diff)
+			if diff > 2 {
+				t.Errorf("our playlist has %d lines vs ffmpeg's %d (diff=%d, max allowed=2)", len(ourLines), len(refLines), diff)
 			}
 		})
 	}
