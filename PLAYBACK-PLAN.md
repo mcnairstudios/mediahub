@@ -2,11 +2,11 @@
 
 ## Current Problem
 
-The server decides delivery mode and codec. The frontend gets whatever the server gives it and tries to play it. This is backwards. You end up with HLS segments being fed to an MSE player, or H.265 being sent to a browser that only handles H.264.
+The server decides delivery mode and codec. The frontend gets whatever the server gives it and tries to play it. You end up with HLS segments being fed to an MSE player, or H.265 being sent to a browser that only handles H.264.
 
 ## How Playback Should Work
 
-The **frontend is the trigger**. It is the only thing that knows what it can play.
+The server launches the frontend — so the backend still decides what's available (client profiles, source profiles, what outputs exist). But by the time the frontend hits a playback URL, it knows what it can play and the backend has no choice but to obey.
 
 ### The Flow
 
