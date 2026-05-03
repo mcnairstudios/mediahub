@@ -5080,6 +5080,7 @@
 
   function bindAutoSave(container, selectId, settingKey) {
     var sel = container.querySelector('#' + selectId);
+    if (!sel) { sel = document.getElementById(selectId); }
     if (!sel) return;
     sel.addEventListener('change', function() {
       saveSetting(settingKey, sel.value);
@@ -5211,23 +5212,6 @@
         }
         html += '</div></div>';
       }
-
-      var platforms = (caps.platforms || []);
-      var platformOpts = [{ value: 'none', label: 'Software (no HW accel)' }];
-      for (var pi = 0; pi < platforms.length; pi++) {
-        platformOpts.push({ value: platforms[pi], label: platforms[pi] });
-      }
-      if (platformOpts.length === 1) {
-        platformOpts = [{ value: 'none', label: 'None available' }, { value: 'videotoolbox', label: 'videotoolbox' }, { value: 'vaapi', label: 'vaapi' }, { value: 'nvenc', label: 'nvenc' }, { value: 'qsv', label: 'qsv' }];
-      }
-      var currentEncHW = getSetting(settings, 'default_hwaccel') || 'none';
-      var currentDecHW = getSetting(settings, 'default_decode_hwaccel') || 'none';
-      html += '<div class="settings-section"><div class="settings-section-title">Hardware Acceleration</div>' +
-        '<div class="settings-section-desc">Select the hardware platform for encoding and decoding.</div>' +
-        '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
-        '<div class="settings-field"><label>Encode Platform</label>' + makeSelect('setting-hwaccel', platformOpts, currentEncHW) + '</div>' +
-        '<div class="settings-field"><label>Decode Platform</label>' + makeSelect('setting-decode-hwaccel', platformOpts, currentDecHW) + '</div>' +
-        '</div></div>';
 
       var codecNames = { h264: 'H.264', h265: 'H.265 / HEVC', av1: 'AV1' };
       var encoderCodecs = ['h264', 'h265', 'av1'];
@@ -5542,8 +5526,6 @@
       }
     }
 
-    bindAutoSave(container, 'setting-hwaccel', 'default_hwaccel');
-    bindAutoSave(container, 'setting-decode-hwaccel', 'default_decode_hwaccel');
     bindAutoSave(container, 'setting-delivery', 'delivery');
     bindAutoSave(container, 'setting-video-codec', 'default_video_codec');
 
