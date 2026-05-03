@@ -66,12 +66,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		vcp := cfg.VideoCodecParams.(*astiav.CodecParameters)
 		hlsOpts.VideoCodecID = vcp.CodecID()
 		hlsOpts.VideoExtradata = vcp.ExtraData()
-		if len(hlsOpts.VideoExtradata) == 0 && len(cfg.VideoExtradata) > 0 {
-			hlsOpts.VideoExtradata = cfg.VideoExtradata
-		}
-		if len(hlsOpts.VideoExtradata) == 0 && cfg.Video != nil {
-			hlsOpts.VideoExtradata = cfg.Video.Extradata
-		}
 		hlsOpts.VideoWidth = vcp.Width()
 		hlsOpts.VideoHeight = vcp.Height()
 		hlsOpts.VideoFrameRate = 25
@@ -98,9 +92,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		acp := cfg.AudioCodecParams.(*astiav.CodecParameters)
 		hlsOpts.AudioCodecID = acp.CodecID()
 		hlsOpts.AudioExtradata = acp.ExtraData()
-		if len(hlsOpts.AudioExtradata) == 0 && len(cfg.AudioExtradata) > 0 {
-			hlsOpts.AudioExtradata = cfg.AudioExtradata
-		}
 		sampleRate := acp.SampleRate()
 		if sampleRate <= 0 {
 			sampleRate = 48000
@@ -119,14 +110,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		if sampleRate <= 0 {
 			sampleRate = 48000
 		}
-		channels := cfg.Audio.Channels
-		if channels <= 0 {
-			channels = 2
-		}
 
 		hlsOpts.AudioCodecID = audioCodecID
-		hlsOpts.AudioExtradata = cfg.AudioExtradata
-		hlsOpts.AudioChannels = channels
+		hlsOpts.AudioChannels = cfg.Audio.Channels
 		hlsOpts.AudioSampleRate = sampleRate
 		hlsOpts.AudioTimeBase = astiav.NewRational(1, sampleRate)
 		hlsOpts.AudioFrameSize = 1024
@@ -138,9 +124,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 
 	videoTB := astiav.NewRational(1, 90000)
-	audioTB := hlsOpts.AudioTimeBase
-	if audioTB.Den() <= 0 {
-		audioTB = astiav.NewRational(1, 48000)
+	audioTB := astiav.NewRational(1, 48000)
+	if cfg.Audio != nil && cfg.Audio.SampleRate > 0 {
+		audioTB = astiav.NewRational(1, cfg.Audio.SampleRate)
 	}
 
 	p := &Plugin{
@@ -148,7 +134,7 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		segDir:   segDir,
 		videoTB:  videoTB,
 		audioTB:  audioTB,
-		hasAudio: cfg.Audio != nil || cfg.AudioCodecParams != nil,
+		hasAudio: cfg.Audio != nil,
 	}
 	p.generation.Store(1)
 
