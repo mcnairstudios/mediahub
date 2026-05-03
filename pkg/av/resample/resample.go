@@ -74,7 +74,6 @@ func (r *Resampler) Convert(src *astiav.Frame) (*astiav.Frame, error) {
 		r.nextPts = src.Pts()
 		r.ptsInited = true
 	}
-
 	if err := r.swrCtx.ConvertFrame(src, r.dstFrame); err != nil {
 		if errors.Is(err, astiav.ErrInputChanged) {
 			r.swrCtx.Free()
@@ -102,10 +101,8 @@ func (r *Resampler) Convert(src *astiav.Frame) (*astiav.Frame, error) {
 		out.Free()
 		return nil, fmt.Errorf("resample: ref frame: %w", err)
 	}
-
 	out.SetPts(r.nextPts)
 	r.nextPts += int64(out.NbSamples())
-
 	return out, nil
 }
 
@@ -126,10 +123,8 @@ func (r *Resampler) Flush() ([]*astiav.Frame, error) {
 			out.Free()
 			return frames, fmt.Errorf("resample: ref flushed frame: %w", err)
 		}
-
 		out.SetPts(r.nextPts)
 		r.nextPts += int64(out.NbSamples())
-
 		frames = append(frames, out)
 	}
 	return frames, nil

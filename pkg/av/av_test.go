@@ -159,10 +159,10 @@ func (m *mockFilter) Close()                               {}
 
 type mockPacketSink struct{}
 
-func (m *mockPacketSink) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error { return nil }
-func (m *mockPacketSink) PushAudio(data []byte, pts, dts, duration int64) error                { return nil }
-func (m *mockPacketSink) PushSubtitle(data []byte, pts int64, duration int64) error            { return nil }
-func (m *mockPacketSink) EndOfStream()                                                         {}
+func (m *mockPacketSink) PushVideo(data []byte, pts, dts int64, keyframe bool) error { return nil }
+func (m *mockPacketSink) PushAudio(data []byte, pts, dts int64) error                { return nil }
+func (m *mockPacketSink) PushSubtitle(data []byte, pts int64, duration int64) error   { return nil }
+func (m *mockPacketSink) EndOfStream()                                                {}
 
 func TestInterfaceSatisfaction(t *testing.T) {
 	var _ Demuxer = &mockDemuxer{}

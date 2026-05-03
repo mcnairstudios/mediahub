@@ -10,12 +10,11 @@ import (
 )
 
 type Encoder struct {
-	codecCtx      *astiav.CodecContext
-	hwCtx         *astiav.HardwareDeviceContext
-	hwFramesCtx   *astiav.HardwareFramesContext
-	inputTimeBase astiav.Rational
-	closed        bool
-	hasEncoded    bool
+	codecCtx    *astiav.CodecContext
+	hwCtx       *astiav.HardwareDeviceContext
+	hwFramesCtx *astiav.HardwareFramesContext
+	closed      bool
+	hasEncoded  bool
 }
 
 type EncodeOpts struct {
@@ -28,8 +27,6 @@ type EncodeOpts struct {
 	Height           int
 	EncoderName      string
 	Framerate        int
-	Interlaced       bool
-	InputTimeBase    astiav.Rational
 }
 
 var hevcEncoders = map[string]string{
@@ -130,7 +127,7 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 		return nil, err
 	}
 
-	enc := &Encoder{inputTimeBase: opts.InputTimeBase}
+	enc := &Encoder{}
 
 	codec := astiav.FindEncoderByName(encoderName)
 	if codec == nil {
@@ -188,12 +185,7 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 	cc.SetTimeBase(astiav.NewRational(1, fps))
 	cc.SetFramerate(astiav.NewRational(fps, 1))
 
-	flags := astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader)
-	if opts.Interlaced {
-		flags = flags.Add(astiav.CodecContextFlagInterlacedDct)
-		flags = flags.Add(astiav.CodecContextFlagInterlacedMe)
-	}
-	cc.SetFlags(flags)
+	cc.SetFlags(astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader))
 
 	if enc.hwCtx != nil {
 		hwAccelKey := opts.HWAccel
@@ -413,13 +405,6 @@ func (e *Encoder) CodecID() astiav.CodecID {
 		return astiav.CodecIDNone
 	}
 	return e.codecCtx.CodecID()
-}
-
-func (e *Encoder) TimeBase() astiav.Rational {
-	if e.codecCtx == nil {
-		return astiav.NewRational(0, 1)
-	}
-	return e.codecCtx.TimeBase()
 }
 
 func (e *Encoder) Flush() ([]*astiav.Packet, error) {

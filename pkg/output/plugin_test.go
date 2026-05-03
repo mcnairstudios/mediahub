@@ -25,7 +25,7 @@ func newMockPlugin(mode DeliveryMode) *mockPlugin {
 
 func (m *mockPlugin) Mode() DeliveryMode { return m.mode }
 
-func (m *mockPlugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
+func (m *mockPlugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -33,7 +33,7 @@ func (m *mockPlugin) PushVideo(data []byte, pts, dts, duration int64, keyframe b
 	return nil
 }
 
-func (m *mockPlugin) PushAudio(data []byte, pts, dts, duration int64) error {
+func (m *mockPlugin) PushAudio(data []byte, pts, dts int64) error {
 	if m.err != nil {
 		return m.err
 	}

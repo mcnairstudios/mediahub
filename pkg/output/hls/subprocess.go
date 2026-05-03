@@ -36,11 +36,11 @@ func (p *SubprocessPlugin) Mode() output.DeliveryMode {
 	return output.DeliveryHLS
 }
 
-func (p *SubprocessPlugin) PushVideo(_ []byte, _, _, _ int64, _ bool) error {
+func (p *SubprocessPlugin) PushVideo(_ []byte, _, _ int64, _ bool) error {
 	return nil
 }
 
-func (p *SubprocessPlugin) PushAudio(_ []byte, _, _, _ int64) error {
+func (p *SubprocessPlugin) PushAudio(_ []byte, _, _ int64) error {
 	return nil
 }
 

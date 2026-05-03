@@ -29,16 +29,14 @@ var hwAccelMap = map[string]astiav.HardwareDeviceType{
 }
 
 type Decoder struct {
-	codecCtx     *astiav.CodecContext
-	hwCtx        *astiav.HardwareDeviceContext
-	keepHWFrames bool
+	codecCtx *astiav.CodecContext
+	hwCtx    *astiav.HardwareDeviceContext
 }
 
 type DecodeOpts struct {
-	HWAccel      string
-	MaxBitDepth  int
-	DecoderName  string
-	KeepHWFrames bool
+	HWAccel     string
+	MaxBitDepth int
+	DecoderName string
 }
 
 func NewVideoDecoderFromParams(cp *astiav.CodecParameters, opts DecodeOpts) (*Decoder, error) {
@@ -113,7 +111,7 @@ func NewVideoDecoderFromParams(cp *astiav.CodecParameters, opts DecodeOpts) (*De
 		return nil, fmt.Errorf("decode: open codec: %w", err)
 	}
 
-	return &Decoder{codecCtx: cc, hwCtx: hwCtx, keepHWFrames: opts.KeepHWFrames}, nil
+	return &Decoder{codecCtx: cc, hwCtx: hwCtx}, nil
 }
 
 func newVideoDecoderFromParamsSW(cp *astiav.CodecParameters) (*Decoder, error) {
@@ -199,7 +197,7 @@ func NewVideoDecoder(codecID astiav.CodecID, extradata []byte, opts DecodeOpts) 
 		return nil, fmt.Errorf("decode: open codec: %w", err)
 	}
 
-	return &Decoder{codecCtx: cc, hwCtx: hwCtx, keepHWFrames: opts.KeepHWFrames}, nil
+	return &Decoder{codecCtx: cc, hwCtx: hwCtx}, nil
 }
 
 func newSWDecoder(codecID astiav.CodecID, extradata []byte) (*Decoder, error) {
@@ -299,7 +297,7 @@ func (d *Decoder) Decode(pkt *astiav.Packet) ([]*astiav.Frame, error) {
 			return frames, fmt.Errorf("decode: receive frame: %w", err)
 		}
 
-		if isHWPixelFormat(f.PixelFormat()) && !d.keepHWFrames {
+		if isHWPixelFormat(f.PixelFormat()) {
 			sw := astiav.AllocFrame()
 			if sw == nil {
 				f.Free()
@@ -358,10 +356,6 @@ func exceedsMaxBitDepth(pf astiav.PixelFormat, maxBitDepth int) bool {
 		return false
 	}
 	return bitDepthFromPixelFormat(pf) > maxBitDepth
-}
-
-func (d *Decoder) HWDeviceContext() *astiav.HardwareDeviceContext {
-	return d.hwCtx
 }
 
 func (d *Decoder) Flush() ([]*astiav.Frame, error) {

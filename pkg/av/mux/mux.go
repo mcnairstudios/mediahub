@@ -23,12 +23,10 @@ type MuxOpts struct {
 	VideoWidth        int
 	VideoHeight       int
 	VideoTimeBase     astiav.Rational
-	VideoFrameRate    int
 	AudioCodecID      astiav.CodecID
 	AudioExtradata    []byte
 	AudioChannels     int
 	AudioSampleRate   int
-	AudioFrameSize    int
 }
 
 type FragmentedMuxer struct {
@@ -38,7 +36,6 @@ type FragmentedMuxer struct {
 	videoStarted  bool
 	closed        bool
 	mu            sync.Mutex
-	opts          MuxOpts
 }
 
 type trackMuxer struct {
@@ -82,7 +79,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		audioFragMs = 2048
 	}
 
-	m := &FragmentedMuxer{opts: opts}
+	m := &FragmentedMuxer{}
 
 	if opts.VideoCodecID != astiav.CodecIDNone {
 		var videoThresholdUs int64
@@ -226,38 +223,6 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 	return tm, nil
 }
 
-func (m *FragmentedMuxer) fixVideoDuration(pkt *astiav.Packet) {
-	if pkt.Duration() > 0 {
-		return
-	}
-	fps := m.opts.VideoFrameRate
-	if fps <= 0 {
-		fps = 25
-	}
-	outTB := m.video.stream.TimeBase()
-	if outTB.Den() > 0 && outTB.Num() > 0 {
-		pkt.SetDuration(int64(outTB.Den()) / (int64(fps) * int64(outTB.Num())))
-	}
-}
-
-func (m *FragmentedMuxer) fixAudioDuration(pkt *astiav.Packet) {
-	if pkt.Duration() > 0 {
-		return
-	}
-	frameSize := m.opts.AudioFrameSize
-	if frameSize <= 0 {
-		frameSize = 1024
-	}
-	sampleRate := m.opts.AudioSampleRate
-	if sampleRate <= 0 {
-		sampleRate = 48000
-	}
-	outTB := m.audio.stream.TimeBase()
-	if outTB.Den() > 0 && outTB.Num() > 0 {
-		pkt.SetDuration(int64(frameSize) * int64(outTB.Den()) / (int64(sampleRate) * int64(outTB.Num())))
-	}
-}
-
 func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -268,7 +233,6 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 		return errors.New("avmux: no video track configured")
 	}
 
-	m.fixVideoDuration(pkt)
 	isKeyframe := pkt.Flags().Has(astiav.PacketFlagKey)
 
 	dur := pktDurationUs(pkt, m.video.stream)
@@ -308,7 +272,6 @@ func (m *FragmentedMuxer) WriteAudioPacket(pkt *astiav.Packet) error {
 		return nil
 	}
 
-	m.fixAudioDuration(pkt)
 	pkt.SetStreamIndex(m.audio.stream.Index())
 	pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
 	pkt.RescaleTs(m.audio.timeBase, m.audio.stream.TimeBase())

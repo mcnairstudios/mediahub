@@ -21,10 +21,10 @@ type mockRecordPlugin struct {
 	fileSize  int64
 }
 
-func (m *mockRecordPlugin) Mode() output.DeliveryMode                         { return m.mode }
-func (m *mockRecordPlugin) PushVideo([]byte, int64, int64, int64, bool) error { return nil }
-func (m *mockRecordPlugin) PushAudio([]byte, int64, int64, int64) error       { return nil }
-func (m *mockRecordPlugin) PushSubtitle([]byte, int64, int64) error           { return nil }
+func (m *mockRecordPlugin) Mode() output.DeliveryMode                  { return m.mode }
+func (m *mockRecordPlugin) PushVideo([]byte, int64, int64, bool) error { return nil }
+func (m *mockRecordPlugin) PushAudio([]byte, int64, int64) error       { return nil }
+func (m *mockRecordPlugin) PushSubtitle([]byte, int64, int64) error    { return nil }
 func (m *mockRecordPlugin) EndOfStream()                               {}
 func (m *mockRecordPlugin) ResetForSeek()                              {}
 func (m *mockRecordPlugin) Stop()                                      {}
