@@ -43,6 +43,7 @@ const dom = {
       blur: function() {},
       play: function() { return Promise.resolve(); },
       pause: function() {},
+      canPlayType: function() { return ''; },
       get value() { return ''; },
       set value(v) {}
     };
@@ -151,6 +152,74 @@ try {
   } else {
     console.log('PASS: no "Failed to load" in initial render');
   }
+
+  function assert(cond, msg) {
+    if (cond) {
+      console.log('PASS: ' + msg);
+    } else {
+      console.error('FAIL: ' + msg);
+      errors++;
+    }
+  }
+
+  console.log('\n--- Playback Integration Tests ---');
+
+  var PlayerRegistry = exported.PlayerRegistry;
+  var detectCapabilities = exported.detectCapabilities;
+
+  assert(typeof PlayerRegistry !== 'undefined' && PlayerRegistry !== null, 'PlayerRegistry exists');
+  assert(typeof detectCapabilities === 'function', 'detectCapabilities is a function');
+
+  var allModes = ['mse', 'hls', 'dash', 'webrtc', 'stream'];
+  allModes.forEach(function(mode) {
+    assert(PlayerRegistry.get(mode) !== null, mode + ' plugin registered');
+  });
+
+  allModes.forEach(function(mode) {
+    var plugin = PlayerRegistry.get(mode);
+    assert(typeof plugin.isSupported === 'function', mode + ' has isSupported()');
+    assert(typeof plugin.serverParams === 'function', mode + ' has serverParams()');
+    assert(typeof plugin.create === 'function', mode + ' has create()');
+    assert(typeof plugin.label === 'string', mode + ' has label');
+  });
+
+  var expectedDelivery = { mse: 'mse', hls: 'hls', dash: 'dash', webrtc: 'webrtc', stream: 'stream' };
+  allModes.forEach(function(mode) {
+    var params = PlayerRegistry.get(mode).serverParams();
+    assert(params.delivery === expectedDelivery[mode], mode + ' serverParams delivery = "' + expectedDelivery[mode] + '"');
+  });
+
+  var caps = detectCapabilities();
+  assert(typeof caps === 'object', 'capabilities is object');
+  assert('mse' in caps, 'has mse capability');
+  assert('mse_h264' in caps, 'has mse_h264 capability');
+  assert('mse_h265' in caps, 'has mse_h265 capability');
+  assert('hls_native' in caps, 'has hls_native capability');
+  assert('hls_js' in caps, 'has hls_js capability');
+  assert('webrtc' in caps, 'has webrtc capability');
+
+  assert(caps.mse === false, 'mse is false in Node.js');
+  assert(caps.webrtc === false, 'webrtc is false in Node.js');
+
+  allModes.forEach(function(mode) {
+    var plugin = PlayerRegistry.get(mode);
+    var mockVideo = {
+      src: '',
+      play: function() { return Promise.resolve(); },
+      pause: function() {},
+      srcObject: null,
+      addEventListener: function() {},
+      removeEventListener: function() {}
+    };
+    var instance = plugin.create(mockVideo);
+    assert(typeof instance.start === 'function', mode + ' instance has start()');
+    assert(typeof instance.stop === 'function', mode + ' instance has stop()');
+  });
+
+  var available = PlayerRegistry.available();
+  assert(Array.isArray(available), 'PlayerRegistry.available() returns array');
+  assert(available.indexOf('stream') >= 0, 'Direct/stream plugin always available');
+
 } catch (e) {
   console.error('FAIL: runtime error:', e.message);
   errors++;

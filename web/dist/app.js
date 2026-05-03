@@ -3005,17 +3005,84 @@
       var pc = null;
       var cachedEndpoints = null;
       var cachedStreamID = null;
-      return {
+      var retryCount = 0;
+      var maxRetries = 3;
+      var retryTimer = null;
+      var statsTimer = null;
+      var stopped = false;
+      var self;
+
+      function cleanup() {
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+        if (pc) {
+          pc.ontrack = null;
+          pc.oniceconnectionstatechange = null;
+          pc.onconnectionstatechange = null;
+          pc.close();
+          pc = null;
+        }
+        videoEl.srcObject = null;
+      }
+
+      function scheduleRetry() {
+        if (stopped || retryCount >= maxRetries) return;
+        retryCount++;
+        var delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
+        retryTimer = setTimeout(function() {
+          retryTimer = null;
+          if (!stopped && cachedEndpoints && cachedStreamID) {
+            self.start(cachedEndpoints, cachedStreamID);
+          }
+        }, delay);
+      }
+
+      self = {
         start: function(endpoints, streamID) {
+          cleanup();
+          if (stopped) return;
           cachedEndpoints = endpoints;
           cachedStreamID = streamID;
           var whepUrl = endpoints.whep || ('/api/play/' + streamID + '/webrtc/whep');
-          pc = new RTCPeerConnection({iceServers: [{urls: 'stun:stun.l.google.com:19302'}]});
+          pc = new RTCPeerConnection({
+            iceServers: [{urls: 'stun:stun.l.google.com:19302'}],
+            iceCandidatePoolSize: 1
+          });
           pc.addTransceiver('video', {direction: 'recvonly'});
           pc.addTransceiver('audio', {direction: 'recvonly'});
+
           pc.ontrack = function(e) {
-            if (e.streams && e.streams[0]) videoEl.srcObject = e.streams[0];
+            if (e.streams && e.streams[0]) {
+              videoEl.srcObject = e.streams[0];
+              e.streams[0].onremovetrack = function() {
+                if (!stopped) scheduleRetry();
+              };
+            }
           };
+
+          pc.oniceconnectionstatechange = function() {
+            if (!pc) return;
+            var state = pc.iceConnectionState;
+            if (state === 'connected' || state === 'completed') {
+              retryCount = 0;
+            } else if (state === 'disconnected') {
+              setTimeout(function() {
+                if (pc && pc.iceConnectionState === 'disconnected' && !stopped) {
+                  scheduleRetry();
+                }
+              }, 2000);
+            } else if (state === 'failed') {
+              if (!stopped) scheduleRetry();
+            }
+          };
+
+          pc.onconnectionstatechange = function() {
+            if (!pc) return;
+            if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+              if (!stopped) scheduleRetry();
+            }
+          };
+
           pc.createOffer().then(function(offer) {
             return pc.setLocalDescription(offer);
           }).then(function() {
@@ -3024,21 +3091,33 @@
               headers: {'Content-Type': 'application/sdp', 'Authorization': 'Bearer ' + (api && api.token || '')},
               body: pc.localDescription.sdp
             });
-          }).then(function(r) { return r.text(); })
-          .then(function(sdp) {
+          }).then(function(r) {
+            if (!r.ok) throw new Error('WHEP signalling failed: ' + r.status);
+            return r.text();
+          }).then(function(sdp) {
+            if (!pc || stopped) return;
             return pc.setRemoteDescription({type: 'answer', sdp: sdp});
           }).then(function() {
+            if (!pc || stopped) return;
             videoEl.play().catch(function(){});
+          }).catch(function(err) {
+            if (!stopped) scheduleRetry();
           });
         },
-        stop: function() { if (pc) { pc.close(); pc = null; } videoEl.srcObject = null; },
+        stop: function() {
+          stopped = true;
+          cleanup();
+        },
         retry: function() {
-          this.stop();
+          stopped = false;
+          retryCount = 0;
+          cleanup();
           if (cachedEndpoints && cachedStreamID) {
-            this.start(cachedEndpoints, cachedStreamID);
+            self.start(cachedEndpoints, cachedStreamID);
           }
         }
       };
+      return self;
     }
   };
   PlayerRegistry.register('webrtc', WebRTCPlayer);
@@ -9377,6 +9456,6 @@
   render();
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { pages: pages, esc: esc, formatTime: formatTime, api: api };
+    module.exports = { pages: pages, esc: esc, formatTime: formatTime, api: api, PlayerRegistry: PlayerRegistry, detectCapabilities: detectCapabilities };
   }
 })();
