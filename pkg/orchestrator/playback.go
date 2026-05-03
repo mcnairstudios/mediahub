@@ -38,16 +38,18 @@ type PlaybackDeps struct {
 	UserAgent          string
 	PipelineRunner     PipelineRunner
 	ClientOverrideID   string
+	DeliveryOverride   string
 }
 
 type PlaybackResult struct {
-	Session   *session.Session
-	Plugin    output.OutputPlugin
-	Servable  output.ServablePlugin
-	Decision  strategy.Decision
-	IsNew     bool
-	Delivery  string
-	ProbeInfo *media.ProbeResult
+	Session             *session.Session
+	Plugin              output.OutputPlugin
+	Servable            output.ServablePlugin
+	Decision            strategy.Decision
+	IsNew               bool
+	Delivery            string
+	DeliverySwitchable  bool
+	ProbeInfo           *media.ProbeResult
 }
 
 func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port int, headers map[string]string) (*PlaybackResult, error) {
@@ -213,10 +215,19 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	delivery := resolveDelivery(ctx, deps)
+	deliverySwitchable := false
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
-		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+		if detectedClient.Profile.Delivery == "user" {
+			deliverySwitchable = true
+		} else {
+			delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+		}
+	}
+	if deps.DeliveryOverride != "" {
+		delivery = output.DeliveryMode(deps.DeliveryOverride)
 	}
 	sess.Delivery = string(delivery)
+	result.DeliverySwitchable = deliverySwitchable
 
 	pluginCfg := output.PluginConfig{
 		OutputDir: sess.OutputDir,
@@ -410,10 +421,19 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 	result.ProbeInfo = info
 
 	delivery := resolveDelivery(ctx, deps)
+	deliverySwitchable := false
 	if detectedClient != nil && detectedClient.Profile.Delivery != "" {
-		delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+		if detectedClient.Profile.Delivery == "user" {
+			deliverySwitchable = true
+		} else {
+			delivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+		}
+	}
+	if deps.DeliveryOverride != "" {
+		delivery = output.DeliveryMode(deps.DeliveryOverride)
 	}
 	sess.Delivery = string(delivery)
+	result.DeliverySwitchable = deliverySwitchable
 
 	pluginCfg := output.PluginConfig{
 		OutputDir:        sess.OutputDir,

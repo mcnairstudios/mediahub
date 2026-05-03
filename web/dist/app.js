@@ -342,6 +342,8 @@
     mseState: null,
 
     activePlayer: null,
+    deliveryOverride: null,
+    deliverySwitchable: false,
 
     cleanup: function() {
       if (this.bufferWatchInterval) { clearInterval(this.bufferWatchInterval); this.bufferWatchInterval = null; }
@@ -2416,10 +2418,16 @@
 
     try {
       var resp;
+      var deliveryPref = playerState.deliveryOverride || null;
       if (isRecording) {
-        resp = await api.post('/api/recordings/completed/' + recID + '/play');
+        resp = await api.post('/api/recordings/completed/' + recID + '/play', deliveryPref ? { delivery: deliveryPref } : undefined);
       } else {
-        resp = await api.post('/api/play/' + streamID);
+        var available = PlayerRegistry.available();
+        if (!deliveryPref && available.length > 0) {
+          var preferred = available.indexOf('mse') >= 0 ? 'mse' : available[0];
+          deliveryPref = PlayerRegistry.get(preferred).serverParams().delivery;
+        }
+        resp = await api.post('/api/play/' + streamID, deliveryPref ? { delivery: deliveryPref } : undefined);
       }
       if (!resp.ok) {
         var errData = await resp.json().catch(function() { return {}; });
@@ -2436,6 +2444,11 @@
       playerState.delivery = delivery;
       playerState.decision = data.decision || {};
       playerState.probeInfo = data.probe_info || {};
+      playerState.deliverySwitchable = !!data.delivery_switchable;
+
+      if (playerState.deliverySwitchable) {
+        showDeliverySwitcher(delivery, streamID);
+      }
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
@@ -2465,6 +2478,45 @@
     bindPlayerControls(videoEl, streamID, seekPath);
     startBufferWatch(videoEl);
     startStatsWatch(videoEl);
+  }
+
+  function showDeliverySwitcher(currentDelivery, streamID) {
+    var floatBar = document.getElementById('player-float-bar');
+    if (!floatBar) return;
+    var existing = document.getElementById('delivery-switcher');
+    if (existing) existing.remove();
+
+    var available = PlayerRegistry.available();
+    if (available.length <= 1) return;
+
+    var labels = { mse: 'MSE', hls: 'HLS', stream: 'Direct' };
+    var sel = document.createElement('select');
+    sel.id = 'delivery-switcher';
+    sel.className = 'delivery-switcher';
+    sel.style.cssText = 'background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;margin-left:8px;';
+    for (var i = 0; i < available.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = available[i];
+      opt.textContent = labels[available[i]] || available[i];
+      if (available[i] === currentDelivery) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', function() {
+      var newDelivery = sel.value;
+      if (newDelivery === playerState.delivery) return;
+      playerState.deliveryOverride = newDelivery;
+      if (playerState.activePlayer) playerState.activePlayer.stop();
+      if (playerState.currentStreamID) {
+        api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+      }
+      initPlayer(streamID);
+    });
+    var stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+      floatBar.insertBefore(sel, stopBtn);
+    } else {
+      floatBar.appendChild(sel);
+    }
   }
 
   var HLSPlayer = {
@@ -8202,6 +8254,7 @@
         '<option value="stream"' + (p.delivery === 'stream' ? ' selected' : '') + '>Stream (direct)</option>' +
         '<option value="mse"' + (p.delivery === 'mse' ? ' selected' : '') + '>MSE (browser)</option>' +
         '<option value="hls"' + (p.delivery === 'hls' ? ' selected' : '') + '>HLS (segmented)</option>' +
+        '<option value="user"' + (p.delivery === 'user' ? ' selected' : '') + '>User Choice</option>' +
         '</select></div>' +
         '<div class="form-group"><label class="form-label">Video Codec</label>' +
         '<select class="form-input" id="cp-video">' +

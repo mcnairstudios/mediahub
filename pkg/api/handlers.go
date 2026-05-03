@@ -337,7 +337,15 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var body struct {
+		Delivery string `json:"delivery"`
+	}
+	_ = httputil.DecodeJSON(r, &body)
+
 	deps := s.playbackDeps()
+	if body.Delivery != "" {
+		deps.DeliveryOverride = body.Delivery
+	}
 
 	if profileName := r.URL.Query().Get("profile"); profileName != "" {
 		if s.deps.ClientStore != nil {
@@ -391,10 +399,11 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"session_id": result.Session.ID,
-		"stream_id":  result.Session.StreamID,
-		"is_new":     result.IsNew,
-		"delivery":   result.Delivery,
+		"session_id":           result.Session.ID,
+		"stream_id":            result.Session.StreamID,
+		"is_new":               result.IsNew,
+		"delivery":             result.Delivery,
+		"delivery_switchable":  result.DeliverySwitchable,
 		"decision": map[string]any{
 			"needs_transcode":       result.Decision.NeedsTranscode,
 			"needs_audio_transcode": result.Decision.NeedsAudioTranscode,
