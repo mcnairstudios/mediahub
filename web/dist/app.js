@@ -2446,9 +2446,7 @@
       playerState.probeInfo = data.probe_info || {};
       playerState.deliverySwitchable = !!data.delivery_switchable;
 
-      if (playerState.deliverySwitchable) {
-        showDeliverySwitcher(delivery, streamID);
-      }
+      showDeliverySwitcher(delivery, streamID);
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
@@ -2489,7 +2487,7 @@
     var available = PlayerRegistry.available();
     if (available.length <= 1) return;
 
-    var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', stream: 'Direct' };
+    var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
     var sel = document.createElement('select');
     sel.id = 'delivery-switcher';
     sel.className = 'delivery-switcher';
