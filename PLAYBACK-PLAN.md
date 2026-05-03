@@ -59,17 +59,18 @@ function play(streamID) {
 
 The server already has output plugins (MSE, HLS, Stream, Record). The only change is: the server uses the delivery/codec params from the request instead of deciding itself. The strategy layer resolves copy vs transcode based on what the frontend asked for vs what the source provides.
 
-### Client Profiles Become Player Presets
+### Client Profiles
 
-A "client profile" in the UI is just a saved set of player preferences:
+A client profile either forces a specific delivery or lets the user choose:
 
-- **Browser** → MSEPlayer, H.264, AAC, fMP4
-- **Browser H.265** → MSEPlayer, H.265, AAC, fMP4  
-- **HLS** → HLSPlayer, H.264, AAC, MPEG-TS
-- **Low Latency** → WebRTCPlayer (future)
-- **Adaptive** → DASHPlayer (future)
+- **Browser** → forced: MSEPlayer, H.264, AAC, fMP4
+- **Browser H.265** → forced: MSEPlayer, H.265, AAC, fMP4
+- **HLS** → forced: HLSPlayer, H.264, AAC, MPEG-TS
+- **User Choice** → frontend shows a dropdown (MSE, HLS, DASH, WebRTC) and the user picks
 
-Switching profile = switching which player plugin is used + what params are sent to the server. The profile dropdown is just a shortcut — advanced users could override individual settings.
+When the profile is set to `<user>`, the frontend presents the available delivery modes (filtered by capability detection — only show what the browser actually supports). The user picks, and that becomes the request.
+
+This means an admin can lock clients to a specific mode, or give users freedom to experiment.
 
 ### Capability Detection (run once)
 
