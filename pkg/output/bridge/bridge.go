@@ -99,7 +99,7 @@ func New(cfg Config) (*Bridge, error) {
 			decHW = cfg.HWAccel
 		}
 
-		useHWVideoPath := (cfg.HWAccel == "videotoolbox") && decHW != "" && decHW != "none" && !info.Video.Interlaced && !cfg.Deinterlace
+		useHWVideoPath := (cfg.HWAccel == "videotoolbox") && decHW != "" && decHW != "none" && !info.Video.Interlaced
 		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
 
 		if cp, ok := cfg.VideoCodecParams.(*astiav.CodecParameters); ok && cp != nil {
