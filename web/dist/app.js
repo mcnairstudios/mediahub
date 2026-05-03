@@ -785,7 +785,7 @@
     var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
-      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'Trailers' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'SpaceX' : 'M3U';
+      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'TMDB' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'SpaceX' : 'M3U';
       html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
@@ -3588,7 +3588,7 @@
       '<button class="btn btn-primary" id="add-xtream-btn">' + icons.plus + ' Add Xtream Source</button>' +
       '<button class="btn btn-primary" id="add-hdhr-btn">' + icons.plus + ' Add HDHomeRun</button>' +
       '<button class="btn btn-primary" id="add-satip-btn">' + icons.plus + ' Add SAT>IP Source</button>' +
-      '<button class="btn btn-primary" id="add-trailers-btn">' + icons.plus + ' Add Apple Trailers</button>' +
+      '<button class="btn btn-primary" id="add-trailers-btn">' + icons.plus + ' Add TMDB Trailers</button>' +
       '<button class="btn btn-primary" id="add-demo-btn">' + icons.plus + ' Add Demo Streams</button>' +
       '<button class="btn btn-primary" id="add-spacex-btn">' + icons.plus + ' Add SpaceX Launches</button>' +
       '<button class="btn btn-ghost" id="discover-hdhr-btn">Discover HDHomeRun</button>' +
@@ -3651,8 +3651,8 @@
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-satip-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-satip-btn">Cancel</button></div></div>' +
       '<div id="add-trailers-form" style="display:none" class="card">' +
-      '<div class="card-title">New Apple Trailers Source</div>' +
-      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="trailers-name" placeholder="Apple Trailers" value="Apple Trailers"></div>' +
+      '<div class="card-title">New TMDB Trailers Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="trailers-name" placeholder="TMDB Trailers" value="TMDB Trailers"></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-trailers-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-trailers-btn">Cancel</button></div></div>' +
       '<div id="add-demo-form" style="display:none" class="card">' +
@@ -3814,7 +3814,7 @@
     document.getElementById('cancel-satip-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-trailers-btn').addEventListener('click', function() {
       resetFormFields('add-trailers-form');
-      setFormTitle('add-trailers-form', 'New Apple Trailers Source');
+      setFormTitle('add-trailers-form', 'New TMDB Trailers Source');
       setSubmitBtnText('create-trailers-btn', 'Create');
       showSourceFormAsModal('add-trailers-form');
     });
@@ -4583,7 +4583,7 @@
             document.getElementById('satip-epg-source').value = config.epg_source_id || '';
             document.getElementById('satip-enabled').checked = entry.is_enabled;
           } else if (type === 'trailers') {
-            setFormTitle('add-trailers-form', 'Edit Apple Trailers Source');
+            setFormTitle('add-trailers-form', 'Edit TMDB Trailers Source');
             setSubmitBtnText('create-trailers-btn', 'Update');
             showSourceFormAsModal('add-trailers-form');
             document.getElementById('trailers-name').value = name || '';
