@@ -11,7 +11,8 @@
       "rtsp_protocols": "tcp",
       "rtsp_latency": 200,
       "http_timeout_sec": 10,
-      "format_hint": "rtsp"
+      "format_hint": "rtsp",
+      "probe_duration_sec": 2
     },
     {
       "name": "HDHomeRun",
