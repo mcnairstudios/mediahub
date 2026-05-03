@@ -88,7 +88,7 @@ func TestFMP4Reference_EndToEnd(t *testing.T) {
 	t.Logf("using ffmpeg at %s", ffmpegPath)
 
 	tmpRoot := t.TempDir()
-	inputPath := filepath.Join(tmpRoot, "input.ts")
+	inputPath := filepath.Join(tmpRoot, "input.mp4")
 	refPath := filepath.Join(tmpRoot, "ref.mp4")
 	ourDir := filepath.Join(tmpRoot, "ours")
 
