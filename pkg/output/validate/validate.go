@@ -143,10 +143,21 @@ type mpdRepresentation struct {
 }
 
 type mpdSegmentTemplate struct {
-	Timescale      int    `xml:"timescale,attr"`
-	Duration       int    `xml:"duration,attr"`
-	Media          string `xml:"media,attr"`
-	Initialization string `xml:"initialization,attr"`
+	Timescale         int                `xml:"timescale,attr"`
+	Duration          int                `xml:"duration,attr"`
+	Media             string             `xml:"media,attr"`
+	Initialization    string             `xml:"initialization,attr"`
+	SegmentTimeline   *mpdSegmentTimeline `xml:"SegmentTimeline"`
+}
+
+type mpdSegmentTimeline struct {
+	Segments []mpdTimelineS `xml:"S"`
+}
+
+type mpdTimelineS struct {
+	T int64 `xml:"t,attr"`
+	D int64 `xml:"d,attr"`
+	R int   `xml:"r,attr"`
 }
 
 func ValidateMPD(data []byte) []ValidationError {
@@ -183,8 +194,9 @@ func ValidateMPD(data []byte) []ValidationError {
 				if tmpl.Timescale <= 0 {
 					errs = append(errs, ValidationError{Field: "timescale", Message: fmt.Sprintf("Period %d AdaptationSet %d: timescale must be > 0", pi, ai)})
 				}
-				if tmpl.Duration <= 0 {
-					errs = append(errs, ValidationError{Field: "segment_duration", Message: fmt.Sprintf("Period %d AdaptationSet %d: segment duration must be > 0", pi, ai)})
+				hasTimeline := tmpl.SegmentTimeline != nil && len(tmpl.SegmentTimeline.Segments) > 0
+				if tmpl.Duration <= 0 && !hasTimeline {
+					errs = append(errs, ValidationError{Field: "segment_duration", Message: fmt.Sprintf("Period %d AdaptationSet %d: segment duration must be > 0 (or use SegmentTimeline)", pi, ai)})
 				}
 				if tmpl.Media == "" {
 					errs = append(errs, ValidationError{Field: "segment_template", Message: fmt.Sprintf("Period %d AdaptationSet %d: SegmentTemplate missing media attribute", pi, ai)})
@@ -414,4 +426,65 @@ func findBox(boxes []*mp4Box, boxType string) *mp4Box {
 		}
 	}
 	return nil
+}
+
+const tsPacketSize = 188
+const tsSyncByte = 0x47
+
+func ValidateTSSegment(data []byte) []ValidationError {
+	var errs []ValidationError
+
+	if len(data) == 0 {
+		errs = append(errs, ValidationError{Field: "data", Message: "empty TS segment"})
+		return errs
+	}
+
+	if len(data)%tsPacketSize != 0 {
+		errs = append(errs, ValidationError{Field: "alignment", Message: fmt.Sprintf("data length %d is not a multiple of 188", len(data))})
+	}
+
+	packetCount := len(data) / tsPacketSize
+	if packetCount == 0 {
+		errs = append(errs, ValidationError{Field: "packets", Message: "no complete TS packets"})
+		return errs
+	}
+
+	hasPAT := false
+	pids := map[uint16]int{}
+
+	for i := 0; i < packetCount; i++ {
+		offset := i * tsPacketSize
+		pkt := data[offset : offset+tsPacketSize]
+
+		if pkt[0] != tsSyncByte {
+			errs = append(errs, ValidationError{Field: "sync", Message: fmt.Sprintf("packet %d: invalid sync byte 0x%02x (expected 0x47)", i, pkt[0])})
+			if i < 3 {
+				return errs
+			}
+			continue
+		}
+
+		pid := uint16(pkt[1]&0x1f)<<8 | uint16(pkt[2])
+		pids[pid]++
+
+		if pid == 0x0000 {
+			hasPAT = true
+		}
+	}
+
+	if !hasPAT {
+		errs = append(errs, ValidationError{Field: "pat", Message: "no PAT packet found (PID 0x0000)"})
+	}
+
+	contentPIDs := 0
+	for pid, count := range pids {
+		if pid != 0x0000 && pid != 0x0001 && pid != 0x1FFF && count > 0 {
+			contentPIDs++
+		}
+	}
+	if contentPIDs == 0 && packetCount > 5 {
+		errs = append(errs, ValidationError{Field: "content", Message: "no content PIDs found (only PAT/null)"})
+	}
+
+	return errs
 }
