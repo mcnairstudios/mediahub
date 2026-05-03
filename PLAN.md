@@ -95,7 +95,7 @@ Delivery mode per client:
 
 ## Plugin View System
 
-Jellyfin-style declarative views. Plugins declare how they present — "list", "tiles", "grid" — and the framework renders it. Plugin metadata describes: form fields (for config), view type (for display), badge label, color. The frontend has built-in renderers for each view type. If a plugin needs a view that doesn't exist, it registers a new view type as a plugin extension. No `src.type === 'x'` in the frontend — everything driven by metadata from `GET /api/source-types`. Generic CRUD routes: `POST/PUT/DELETE /api/sources/{type}/{id}`.
+Source plugins register metadata (label, color, form fields, view type). Frontend renders from metadata — no per-type `if` checks. Built-in views: list, tiles. Plugins can add new view types. Simple.
 
 ## New Source Plugins (Planned)
 
