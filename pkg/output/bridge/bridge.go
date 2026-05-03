@@ -100,7 +100,8 @@ func New(cfg Config) (*Bridge, error) {
 		}
 
 		useHWVideoPath := (cfg.HWAccel == "videotoolbox") && decHW != "" && decHW != "none"
-		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
+		canPassInterlaced := cfg.HWAccel == "videotoolbox" || cfg.HWAccel == "vaapi"
+		needsDeinterlace := (cfg.Deinterlace || info.Video.Interlaced) && !canPassInterlaced
 
 		if cp, ok := cfg.VideoCodecParams.(*astiav.CodecParameters); ok && cp != nil {
 			b.videoDec, err = decode.NewVideoDecoderFromParams(cp, decode.DecodeOpts{
@@ -377,6 +378,9 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 				}
 				return fmt.Errorf("bridge: scale: %w", err)
 			}
+		}
+		if b.hwVideoPath && frame.Pts() == astiav.NoPtsValue {
+			b.log.Warn().Int64("pts", frame.Pts()).Str("pixfmt", frame.PixelFormat().Name()).Msg("bridge: HW frame has no PTS before encode")
 		}
 		encPkts, err := b.videoEnc.Encode(frame)
 		frame.Free()
