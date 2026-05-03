@@ -108,6 +108,14 @@ Future: a "Custom Feed" source type where users configure feeds via a CRUD UI wi
 
 - **EarthCam** — Trending feed from earthcam.com. Live webcams of landmarks, cities, nature. Catches big events (volcanoes, storms, Times Square NYE). Source plugin fetches trending/featured cams as live streams.
 
+## Logging
+
+- Logs should be useful by default — no debug noise in normal operation
+- Debug logging as a toggle in Developer settings (or `MEDIAHUB_LOG_LEVEL=debug`)
+- Debug mode shows: what data is passed into each component, plugin options, major data flows — visibility into the pipeline
+- Factory/startup logs: once at startup, not on every poll/status check
+- Source refresh: log start + result, not internal steps
+
 ## Backlog (Low Priority)
 
 - Generic store CRUD helpers

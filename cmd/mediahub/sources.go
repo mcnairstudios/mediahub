@@ -58,7 +58,6 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 			OnRefreshDone: deps.OnRefreshDone,
 		}
 		m3uCfg.WGClient = resolveWGClient(deps.WGService, m3uCfg.UseWireGuard, m3uCfg.WGProfileID)
-		log.Printf("m3u factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, m3uCfg.UseWireGuard, m3uCfg.WGProfileID, m3uCfg.WGClient != nil)
 		return m3usource.New(m3uCfg), nil
 	})
 
@@ -97,7 +96,6 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		}
 		wgProfileID := sc.Config["wg_profile_id"]
 		tvpCfg.WGClient = resolveWGClient(deps.WGService, tvpCfg.UseWireGuard, wgProfileID)
-		log.Printf("tvpstreams factory: source=%s wg=%v wgProfile=%s wgClient=%v", sc.Name, tvpCfg.UseWireGuard, wgProfileID, tvpCfg.WGClient != nil)
 		return tvpstreamssource.New(tvpCfg), nil
 	})
 
