@@ -27,6 +27,7 @@ type EncodeOpts struct {
 	Height           int
 	EncoderName      string
 	Framerate        int
+	Interlaced       bool
 }
 
 var hevcEncoders = map[string]string{
@@ -185,7 +186,12 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 	cc.SetTimeBase(astiav.NewRational(1, fps))
 	cc.SetFramerate(astiav.NewRational(fps, 1))
 
-	cc.SetFlags(astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader))
+	flags := astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader)
+	if opts.Interlaced {
+		flags = flags.Add(astiav.CodecContextFlagInterlacedDct)
+		flags = flags.Add(astiav.CodecContextFlagInterlacedMe)
+	}
+	cc.SetFlags(flags)
 
 	if enc.hwCtx != nil {
 		hwAccelKey := opts.HWAccel

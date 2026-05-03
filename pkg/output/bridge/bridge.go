@@ -183,6 +183,7 @@ func New(cfg Config) (*Bridge, error) {
 		if preset == "" {
 			preset = "ultrafast"
 		}
+		passInterlaced := info.Video.Interlaced && !needsDeinterlace
 		b.videoEnc, err = encode.NewVideoEncoder(encode.EncodeOpts{
 			Codec:       outCodec,
 			HWAccel:     cfg.HWAccel,
@@ -192,6 +193,7 @@ func New(cfg Config) (*Bridge, error) {
 			EncoderName: cfg.EncoderName,
 			Framerate:   videoFPS,
 			Preset:      preset,
+			Interlaced:  passInterlaced,
 		})
 		if err != nil {
 			b.closeAll()
