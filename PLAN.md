@@ -97,7 +97,12 @@ Delivery mode per client:
 
 Source plugins register metadata (label, color, form fields, view type). Frontend renders from metadata — no per-type `if` checks. Built-in views: list, tiles. Plugins can add new view types. Simple.
 
-Future: a "Custom Feed" source type where users configure a URL + field mappings via a CRUD UI within the plugin. The plugin handles all the complexity internally — but its interface with mediahub is still just streams displayed as list/tiles.
+Future: a "Custom Feed" source type where users configure feeds via a CRUD UI within the plugin:
+- Add **sections** (e.g. "Trending Cams", "NYC", "SpaceX Crew Missions")
+- Per section: target URL(s), field extraction rules (JSONPath or CSS selectors), refresh interval
+- Frontend dropdown to pick section → shows streams as list/tiles
+- Demo Streams and EarthCam become example seed configs for this plugin, not standalone Go code
+- The plugin handles all complexity internally — its interface with mediahub is still just streams
 
 ## New Source Plugins (Planned)
 
