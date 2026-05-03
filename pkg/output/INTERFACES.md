@@ -98,8 +98,11 @@ type PluginConfig struct {
     SegmentDurationSec int
     Video              *media.VideoInfo
     Audio              *media.AudioTrack
-    VideoCodecParams   any // *astiav.CodecParameters from demuxer
-    AudioCodecParams   any // *astiav.CodecParameters from demuxer
+    VideoCodecParams   any            // *astiav.CodecParameters from demuxer
+    AudioCodecParams   any            // *astiav.CodecParameters from demuxer
+    VideoExtradata     []byte         // from encoder when transcoding
+    AudioExtradata     []byte         // from encoder when transcoding
+    Options            map[string]any // plugin-specific config; avoids interface changes
 }
 ```
 
@@ -114,3 +117,6 @@ type PluginConfig struct {
 | `Audio` | Audio stream info from probe |
 | `VideoCodecParams` | Codec parameters for video (from astiav demuxer) |
 | `AudioCodecParams` | Codec parameters for audio (from astiav demuxer) |
+| `VideoExtradata` | Encoder extradata when transcoding |
+| `AudioExtradata` | Encoder extradata when transcoding |
+| `Options` | Plugin-specific config map; prevents interface changes for edge cases |

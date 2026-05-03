@@ -13,6 +13,7 @@ type PluginConfig struct {
 	Audio              *media.AudioTrack
 	VideoCodecParams   any    // *astiav.CodecParameters from demuxer
 	AudioCodecParams   any    // *astiav.CodecParameters from demuxer
-	VideoExtradata     []byte // from encoder when transcoding
-	AudioExtradata     []byte // from encoder when transcoding
+	VideoExtradata     []byte         // from encoder when transcoding
+	AudioExtradata     []byte         // from encoder when transcoding
+	Options            map[string]any // plugin-specific config; avoids interface changes
 }
