@@ -25,9 +25,16 @@ func ToAVPacket(p *av.Packet, timeBase astiav.Rational) (*astiav.Packet, error) 
 	tbNum := int64(timeBase.Num())
 	tbDen := int64(timeBase.Den())
 	if tbNum > 0 && tbDen > 0 {
-		pkt.SetPts(p.PTS * tbDen / (1_000_000_000 * tbNum))
-		pkt.SetDts(p.DTS * tbDen / (1_000_000_000 * tbNum))
-		pkt.SetDuration(p.Duration * tbDen / (1_000_000_000 * tbNum))
+		rescale := func(v int64, num, den int64) int64 {
+			if den == 0 {
+				return 0
+			}
+			return (v / den) * num + (v % den) * num / den
+		}
+		den := 1_000_000_000 * tbNum
+		pkt.SetPts(rescale(p.PTS, tbDen, den))
+		pkt.SetDts(rescale(p.DTS, tbDen, den))
+		pkt.SetDuration(rescale(p.Duration, tbDen, den))
 	}
 
 	if p.Keyframe {

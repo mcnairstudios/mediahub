@@ -13,8 +13,8 @@ type stubPlugin struct {
 }
 
 func (s *stubPlugin) Mode() output.DeliveryMode                                    { return s.mode }
-func (s *stubPlugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error    { return nil }
-func (s *stubPlugin) PushAudio(data []byte, pts, dts int64) error                   { return nil }
+func (s *stubPlugin) PushVideo(data []byte, pts, dts, dur int64, keyframe bool) error { return nil }
+func (s *stubPlugin) PushAudio(data []byte, pts, dts, dur int64) error                { return nil }
 func (s *stubPlugin) PushSubtitle(data []byte, pts int64, duration int64) error     { return nil }
 func (s *stubPlugin) EndOfStream()                                                  {}
 func (s *stubPlugin) ResetForSeek()                                                 {}

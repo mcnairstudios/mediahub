@@ -13,6 +13,8 @@ type Resampler struct {
 	dstLayout astiav.ChannelLayout
 	dstRate   int
 	dstFmt    astiav.SampleFormat
+	nextPts   int64
+	ptsInited bool
 }
 
 func channelLayoutForCount(channels int) (astiav.ChannelLayout, error) {
@@ -68,6 +70,11 @@ func NewResampler(srcChannels, srcRate int, srcFmt astiav.SampleFormat,
 }
 
 func (r *Resampler) Convert(src *astiav.Frame) (*astiav.Frame, error) {
+	if src != nil && !r.ptsInited {
+		r.nextPts = src.Pts()
+		r.ptsInited = true
+	}
+
 	if err := r.swrCtx.ConvertFrame(src, r.dstFrame); err != nil {
 		if errors.Is(err, astiav.ErrInputChanged) {
 			r.swrCtx.Free()
@@ -95,7 +102,10 @@ func (r *Resampler) Convert(src *astiav.Frame) (*astiav.Frame, error) {
 		out.Free()
 		return nil, fmt.Errorf("resample: ref frame: %w", err)
 	}
-	out.SetPts(src.Pts())
+
+	out.SetPts(r.nextPts)
+	r.nextPts += int64(out.NbSamples())
+
 	return out, nil
 }
 
@@ -116,6 +126,10 @@ func (r *Resampler) Flush() ([]*astiav.Frame, error) {
 			out.Free()
 			return frames, fmt.Errorf("resample: ref flushed frame: %w", err)
 		}
+
+		out.SetPts(r.nextPts)
+		r.nextPts += int64(out.NbSamples())
+
 		frames = append(frames, out)
 	}
 	return frames, nil
@@ -130,6 +144,7 @@ func (r *Resampler) Reset() {
 		r.swrCtx.Free()
 	}
 	r.swrCtx = astiav.AllocSoftwareResampleContext()
+	r.ptsInited = false
 }
 
 func (r *Resampler) Close() {

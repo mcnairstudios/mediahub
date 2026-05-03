@@ -12,7 +12,7 @@ func TestFanOutPushVideoToAllPlugins(t *testing.T) {
 	p2 := newMockPlugin(DeliveryHLS)
 	fan := NewFanOut(p1, p2)
 
-	if err := fan.PushVideo([]byte("frame"), 1000, 1000, true); err != nil {
+	if err := fan.PushVideo([]byte("frame"), 1000, 1000, 20000, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -29,7 +29,7 @@ func TestFanOutPushAudioToAllPlugins(t *testing.T) {
 	p2 := newMockPlugin(DeliveryHLS)
 	fan := NewFanOut(p1, p2)
 
-	if err := fan.PushAudio([]byte("audio"), 2000, 2000); err != nil {
+	if err := fan.PushAudio([]byte("audio"), 2000, 2000, 21000); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestFanOutOnePluginErrorDoesNotAffectOthers(t *testing.T) {
 	p2 := newMockPlugin(DeliveryHLS)
 	fan := NewFanOut(p1, p2)
 
-	err := fan.PushVideo([]byte("frame"), 1000, 1000, true)
+	err := fan.PushVideo([]byte("frame"), 1000, 1000, 20000, true)
 	if err == nil {
 		t.Fatal("expected error from fanout")
 	}
@@ -81,12 +81,12 @@ func TestFanOutAddPluginMidStream(t *testing.T) {
 	p1 := newMockPlugin(DeliveryMSE)
 	fan := NewFanOut(p1)
 
-	fan.PushVideo([]byte("frame1"), 1000, 1000, true)
+	fan.PushVideo([]byte("frame1"), 1000, 1000, 20000, true)
 
 	p2 := newMockPlugin(DeliveryHLS)
 	fan.Add(p2)
 
-	fan.PushVideo([]byte("frame2"), 2000, 2000, false)
+	fan.PushVideo([]byte("frame2"), 2000, 2000, 20000, false)
 
 	if p1.videoPackets != 2 {
 		t.Fatalf("p1: expected 2 video packets, got %d", p1.videoPackets)
@@ -138,7 +138,7 @@ func TestFanOutStopPreventsSubsequentPush(t *testing.T) {
 
 	fan.Stop()
 
-	err := fan.PushVideo([]byte("frame"), 1000, 1000, true)
+	err := fan.PushVideo([]byte("frame"), 1000, 1000, 20000, true)
 	if err == nil {
 		t.Fatal("expected error pushing to stopped fanout")
 	}
@@ -293,7 +293,7 @@ func TestFanOutPanicInPushVideoDoesNotKillOtherPlugins(t *testing.T) {
 	p2 := newMockPlugin(DeliveryHLS)
 	fan := NewFanOut(p1, p2)
 
-	err := fan.PushVideo([]byte("frame"), 1000, 1000, true)
+	err := fan.PushVideo([]byte("frame"), 1000, 1000, 20000, true)
 	if err != nil {
 		t.Fatalf("record plugin error should be swallowed, got: %v", err)
 	}

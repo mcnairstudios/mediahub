@@ -74,8 +74,14 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	p.audioTB = astiav.NewRational(1, 48000)
 
 	muxOpts := mux.MuxOpts{
-		OutputDir:     segDir,
-		VideoTimeBase: p.videoTB,
+		OutputDir:      segDir,
+		VideoTimeBase:  p.videoTB,
+		VideoFrameRate: 25, // Default
+		AudioFrameSize: 1024, // Default for AAC
+	}
+
+	if cfg.Video != nil && cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
+		muxOpts.VideoFrameRate = cfg.Video.FramerateN / cfg.Video.FramerateD
 	}
 
 	if len(cfg.VideoExtradata) > 0 {
@@ -285,7 +291,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryMSE
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: mse PushVideo: %v\n%s", r, debug.Stack())
@@ -308,7 +314,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		return nil
 	}
 
-	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
+	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Duration: duration, Keyframe: keyframe}
 	avPkt, err := conv.ToAVPacket(pkt, p.videoTB)
 	if err != nil {
 		return err
@@ -325,7 +331,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 	return nil
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+func (p *Plugin) PushAudio(data []byte, pts, dts, duration int64) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: mse PushAudio: %v\n%s", r, debug.Stack())
@@ -338,10 +344,10 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 	}
 
 	if p.audioDec != nil {
-		return p.pushAudioDecode(data, pts, dts)
+		return p.pushAudioDecode(data, pts, dts, duration)
 	}
 
-	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}
+	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts, Duration: duration}
 	avPkt, err := conv.ToAVPacket(pkt, p.audioTB)
 	if err != nil {
 		return err
@@ -358,8 +364,8 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 	return nil
 }
 
-func (p *Plugin) pushAudioDecode(data []byte, pts, dts int64) error {
-	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}
+func (p *Plugin) pushAudioDecode(data []byte, pts, dts, duration int64) error {
+	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts, Duration: duration}
 	avPkt, err := conv.ToAVPacket(pkt, p.audioTB)
 	if err != nil {
 		p.audioLatched = true

@@ -91,7 +91,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryWebRTC
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	if p.stopped.Load() {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
+func (p *Plugin) PushAudio(data []byte, pts, dts, duration int64) error {
 	if p.stopped.Load() {
 		return nil
 	}

@@ -19,14 +19,14 @@ type mockSink struct {
 	seekReset bool
 }
 
-func (m *mockSink) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (m *mockSink) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.videos++
 	return nil
 }
 
-func (m *mockSink) PushAudio(data []byte, pts, dts int64) error {
+func (m *mockSink) PushAudio(data []byte, pts, dts, duration int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.audios++

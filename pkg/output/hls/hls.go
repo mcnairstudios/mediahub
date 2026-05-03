@@ -162,7 +162,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryHLS
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: hls PushVideo: %v\n%s", r, debug.Stack())
@@ -176,7 +176,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		return nil
 	}
 
-	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
+	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Duration: duration, Keyframe: keyframe}
 	avPkt, err := conv.ToAVPacket(pkt, p.videoTB)
 	if err != nil {
 		p.lastErr = err
@@ -190,7 +190,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 	return err
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+func (p *Plugin) PushAudio(data []byte, pts, dts, duration int64) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: hls PushAudio: %v\n%s", r, debug.Stack())
@@ -204,7 +204,7 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 		return nil
 	}
 
-	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}
+	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts, Duration: duration}
 	avPkt, err := conv.ToAVPacket(pkt, p.audioTB)
 	if err != nil {
 		p.lastErr = err

@@ -59,6 +59,7 @@ type Bridge struct {
 	audioFifo            *encode.AudioFIFO
 	videoTB              astiav.Rational
 	audioTB              astiav.Rational
+	audioInputTB         astiav.Rational
 	audioLatched         bool
 	audioErrorCount      int
 	audioPacketCount     int
@@ -85,10 +86,11 @@ func New(cfg Config) (*Bridge, error) {
 
 	info := cfg.Info
 	b := &Bridge{
-		downstream: cfg.Downstream,
-		videoTB:    astiav.NewRational(1, 90000),
-		audioTB:    astiav.NewRational(1, 48000),
-		log:        cfg.Log,
+		downstream:   cfg.Downstream,
+		videoTB:      astiav.NewRational(1, 90000),
+		audioTB:      astiav.NewRational(1, 48000),
+		audioInputTB: astiav.NewRational(1, 48000),
+		log:          cfg.Log,
 	}
 
 	var err error
@@ -230,6 +232,10 @@ func New(cfg Config) (*Bridge, error) {
 	}
 
 	if audioTrack != nil {
+		if audioTrack.SampleRate > 0 {
+			b.audioInputTB = astiav.NewRational(1, audioTrack.SampleRate)
+		}
+
 		if cp, ok := cfg.AudioCodecParams.(*astiav.CodecParameters); ok && cp != nil {
 			b.audioDec, err = decode.NewAudioDecoderFromParams(cp)
 		} else {
@@ -306,17 +312,17 @@ func (b *Bridge) AudioEncoderCodecID() astiav.CodecID {
 	return b.audioEnc.CodecID()
 }
 
-func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (b *Bridge) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {
 		return nil
 	}
 	if b.videoDec == nil {
-		return b.downstream.PushVideo(data, pts, dts, keyframe)
+		return b.downstream.PushVideo(data, pts, dts, duration, keyframe)
 	}
 
-	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
+	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Duration: duration, Keyframe: keyframe}
 	avPkt, err := conv.ToAVPacket(pkt, b.videoTB)
 	if err != nil {
 		return err
@@ -396,6 +402,7 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			copy(encData, encPkt.Data())
 			encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
 			encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
+			encDur := b.avTSToNanos(encPkt.Duration(), b.videoTB)
 			if !b.extractedExtradata {
 				b.log.Info().Int64("raw_pts", encPkt.Pts()).Int64("raw_dts", encPkt.Dts()).Int64("raw_dur", encPkt.Duration()).Int64("nanos_pts", encPTS).Int64("nanos_dts", encDTS).Str("enc_tb", b.videoEnc.TimeBase().String()).Msg("bridge: encoded pkt PTS")
 			}
@@ -406,7 +413,7 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			}
 			encPkt.Free()
 
-			if err := b.downstream.PushVideo(encData, encPTS, encDTS, isKey); err != nil {
+			if err := b.downstream.PushVideo(encData, encPTS, encDTS, encDur, isKey); err != nil {
 				for _, f := range frames[i+1:] {
 					f.Free()
 				}
@@ -417,7 +424,7 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
+func (b *Bridge) PushAudio(data []byte, pts, dts, duration int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped || b.audioLatched {
@@ -430,8 +437,8 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 
 	b.audioPacketCount++
 
-	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts}
-	avPkt, err := conv.ToAVPacket(pkt, b.audioTB)
+	pkt := &av.Packet{Type: av.Audio, Data: data, PTS: pts, DTS: dts, Duration: duration}
+	avPkt, err := conv.ToAVPacket(pkt, b.audioInputTB)
 	if err != nil {
 		if b.audioPacketCount <= 5 {
 			b.log.Debug().Int("pkt", b.audioPacketCount).Msg("bridge: skipping initial audio packet error")
@@ -476,8 +483,9 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 			copy(encData, encPkt.Data())
 			encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
 			encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
+			encDur := b.avTSToNanos(encPkt.Duration(), b.audioTB)
 			encPkt.Free()
-			if err := b.downstream.PushAudio(encData, encPTS, encDTS); err != nil {
+			if err := b.downstream.PushAudio(encData, encPTS, encDTS, encDur); err != nil {
 				b.latchAudioError(err)
 				return nil
 			}
@@ -512,9 +520,10 @@ func (b *Bridge) EndOfStream() {
 				copy(encData, encPkt.Data())
 				encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
 				encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
+				encDur := b.avTSToNanos(encPkt.Duration(), b.videoTB)
 				isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
 				encPkt.Free()
-				b.downstream.PushVideo(encData, encPTS, encDTS, isKey) //nolint:errcheck
+				b.downstream.PushVideo(encData, encPTS, encDTS, encDur, isKey) //nolint:errcheck
 			}
 		}
 	}
@@ -558,8 +567,9 @@ func (b *Bridge) pushAudioPackets(pkts []*astiav.Packet) {
 		copy(encData, encPkt.Data())
 		encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
 		encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
+		encDur := b.avTSToNanos(encPkt.Duration(), b.audioTB)
 		encPkt.Free()
-		b.downstream.PushAudio(encData, encPTS, encDTS) //nolint:errcheck
+		b.downstream.PushAudio(encData, encPTS, encDTS, encDur) //nolint:errcheck
 	}
 }
 
@@ -702,8 +712,15 @@ func (b *Bridge) latchAudioError(err error) {
 	}
 }
 
+func rescale(v int64, num, den int64) int64 {
+	if den == 0 {
+		return 0
+	}
+	return (v / den) * num + (v % den) * num / den
+}
+
 func (b *Bridge) avTSToNanos(ts int64, tb astiav.Rational) int64 {
-	return ts * 1_000_000_000 * int64(tb.Num()) / int64(tb.Den())
+	return rescale(ts, 1_000_000_000*int64(tb.Num()), int64(tb.Den()))
 }
 
 func resolveFramerate(framerateN, framerateD int, interlaced, hasDeinterlacer bool, explicit int) int {

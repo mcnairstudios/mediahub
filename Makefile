@@ -13,12 +13,16 @@ build:
 	CGO_ENABLED=1 go build -o ./$(BINARY) ./cmd/mediahub/
 
 stop:
+	@if [ -f $(PID_FILE) ]; then kill -9 $$(cat $(PID_FILE)) 2>/dev/null || true; fi
 	@pkill -9 -f "./$(BINARY)" 2>/dev/null || true
 	@sleep 1
+	@while pgrep -f "./$(BINARY)" >/dev/null 2>&1; do kill -9 $$(pgrep -f "./$(BINARY)") 2>/dev/null; sleep 1; done
+	@rm -f $(PID_FILE)
 	@echo "stopped"
 
 start: stop build
 	@mkdir -p $(DATA_DIR) $(RECORD_DIR)
+	@rm -rf /private/var/folders/kr/*/T/mediahub-sessions/ 2>/dev/null || true
 	@MEDIAHUB_DATA_DIR=$(DATA_DIR) \
 	 MEDIAHUB_LISTEN_ADDR=$(LISTEN_ADDR) \
 	 MEDIAHUB_USER_AGENT="$(USER_AGENT)" \
@@ -27,7 +31,7 @@ start: stop build
 	 MEDIAHUB_BASE_URL=$(BASE_URL) \
 	 nohup ./$(BINARY) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE)
 	@sleep 3
-	@curl -s -o /dev/null -w "http %{http_code}\n" $(BASE_URL)$(LISTEN_ADDR)/ 2>/dev/null || curl -s -o /dev/null -w "http %{http_code}\n" http://localhost$(LISTEN_ADDR)/ 2>/dev/null || echo "not responding"
+	@curl -s -o /dev/null -w "http %{http_code}\n" http://localhost$(LISTEN_ADDR)/ 2>/dev/null || echo "not responding"
 	@echo "started (pid $$(cat $(PID_FILE)), log $(LOG_FILE))"
 
 restart: start

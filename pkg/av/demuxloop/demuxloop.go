@@ -45,11 +45,11 @@ func Run(ctx context.Context, cfg Config) error {
 
 		switch pkt.Type {
 		case av.Video:
-			if err := sink.PushVideo(pkt.Data, pkt.PTS, pkt.DTS, pkt.Keyframe); err != nil {
+			if err := sink.PushVideo(pkt.Data, pkt.PTS, pkt.DTS, pkt.Duration, pkt.Keyframe); err != nil {
 				return fmt.Errorf("demuxloop: push video: %w", err)
 			}
 		case av.Audio:
-			if err := sink.PushAudio(pkt.Data, pkt.PTS, pkt.DTS); err != nil {
+			if err := sink.PushAudio(pkt.Data, pkt.PTS, pkt.DTS, pkt.Duration); err != nil {
 				return fmt.Errorf("demuxloop: push audio: %w", err)
 			}
 		case av.Subtitle:
