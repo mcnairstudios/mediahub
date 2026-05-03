@@ -2494,7 +2494,10 @@
       if (available[i] === currentDelivery) opt.selected = true;
       sel.appendChild(opt);
     }
-    sel.addEventListener('change', async function() {
+    sel.addEventListener('click', function(e) { e.stopPropagation(); });
+    sel.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    sel.addEventListener('change', async function(e) {
+      e.stopPropagation();
       var newDelivery = sel.value;
       if (newDelivery === playerState.delivery) return;
       playerState.deliveryOverride = newDelivery;
