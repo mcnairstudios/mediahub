@@ -8349,6 +8349,8 @@
         '<option value="stream"' + (p.delivery === 'stream' ? ' selected' : '') + '>Stream (direct)</option>' +
         '<option value="mse"' + (p.delivery === 'mse' ? ' selected' : '') + '>MSE (browser)</option>' +
         '<option value="hls"' + (p.delivery === 'hls' ? ' selected' : '') + '>HLS (segmented)</option>' +
+        '<option value="dash"' + (p.delivery === 'dash' ? ' selected' : '') + '>DASH (adaptive)</option>' +
+        '<option value="webrtc"' + (p.delivery === 'webrtc' ? ' selected' : '') + '>WebRTC (low latency)</option>' +
         '<option value="user"' + (p.delivery === 'user' ? ' selected' : '') + '>User Choice</option>' +
         '</select></div>' +
         '<div class="form-group"><label class="form-label">Video Codec</label>' +
