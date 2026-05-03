@@ -97,6 +97,8 @@ Delivery mode per client:
 
 Source plugins register metadata (label, color, form fields, view type). Frontend renders from metadata — no per-type `if` checks. Built-in views: list, tiles. Plugins can add new view types. Simple.
 
+Future: a "Custom Feed" source type where users configure a URL + field mappings via a CRUD UI within the plugin. The plugin handles all the complexity internally — but its interface with mediahub is still just streams displayed as list/tiles.
+
 ## New Source Plugins (Planned)
 
 - **EarthCam** — Trending feed from earthcam.com. Live webcams of landmarks, cities, nature. Catches big events (volcanoes, storms, Times Square NYE). Source plugin fetches trending/featured cams as live streams.
