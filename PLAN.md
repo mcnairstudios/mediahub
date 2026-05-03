@@ -93,9 +93,9 @@ Delivery mode per client:
 - **DLNA**: Stream (raw HTTP chunked)
 - **Apple TV**: HLS
 
-## Source Plugin Form Builder
+## Plugin View System
 
-Generic web form builder so adding a new source type doesn't require hardcoded `src.type === 'x'` checks in the frontend. Plugins register a form descriptor (fields, types, labels, defaults, color, badge label) and the frontend renders any source form from the descriptor via `GET /api/source-types`. Generic CRUD routes: `POST/PUT/DELETE /api/sources/{type}/{id}`.
+Jellyfin-style declarative views. Plugins declare how they present — "list", "tiles", "grid" — and the framework renders it. Plugin metadata describes: form fields (for config), view type (for display), badge label, color. The frontend has built-in renderers for each view type. If a plugin needs a view that doesn't exist, it registers a new view type as a plugin extension. No `src.type === 'x'` in the frontend — everything driven by metadata from `GET /api/source-types`. Generic CRUD routes: `POST/PUT/DELETE /api/sources/{type}/{id}`.
 
 ## New Source Plugins (Planned)
 
