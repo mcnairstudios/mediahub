@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -467,6 +468,22 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 			endpoints["subtitles"] = base + "/subtitles"
 		}
 		resp["endpoints"] = endpoints
+	case "dash":
+		endpoints := map[string]string{
+			"manifest": base + "/dash/manifest.mpd",
+		}
+		if sess := s.deps.SessionMgr.Get(streamID); sess != nil && sess.Subtitles != nil {
+			endpoints["subtitles"] = base + "/subtitles"
+		}
+		resp["endpoints"] = endpoints
+	case "webrtc":
+		resp["endpoints"] = map[string]string{
+			"whep": base + "/webrtc/whep",
+		}
+	case "stream":
+		resp["endpoints"] = map[string]string{
+			"stream": base + "/stream",
+		}
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, resp)
@@ -491,10 +508,24 @@ func (s *Server) handlePlaybackServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var wantMode output.DeliveryMode
+	prefix := "/api/play/" + streamID + "/"
+	if strings.HasPrefix(r.URL.Path, prefix) {
+		after := r.URL.Path[len(prefix):]
+		if idx := strings.Index(after, "/"); idx > 0 {
+			wantMode = output.DeliveryMode(after[:idx])
+		} else {
+			wantMode = output.DeliveryMode(after)
+		}
+	}
+
 	plugins := sess.FanOut.Plugins()
 	for _, p := range plugins {
 		sp, ok := p.(output.ServablePlugin)
 		if !ok {
+			continue
+		}
+		if wantMode != "" && p.Mode() != wantMode {
 			continue
 		}
 		r.URL.Path = "/" + rest
@@ -911,6 +942,18 @@ func (s *Server) handlePlayURL(w http.ResponseWriter, r *http.Request) {
 			"video_segment": base + "/mse/video/segment",
 			"audio_segment": base + "/mse/audio/segment",
 		}
+	case "dash":
+		resp["endpoints"] = map[string]string{
+			"manifest": base + "/dash/manifest.mpd",
+		}
+	case "webrtc":
+		resp["endpoints"] = map[string]string{
+			"whep": base + "/webrtc/whep",
+		}
+	case "stream":
+		resp["endpoints"] = map[string]string{
+			"stream": base + "/stream",
+		}
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, resp)
@@ -980,6 +1023,93 @@ func (s *Server) resolveStreamLogos(streams []media.Stream) {
 	for i := range streams {
 		if streams[i].TvgLogo != "" {
 			streams[i].TvgLogo = s.deps.LogoCache.Resolve(streams[i].TvgLogo)
+		}
+	}
+}
+
+func (s *Server) handleCORSPreflight(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleStreamServe(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var filePath string
+	plugins := sess.FanOut.Plugins()
+	for _, p := range plugins {
+		if p.Mode() == output.DeliveryRecord {
+			type filePather interface {
+				FilePath() string
+			}
+			if fp, ok := p.(filePather); ok {
+				filePath = fp.FilePath()
+				break
+			}
+		}
+	}
+
+	if filePath == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	contentType := "video/mp2t"
+	if strings.HasSuffix(filePath, ".mp4") {
+		contentType = "video/mp4"
+	} else if strings.HasSuffix(filePath, ".mkv") || strings.HasSuffix(filePath, ".matroska") {
+		contentType = "video/x-matroska"
+	} else if strings.HasSuffix(filePath, ".webm") {
+		contentType = "video/webm"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, 32*1024)
+	flusher, canFlush := w.(http.Flusher)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				sess := s.deps.SessionMgr.Get(streamID)
+				if sess == nil {
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			return
 		}
 	}
 }

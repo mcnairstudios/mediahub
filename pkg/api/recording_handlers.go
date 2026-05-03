@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/activity"
@@ -294,10 +295,24 @@ func (s *Server) handleRecordingPlaybackServe(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	var wantMode output.DeliveryMode
+	prefix := "/api/recordings/completed/" + id + "/play/"
+	if strings.HasPrefix(r.URL.Path, prefix) {
+		after := r.URL.Path[len(prefix):]
+		if idx := strings.Index(after, "/"); idx > 0 {
+			wantMode = output.DeliveryMode(after[:idx])
+		} else {
+			wantMode = output.DeliveryMode(after)
+		}
+	}
+
 	plugins := sess.FanOut.Plugins()
 	for _, p := range plugins {
 		sp, ok := p.(output.ServablePlugin)
 		if !ok {
+			continue
+		}
+		if wantMode != "" && p.Mode() != wantMode {
 			continue
 		}
 		r.URL.Path = "/" + rest

@@ -73,6 +73,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/play/{streamID}/dash/{path...}", s.authenticated(s.handlePlaybackServe))
 	s.mux.Handle("POST /api/play/{streamID}/webrtc/{path...}", s.authenticated(s.handlePlaybackServe))
 	s.mux.Handle("DELETE /api/play/{streamID}/webrtc/{path...}", s.authenticated(s.handlePlaybackServe))
+	s.mux.HandleFunc("OPTIONS /api/play/{streamID}/webrtc/{path...}", s.handleCORSPreflight)
+	s.mux.Handle("GET /api/play/{streamID}/stream", s.authenticated(s.handleStreamServe))
 
 	s.mux.Handle("GET /api/sources", s.authenticated(s.handleListSources))
 	s.mux.Handle("POST /api/sources/m3u", s.adminOnly(s.handleCreateM3USource))

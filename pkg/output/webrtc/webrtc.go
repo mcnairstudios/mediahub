@@ -259,7 +259,13 @@ func (p *Plugin) WaitReady(ctx context.Context) error {
 }
 
 func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
 	switch r.Method {
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPost:
 		p.handleWHEPOffer(w, r)
 	case http.MethodDelete:
