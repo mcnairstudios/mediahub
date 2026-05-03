@@ -93,15 +93,22 @@ Delivery mode per client:
 - **DLNA**: Stream (raw HTTP chunked)
 - **Apple TV**: HLS
 
+## New Source Plugins (Planned)
+
+- **EarthCam** — Trending feed from earthcam.com. Live webcams of landmarks, cities, nature. Catches big events (volcanoes, storms, Times Square NYE). Source plugin fetches trending/featured cams as live streams.
+
 ## Backlog (Low Priority)
 
-- Handler CRUD boilerplate extraction (50+ handlers)
-- Migrate remaining stores to keyenc (users, clients, apikeys, invites, source_configs, settings, probe_cache)
-- Source plugin base type (shared Info(), HTTP client selection)
-- Main.go factory reorganization
 - Generic store CRUD helpers
 - Frontend UI component consolidation
-- SSDP advertiser consolidation
-- Magic string constants
 - Stream pagination for large sources
 - Virtual scroll for large poster grids
+
+## Backlog (Done)
+
+- ~~Handler CRUD boilerplate extraction~~ — reviewed, not worth abstracting (each handler unique)
+- ~~Migrate remaining stores to keyenc~~ — all 7 stores migrated
+- ~~Source plugin base type~~ — BaseSource extracted, all 5 plugins refactored
+- ~~Main.go factory reorganization~~ — split into sources.go + outputs.go
+- ~~SSDP advertiser consolidation~~ — reviewed, DLNA and HDHR serve different protocols, correctly separate
+- ~~Magic string constants~~ — extracted to source.TypeX constants
