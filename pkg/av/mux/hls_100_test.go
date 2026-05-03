@@ -94,7 +94,8 @@ func buildFixture() (*hlsTestFixture, error) {
 			args: []string{
 				"-f", "lavfi", "-i", "testsrc2=duration=10:size=640x360:rate=25",
 				"-f", "lavfi", "-i", "sine=f=440:d=10:sample_rate=48000",
-				"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ac", "2", "-ar", "48000",
+				"-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-keyint_min", "50",
+				"-c:a", "aac", "-ac", "2", "-ar", "48000",
 				"-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
 				"-hls_segment_filename", filepath.Join(f.tsH264Dir, "seg%d.ts"),
 				"-y", filepath.Join(f.tsH264Dir, "playlist.m3u8"),
@@ -105,7 +106,9 @@ func buildFixture() (*hlsTestFixture, error) {
 			args: []string{
 				"-f", "lavfi", "-i", "testsrc2=duration=10:size=640x360:rate=25",
 				"-f", "lavfi", "-i", "sine=f=440:d=10:sample_rate=48000",
-				"-c:v", "libx265", "-preset", "ultrafast", "-c:a", "aac", "-ac", "2", "-ar", "48000",
+				"-c:v", "libx265", "-preset", "ultrafast",
+				"-x265-params", "keyint=50:min-keyint=50",
+				"-c:a", "aac", "-ac", "2", "-ar", "48000",
 				"-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
 				"-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
 				"-hls_segment_filename", filepath.Join(f.fmp4H265Dir, "seg%d.m4s"),
@@ -117,7 +120,8 @@ func buildFixture() (*hlsTestFixture, error) {
 			args: []string{
 				"-f", "lavfi", "-i", "testsrc2=duration=10:size=640x360:rate=25",
 				"-f", "lavfi", "-i", "sine=f=440:d=10:sample_rate=48000",
-				"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ac", "2", "-ar", "48000",
+				"-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-keyint_min", "50",
+				"-c:a", "aac", "-ac", "2", "-ar", "48000",
 				"-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
 				"-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
 				"-hls_segment_filename", filepath.Join(f.fmp4H264Dir, "seg%d.m4s"),
@@ -128,7 +132,8 @@ func buildFixture() (*hlsTestFixture, error) {
 			name: "ts_vidonly",
 			args: []string{
 				"-f", "lavfi", "-i", "testsrc2=duration=5:size=640x360:rate=25",
-				"-c:v", "libx264", "-preset", "ultrafast", "-an",
+				"-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-keyint_min", "50",
+				"-an",
 				"-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
 				"-hls_segment_filename", filepath.Join(f.tsVidOnlyDir, "seg%d.ts"),
 				"-y", filepath.Join(f.tsVidOnlyDir, "playlist.m3u8"),
@@ -139,7 +144,8 @@ func buildFixture() (*hlsTestFixture, error) {
 			args: []string{
 				"-f", "lavfi", "-i", "testsrc2=duration=2:size=640x360:rate=25",
 				"-f", "lavfi", "-i", "sine=f=440:d=2:sample_rate=48000",
-				"-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ac", "2",
+				"-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-keyint_min", "50",
+				"-c:a", "aac", "-ac", "2",
 				"-f", "hls", "-hls_time", "2", "-hls_list_size", "0",
 				"-hls_segment_filename", filepath.Join(f.tsShortDir, "seg%d.ts"),
 				"-y", filepath.Join(f.tsShortDir, "playlist.m3u8"),
