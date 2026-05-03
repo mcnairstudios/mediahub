@@ -129,6 +129,15 @@ Future: a "Custom Feed" source type where users configure feeds via a CRUD UI wi
 
 ## Bugs Found & Fixed (Need Tests)
 
+### Double PTS Rescale in fMP4 Pipeline (CRITICAL — FOUND IN INVESTIGATION)
+**Symptom**: fMP4 segments report duration=101,088s for what should be ~6s. r_frame_rate=90000/1.
+**Root cause**: The SW encoder (libx265) passes PTS through in the input timebase (90kHz). The test code then rescaled from encoder timebase (1/25) to muxer timebase (1/90000), multiplying PTS by 3600. The muxer ALSO rescales internally. Double rescale = PTS inflated by 3600x.
+**Test program**: `/tmp/pipeline_compare.go` with `/tmp/raw_satip_60s.ts` as input.
+**Reference output**: `/tmp/ref_fmp4_60/output.mp4` (correct 60.1s, produced by ffmpeg CLI).
+**Our output**: `/tmp/our_fmp4_60/` — 101,088s with double rescale, 28s without (still wrong — interlaced PTS spacing issue).
+**What the bridge does differently**: Converts ALL PTS to nanoseconds (avTSToNanos) before passing downstream. The muxer receives nanos and rescales to its stream timebase. This may avoid the double-rescale but needs verification with live playback.
+**Next step**: Start a playback session, grab the live segments, ffprobe them. Compare PTS values at each stage (decoder output → bridge nanos → muxer input).
+
 ### PTS Integer Overflow in Bridge (CRITICAL)
 **Symptom**: Video plays 2 seconds then freezes. Audio resumes after 6s, video never does.
 **Root cause**: `avTSToNanos()` computed `ts * 1_000_000_000 * tbNum / tbDen`. With 90kHz timestamps on live streams, `PTS * 1_000_000_000` overflows int64 after ~102 seconds of content. First segment works (small PTS), then overflow produces garbage timestamps → muxer writes 0.003s duration segments → browser has nothing to play.
