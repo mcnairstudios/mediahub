@@ -2489,7 +2489,7 @@
     var available = PlayerRegistry.available();
     if (available.length <= 1) return;
 
-    var labels = { mse: 'MSE', hls: 'HLS', stream: 'Direct' };
+    var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', stream: 'Direct' };
     var sel = document.createElement('select');
     sel.id = 'delivery-switcher';
     sel.className = 'delivery-switcher';
@@ -2949,6 +2949,55 @@
     }
   };
   PlayerRegistry.register('stream', DirectPlayer);
+
+  var DASHPlayer = {
+    label: 'DASH',
+    isSupported: function() { return !!window.MediaSource && typeof dashjs !== 'undefined'; },
+    serverParams: function() { return {delivery: 'dash'}; },
+    create: function(videoEl) {
+      var player = null;
+      var lastStreamID = null;
+      var lastEndpoints = null;
+      return {
+        start: function(endpoints, streamID) {
+          lastStreamID = streamID;
+          lastEndpoints = endpoints;
+          var url = (endpoints && endpoints.manifest) || ('/api/play/' + streamID + '/dash/manifest.mpd');
+          player = dashjs.MediaPlayer().create();
+          player.updateSettings({
+            streaming: {
+              delay: { liveDelay: 4 },
+              buffer: { fastSwitchEnabled: true },
+              abr: { autoSwitchBitrate: { video: false, audio: false } }
+            }
+          });
+          if (api.token) {
+            player.extend('RequestModifier', function() {
+              return {
+                modifyRequestHeader: function(xhr) {
+                  xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
+                  return xhr;
+                },
+                modifyRequestURL: function(url) { return url; }
+              };
+            }, true);
+          }
+          player.initialize(videoEl, url, true);
+          player.on(dashjs.MediaPlayer.events.ERROR, function() {
+            handleRetry();
+          });
+        },
+        stop: function() {
+          if (player) { player.reset(); player = null; }
+        },
+        retry: function() {
+          if (player) { player.reset(); player = null; }
+          if (lastStreamID) { this.start(lastEndpoints, lastStreamID); }
+        }
+      };
+    }
+  };
+  PlayerRegistry.register('dash', DASHPlayer);
 
   var WebRTCPlayer = {
     label: 'WebRTC',

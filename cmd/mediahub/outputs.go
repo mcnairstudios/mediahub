@@ -5,6 +5,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output/hls"
 	"github.com/mcnairstudios/mediahub/pkg/output/mse"
 	"github.com/mcnairstudios/mediahub/pkg/output/record"
+	"github.com/mcnairstudios/mediahub/pkg/output/dash"
 	"github.com/mcnairstudios/mediahub/pkg/output/stream"
 	"github.com/mcnairstudios/mediahub/pkg/output/webrtc"
 )
@@ -21,6 +22,9 @@ func registerOutputs(reg *output.Registry) {
 	})
 	reg.Register(output.DeliveryRecord, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
 		return record.New(cfg)
+	})
+	reg.Register(output.DeliveryDASH, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
+		return dash.New(cfg)
 	})
 	reg.Register(output.DeliveryWebRTC, func(cfg output.PluginConfig) (output.OutputPlugin, error) {
 		return webrtc.New(cfg)

@@ -17,6 +17,7 @@ const (
 	DeliveryHLS    DeliveryMode = "hls"
 	DeliveryStream DeliveryMode = "stream"
 	DeliveryRecord DeliveryMode = "record"
+	DeliveryDASH   DeliveryMode = "dash"
 	DeliveryWebRTC DeliveryMode = "webrtc"
 )
 
