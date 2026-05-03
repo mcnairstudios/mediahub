@@ -2950,6 +2950,52 @@
   };
   PlayerRegistry.register('stream', DirectPlayer);
 
+  var WebRTCPlayer = {
+    label: 'WebRTC',
+    isSupported: function() { return !!window.RTCPeerConnection; },
+    serverParams: function() { return {delivery: 'webrtc'}; },
+    create: function(videoEl) {
+      var pc = null;
+      var cachedEndpoints = null;
+      var cachedStreamID = null;
+      return {
+        start: function(endpoints, streamID) {
+          cachedEndpoints = endpoints;
+          cachedStreamID = streamID;
+          var whepUrl = endpoints.whep || ('/api/play/' + streamID + '/webrtc/whep');
+          pc = new RTCPeerConnection({iceServers: [{urls: 'stun:stun.l.google.com:19302'}]});
+          pc.addTransceiver('video', {direction: 'recvonly'});
+          pc.addTransceiver('audio', {direction: 'recvonly'});
+          pc.ontrack = function(e) {
+            if (e.streams && e.streams[0]) videoEl.srcObject = e.streams[0];
+          };
+          pc.createOffer().then(function(offer) {
+            return pc.setLocalDescription(offer);
+          }).then(function() {
+            return fetch(whepUrl, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/sdp', 'Authorization': 'Bearer ' + (api && api.token || '')},
+              body: pc.localDescription.sdp
+            });
+          }).then(function(r) { return r.text(); })
+          .then(function(sdp) {
+            return pc.setRemoteDescription({type: 'answer', sdp: sdp});
+          }).then(function() {
+            videoEl.play().catch(function(){});
+          });
+        },
+        stop: function() { if (pc) { pc.close(); pc = null; } videoEl.srcObject = null; },
+        retry: function() {
+          this.stop();
+          if (cachedEndpoints && cachedStreamID) {
+            this.start(cachedEndpoints, cachedStreamID);
+          }
+        }
+      };
+    }
+  };
+  PlayerRegistry.register('webrtc', WebRTCPlayer);
+
   function startBufferWatch(videoEl) {
     if (playerState.bufferWatchInterval) clearInterval(playerState.bufferWatchInterval);
     playerState.bufferWatchInterval = setInterval(function() {

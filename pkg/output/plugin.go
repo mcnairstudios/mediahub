@@ -17,6 +17,7 @@ const (
 	DeliveryHLS    DeliveryMode = "hls"
 	DeliveryStream DeliveryMode = "stream"
 	DeliveryRecord DeliveryMode = "record"
+	DeliveryWebRTC DeliveryMode = "webrtc"
 )
 
 // OutputPlugin is the core interface for all delivery plugins. Each plugin
