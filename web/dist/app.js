@@ -187,6 +187,34 @@
     async del(path) { return this.request('DELETE', path); }
   };
 
+  var PlayerRegistry = {
+    _players: {},
+    register: function(mode, plugin) { this._players[mode] = plugin; },
+    get: function(mode) { return this._players[mode] || null; },
+    available: function() {
+      var modes = [];
+      for (var k in this._players) {
+        if (!this._players[k].isSupported || this._players[k].isSupported()) modes.push(k);
+      }
+      return modes;
+    }
+  };
+
+  var _capabilities = null;
+  function detectCapabilities() {
+    if (_capabilities) return _capabilities;
+    var v = document.createElement('video');
+    _capabilities = {
+      mse: !!window.MediaSource,
+      mse_h264: !!window.MediaSource && MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028"'),
+      mse_h265: !!window.MediaSource && MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L120"'),
+      hls_native: v.canPlayType('application/vnd.apple.mpegurl') !== '',
+      hls_js: typeof Hls !== 'undefined' && Hls.isSupported(),
+      webrtc: !!window.RTCPeerConnection
+    };
+    return _capabilities;
+  }
+
   function toast(msg, type) {
     var el = document.getElementById('toast');
     if (!el) {
@@ -313,20 +341,13 @@
 
     mseState: null,
 
+    activePlayer: null,
+
     cleanup: function() {
       if (this.bufferWatchInterval) { clearInterval(this.bufferWatchInterval); this.bufferWatchInterval = null; }
       if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
       if (this.retryTimeout) { clearTimeout(this.retryTimeout); this.retryTimeout = null; }
-      if (this.hlsInstance) { this.hlsInstance.destroy(); this.hlsInstance = null; }
-      if (this.mseState) {
-        this.mseState.stopped = true;
-        this.mseState.appendQueues = { video: [], audio: [] };
-        this.mseState.appending = { video: false, audio: false };
-        if (this.mseState.mediaSource && this.mseState.mediaSource.readyState === 'open') {
-          try { this.mseState.mediaSource.endOfStream(); } catch(e) {}
-        }
-        this.mseState = null;
-      }
+      if (this.activePlayer) { this.activePlayer.stop(); this.activePlayer = null; }
       if (this.recordingID) {
         api.del('/api/recordings/completed/' + this.recordingID + '/play').catch(function() {});
         this.recordingID = null;
@@ -2421,24 +2442,18 @@
           ? '/api/recordings/completed/' + recID + '/play/hls/playlist.m3u8'
           : '/api/play/' + streamID + '/hls/playlist.m3u8');
         playerState.hlsUrl = hlsUrl;
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-          startHLS(videoEl, hlsUrl);
-        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-          videoEl.src = hlsUrl;
-          videoEl.play().catch(function() {});
-        } else {
-          startMSE(videoEl, streamID, endpoints);
-        }
-      } else if (delivery === 'mse') {
-        if ('MediaSource' in window) {
-          startMSE(videoEl, streamID, endpoints);
-        } else {
-          toast('Browser does not support MSE playback', 'error');
-        }
-      } else {
-        toast('Unknown delivery mode: ' + delivery, 'error');
+        endpoints.playlist = hlsUrl;
+      }
+
+      var plugin = PlayerRegistry.get(delivery);
+      if (!plugin) plugin = PlayerRegistry.get('mse');
+      if (!plugin || !plugin.isSupported()) {
+        toast('No supported player for delivery mode: ' + delivery, 'error');
         return;
       }
+      var instance = plugin.create(videoEl);
+      playerState.activePlayer = instance;
+      instance.start(endpoints, streamID);
     } catch (e) {
       if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
       if (spinner) spinner.style.display = 'none';
@@ -2452,37 +2467,69 @@
     startStatsWatch(videoEl);
   }
 
-  function startHLS(videoEl, url) {
-    if (playerState.hlsInstance) { playerState.hlsInstance.destroy(); playerState.hlsInstance = null; }
+  var HLSPlayer = {
+    label: 'HLS',
+    isSupported: function() { return (typeof Hls !== 'undefined' && Hls.isSupported()) || document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''; },
+    serverParams: function() { return {delivery: 'hls'}; },
+    create: function(videoEl) {
+      var hlsInstance = null;
+      var lastUrl = null;
+      var lastStreamID = null;
+      return {
+        start: function(endpoints, streamID) {
+          lastStreamID = streamID;
+          var url = endpoints.playlist || ('/api/play/' + streamID + '/hls/playlist.m3u8');
+          lastUrl = url;
+          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+          playerState.hlsInstance = null;
 
-    var hls = new Hls({
-      liveSyncDurationCount: 3,
-      liveMaxLatencyDurationCount: 6,
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
-      startLevel: -1,
-      xhrSetup: function(xhr) {
-        if (api.token) xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
-      }
-    });
-    hls.loadSource(url);
-    hls.attachMedia(videoEl);
-    hls.on(Hls.Events.MANIFEST_PARSED, function() {
-      videoEl.play().catch(function() {});
-    });
-    hls.on(Hls.Events.ERROR, function(event, data) {
-      if (data.fatal) {
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          hls.startLoad();
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hls.recoverMediaError();
-        } else {
-          handleRetry();
+          if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            var hls = new Hls({
+              liveSyncDurationCount: 3,
+              liveMaxLatencyDurationCount: 6,
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+              startLevel: -1,
+              xhrSetup: function(xhr) {
+                if (api.token) xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
+              }
+            });
+            hls.loadSource(url);
+            hls.attachMedia(videoEl);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+              videoEl.play().catch(function() {});
+            });
+            hls.on(Hls.Events.ERROR, function(event, data) {
+              if (data.fatal) {
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                  hls.startLoad();
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                  hls.recoverMediaError();
+                } else {
+                  handleRetry();
+                }
+              }
+            });
+            hlsInstance = hls;
+            playerState.hlsInstance = hls;
+          } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            videoEl.src = url;
+            videoEl.play().catch(function() {});
+          }
+        },
+        stop: function() {
+          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+          playerState.hlsInstance = null;
+        },
+        retry: function() {
+          if (lastUrl && videoEl) {
+            this.start({ playlist: lastUrl }, lastStreamID);
+          }
         }
-      }
-    });
-    playerState.hlsInstance = hls;
-  }
+      };
+    }
+  };
+  PlayerRegistry.register('hls', HLSPlayer);
 
   function handleRetry() {
     if (!playerState.currentStreamID) return;
@@ -2517,10 +2564,9 @@
     if (playerState.retryTimeout) clearTimeout(playerState.retryTimeout);
     playerState.retryTimeout = setTimeout(function() {
       if (!playerState.currentStreamID || !playerState.videoEl) return;
-
-      if (playerState.delivery === 'hls' && playerState.hlsUrl) {
-        startHLS(playerState.videoEl, playerState.hlsUrl);
-      } else if (playerState.delivery === 'mse') {
+      if (playerState.activePlayer && playerState.activePlayer.retry) {
+        playerState.activePlayer.retry();
+      } else {
         initPlayer(playerState.currentStreamID);
       }
     }, delay);
@@ -2574,229 +2620,283 @@
     return Promise.resolve();
   }
 
-  function startMSE(videoEl, streamID, endpoints) {
-    if (!('MediaSource' in window)) {
-      toast('Browser does not support MSE playback', 'error');
-      return;
-    }
+  var MSEPlayer = {
+    label: 'MSE (fMP4)',
+    isSupported: function() { return !!window.MediaSource; },
+    serverParams: function() { return {delivery: 'mse'}; },
+    create: function(videoEl) {
+      var mseState = null;
+      var lastStreamID = null;
+      var lastEndpoints = null;
 
-    var basePath = '/api/play/' + streamID + '/mse/';
-    var videoInitUrl = (endpoints && endpoints.video_init) || (basePath + 'video/init');
-    var audioInitUrl = (endpoints && endpoints.audio_init) || (basePath + 'audio/init');
-    var videoSegUrl = (endpoints && endpoints.video_segment) || (basePath + 'video/segment');
-    var audioSegUrl = (endpoints && endpoints.audio_segment) || (basePath + 'audio/segment');
-    var debugUrl = basePath + 'debug';
-
-    var mseState = {
-      stopped: false,
-      mediaSource: null,
-      videoSB: null,
-      audioSB: null,
-      appendQueues: { video: [], audio: [] },
-      appending: { video: false, audio: false },
-      playStarted: false,
-      debugInfo: null
-    };
-    playerState.mseState = mseState;
-
-    var statusEl = document.getElementById('player-status');
-
-    function authHeaders() {
-      return { 'Authorization': 'Bearer ' + api.token };
-    }
-
-    function processQueue(track) {
-      var sb = track === 'video' ? mseState.videoSB : mseState.audioSB;
-      if (!sb || mseState.appending[track]) return;
-      mseState.appending[track] = true;
-      function next() {
-        if (mseState.appendQueues[track].length === 0) { mseState.appending[track] = false; return; }
-        var data = mseState.appendQueues[track].shift();
-        mseEvictBuffer(sb, videoEl).then(function() {
-          return mseWaitUpdate(sb);
-        }).then(function() {
-          sb.appendBuffer(data);
-          return mseWaitUpdate(sb);
-        }).then(next).catch(function(e) {
-          if (e.name === 'QuotaExceededError') {
-            mseEvictBuffer(sb, videoEl).then(function() {
-              mseState.appendQueues[track].unshift(data);
-              setTimeout(next, 500);
-            });
-            return;
-          }
-          mseState.appending[track] = false;
-          var errMsg = e.message || String(e);
-          if (errMsg.indexOf('append') >= 0 || errMsg.indexOf('CHUNK_DEMUXER') >= 0 || errMsg.indexOf('error') >= 0) {
-            var pStatus = document.getElementById('player-status');
-            if (pStatus) {
-              pStatus.style.color = '#ff6b6b';
-              pStatus.innerHTML = '';
-              pStatus.textContent = 'Playback error ';
-              var retryLink = document.createElement('a');
-              retryLink.textContent = 'Retry';
-              retryLink.href = '#';
-              retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
-              retryLink.onclick = function(ev) {
-                ev.preventDefault();
-                playerState.retryCount = 0;
-                handleRetry();
-              };
-              pStatus.appendChild(retryLink);
-            }
-            var pSpinner = document.getElementById('player-spinner');
-            if (pSpinner) pSpinner.style.display = 'none';
-          }
-        });
-      }
-      next();
-    }
-
-    function fetchInitWithRetry(url, maxRetries, delayMs) {
-      var attempt = 0;
-      function tryFetch() {
-        if (mseState.stopped) return Promise.reject(new Error('stopped'));
-        return fetch(url, { headers: authHeaders(), cache: 'no-store' }).then(function(r) {
-          if (r.ok) return r.arrayBuffer();
-          if ((r.status === 503 || r.status === 404) && attempt < maxRetries) {
-            attempt++;
-            if (statusEl) statusEl.textContent = 'Waiting for pipeline... (' + attempt + '/' + maxRetries + ')';
-            return new Promise(function(resolve) { setTimeout(resolve, delayMs); }).then(tryFetch);
-          }
-          throw new Error('HTTP ' + r.status);
-        });
-      }
-      return tryFetch();
-    }
-
-    function pollSegments(track, baseUrl, gen) {
-      var seq = 1;
-      function poll() {
-        if (mseState.stopped || !playerState.currentStreamID) return;
-        fetch(baseUrl + '?seq=' + seq + '&gen=' + gen, { headers: authHeaders(), cache: 'no-store' })
-          .then(function(resp) {
-            if (mseState.stopped) return;
-            if (resp.status === 410) {
-              if (statusEl) { statusEl.textContent = 'Reconnecting...'; statusEl.style.color = '#ffa726'; }
-              mseState.stopped = true;
-              mseCleanup();
-              setTimeout(function() { startMSE(videoEl, streamID, endpoints); }, 1000);
-              return;
-            }
-            if (!resp.ok) {
-              setTimeout(poll, 300);
-              return;
-            }
-            return resp.arrayBuffer();
-          })
-          .then(function(buf) {
-            if (!buf || mseState.stopped) return;
-            mseState.appendQueues[track].push(new Uint8Array(buf));
-            processQueue(track);
-            seq++;
-            if (track === 'video' && seq === 2 && !mseState.playStarted) {
-              mseState.playStarted = true;
-              var tryPlay = function() {
-                if (mseState.stopped) return;
-                try {
-                  if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
-                    var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
-                    videoEl.currentTime = Math.max(end - 1, mseState.videoSB.buffered.start(0));
-                    videoEl.play().catch(function() { if (!mseState.stopped) setTimeout(tryPlay, 300); });
-                  } else {
-                    setTimeout(tryPlay, 100);
-                  }
-                } catch(e) {}
-              };
-              setTimeout(tryPlay, 100);
-            }
-            setTimeout(poll, 50);
-          })
-          .catch(function() {
-            if (!mseState.stopped) setTimeout(poll, 1000);
-          });
-      }
-      poll();
-    }
-
-    function mseCleanup() {
-      mseState.stopped = true;
-      mseState.appendQueues.video = [];
-      mseState.appendQueues.audio = [];
-      mseState.appending.video = false;
-      mseState.appending.audio = false;
-      if (mseState.mediaSource && mseState.mediaSource.readyState === 'open') {
-        try { mseState.mediaSource.endOfStream(); } catch(e) {}
-      }
-      mseState.mediaSource = null;
-      mseState.videoSB = null;
-      mseState.audioSB = null;
-    }
-
-    var origCleanup = playerState.cleanup.bind(playerState);
-    playerState.cleanup = function() { mseCleanup(); origCleanup(); };
-
-    if (statusEl) { statusEl.textContent = 'Initializing...'; statusEl.style.color = '#ffa726'; }
-
-    fetch(debugUrl, { headers: authHeaders(), cache: 'no-store' })
-      .then(function(r) { return r.ok ? r.json() : {}; })
-      .then(function(debugInfo) {
-        mseState.debugInfo = debugInfo;
-        return fetchInitWithRetry(videoInitUrl, 60, 500);
-      })
-      .then(function(videoBuf) {
-        if (mseState.stopped) return;
-        var videoCodec = detectVideoCodec(videoBuf);
-        var videoMime = 'video/mp4; codecs="' + videoCodec + '"';
-        var audioCodecStr = (mseState.debugInfo && mseState.debugInfo.audio_codec) || 'mp4a.40.2';
-        var audioMime = 'audio/mp4; codecs="' + audioCodecStr + '"';
-
-        mseState.mediaSource = new MediaSource();
-        videoEl.src = URL.createObjectURL(mseState.mediaSource);
-
-        mseState.mediaSource.addEventListener('sourceopen', function() {
-          mseState.videoSB = mseState.mediaSource.addSourceBuffer(videoMime);
-          mseState.videoSB.mode = 'segments';
-
-          var hasAudio = !mseState.debugInfo || mseState.debugInfo.has_audio_init !== false;
-          if (hasAudio) {
-            try {
-              mseState.audioSB = mseState.mediaSource.addSourceBuffer(audioMime);
-              mseState.audioSB.mode = 'segments';
-            } catch (e) { hasAudio = false; }
-          }
-
-          mseWaitUpdate(mseState.videoSB).then(function() {
-            mseState.videoSB.appendBuffer(videoBuf);
-            return mseWaitUpdate(mseState.videoSB);
-          }).then(function() {
-            if (hasAudio && mseState.audioSB) {
-              return fetchInitWithRetry(audioInitUrl, 30, 500).then(function(audioBuf) {
-                mseState.audioSB.appendBuffer(audioBuf);
-                return mseWaitUpdate(mseState.audioSB);
-              }).catch(function() {});
-            }
-          }).then(function() {
-            if (statusEl) { statusEl.textContent = 'Buffering...'; statusEl.style.color = '#ffa726'; }
-            var gen = String((mseState.debugInfo && mseState.debugInfo.generation) || 1);
-            pollSegments('video', videoSegUrl, gen);
-            if (hasAudio && mseState.audioSB) pollSegments('audio', audioSegUrl, gen);
-          }).catch(function() {
-            if (statusEl) { statusEl.textContent = 'MSE init error'; statusEl.style.color = '#ff6b6b'; }
-          });
-        }, {once: true});
-      })
-      .catch(function(e) {
-        if (statusEl) {
-          statusEl.style.color = '#ff6b6b';
-          var msg = e.message || String(e);
-          if (msg.indexOf('HTTP 503') >= 0) statusEl.textContent = 'Pipeline not ready';
-          else if (msg.indexOf('HTTP 404') >= 0) statusEl.textContent = 'Session not found';
-          else statusEl.textContent = 'MSE Error: ' + msg;
+      function mseCleanup() {
+        if (!mseState) return;
+        mseState.stopped = true;
+        mseState.appendQueues.video = [];
+        mseState.appendQueues.audio = [];
+        mseState.appending.video = false;
+        mseState.appending.audio = false;
+        if (mseState.mediaSource && mseState.mediaSource.readyState === 'open') {
+          try { mseState.mediaSource.endOfStream(); } catch(e) {}
         }
-        handleRetry();
-      });
-  }
+        mseState.mediaSource = null;
+        mseState.videoSB = null;
+        mseState.audioSB = null;
+        playerState.mseState = null;
+        mseState = null;
+      }
+
+      function startMSEInternal(vidEl, streamID, endpoints) {
+        if (!('MediaSource' in window)) {
+          toast('Browser does not support MSE playback', 'error');
+          return;
+        }
+
+        var basePath = '/api/play/' + streamID + '/mse/';
+        var videoInitUrl = (endpoints && endpoints.video_init) || (basePath + 'video/init');
+        var audioInitUrl = (endpoints && endpoints.audio_init) || (basePath + 'audio/init');
+        var videoSegUrl = (endpoints && endpoints.video_segment) || (basePath + 'video/segment');
+        var audioSegUrl = (endpoints && endpoints.audio_segment) || (basePath + 'audio/segment');
+        var debugUrl = basePath + 'debug';
+
+        mseState = {
+          stopped: false,
+          mediaSource: null,
+          videoSB: null,
+          audioSB: null,
+          appendQueues: { video: [], audio: [] },
+          appending: { video: false, audio: false },
+          playStarted: false,
+          debugInfo: null
+        };
+        playerState.mseState = mseState;
+
+        var statusEl = document.getElementById('player-status');
+
+        function authHeaders() {
+          return { 'Authorization': 'Bearer ' + api.token };
+        }
+
+        function processQueue(track) {
+          var sb = track === 'video' ? mseState.videoSB : mseState.audioSB;
+          if (!sb || mseState.appending[track]) return;
+          mseState.appending[track] = true;
+          function next() {
+            if (mseState.appendQueues[track].length === 0) { mseState.appending[track] = false; return; }
+            var data = mseState.appendQueues[track].shift();
+            mseEvictBuffer(sb, vidEl).then(function() {
+              return mseWaitUpdate(sb);
+            }).then(function() {
+              sb.appendBuffer(data);
+              return mseWaitUpdate(sb);
+            }).then(next).catch(function(e) {
+              if (e.name === 'QuotaExceededError') {
+                mseEvictBuffer(sb, vidEl).then(function() {
+                  mseState.appendQueues[track].unshift(data);
+                  setTimeout(next, 500);
+                });
+                return;
+              }
+              mseState.appending[track] = false;
+              var errMsg = e.message || String(e);
+              if (errMsg.indexOf('append') >= 0 || errMsg.indexOf('CHUNK_DEMUXER') >= 0 || errMsg.indexOf('error') >= 0) {
+                var pStatus = document.getElementById('player-status');
+                if (pStatus) {
+                  pStatus.style.color = '#ff6b6b';
+                  pStatus.innerHTML = '';
+                  pStatus.textContent = 'Playback error ';
+                  var retryLink = document.createElement('a');
+                  retryLink.textContent = 'Retry';
+                  retryLink.href = '#';
+                  retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
+                  retryLink.onclick = function(ev) {
+                    ev.preventDefault();
+                    playerState.retryCount = 0;
+                    handleRetry();
+                  };
+                  pStatus.appendChild(retryLink);
+                }
+                var pSpinner = document.getElementById('player-spinner');
+                if (pSpinner) pSpinner.style.display = 'none';
+              }
+            });
+          }
+          next();
+        }
+
+        function fetchInitWithRetry(url, maxRetries, delayMs) {
+          var attempt = 0;
+          function tryFetch() {
+            if (mseState.stopped) return Promise.reject(new Error('stopped'));
+            return fetch(url, { headers: authHeaders(), cache: 'no-store' }).then(function(r) {
+              if (r.ok) return r.arrayBuffer();
+              if ((r.status === 503 || r.status === 404) && attempt < maxRetries) {
+                attempt++;
+                if (statusEl) statusEl.textContent = 'Waiting for pipeline... (' + attempt + '/' + maxRetries + ')';
+                return new Promise(function(resolve) { setTimeout(resolve, delayMs); }).then(tryFetch);
+              }
+              throw new Error('HTTP ' + r.status);
+            });
+          }
+          return tryFetch();
+        }
+
+        function pollSegments(track, baseUrl, gen) {
+          var seq = 1;
+          function poll() {
+            if (mseState.stopped || !playerState.currentStreamID) return;
+            fetch(baseUrl + '?seq=' + seq + '&gen=' + gen, { headers: authHeaders(), cache: 'no-store' })
+              .then(function(resp) {
+                if (mseState.stopped) return;
+                if (resp.status === 410) {
+                  if (statusEl) { statusEl.textContent = 'Reconnecting...'; statusEl.style.color = '#ffa726'; }
+                  mseState.stopped = true;
+                  mseCleanup();
+                  setTimeout(function() { startMSEInternal(vidEl, streamID, endpoints); }, 1000);
+                  return;
+                }
+                if (!resp.ok) {
+                  setTimeout(poll, 300);
+                  return;
+                }
+                return resp.arrayBuffer();
+              })
+              .then(function(buf) {
+                if (!buf || mseState.stopped) return;
+                mseState.appendQueues[track].push(new Uint8Array(buf));
+                processQueue(track);
+                seq++;
+                if (track === 'video' && seq === 2 && !mseState.playStarted) {
+                  mseState.playStarted = true;
+                  var tryPlay = function() {
+                    if (mseState.stopped) return;
+                    try {
+                      if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
+                        var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
+                        vidEl.currentTime = Math.max(end - 1, mseState.videoSB.buffered.start(0));
+                        vidEl.play().catch(function() { if (!mseState.stopped) setTimeout(tryPlay, 300); });
+                      } else {
+                        setTimeout(tryPlay, 100);
+                      }
+                    } catch(e) {}
+                  };
+                  setTimeout(tryPlay, 100);
+                }
+                setTimeout(poll, 50);
+              })
+              .catch(function() {
+                if (!mseState.stopped) setTimeout(poll, 1000);
+              });
+          }
+          poll();
+        }
+
+        if (statusEl) { statusEl.textContent = 'Initializing...'; statusEl.style.color = '#ffa726'; }
+
+        fetch(debugUrl, { headers: authHeaders(), cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : {}; })
+          .then(function(debugInfo) {
+            mseState.debugInfo = debugInfo;
+            return fetchInitWithRetry(videoInitUrl, 60, 500);
+          })
+          .then(function(videoBuf) {
+            if (mseState.stopped) return;
+            var videoCodec = detectVideoCodec(videoBuf);
+            var videoMime = 'video/mp4; codecs="' + videoCodec + '"';
+            var audioCodecStr = (mseState.debugInfo && mseState.debugInfo.audio_codec) || 'mp4a.40.2';
+            var audioMime = 'audio/mp4; codecs="' + audioCodecStr + '"';
+
+            mseState.mediaSource = new MediaSource();
+            vidEl.src = URL.createObjectURL(mseState.mediaSource);
+
+            mseState.mediaSource.addEventListener('sourceopen', function() {
+              mseState.videoSB = mseState.mediaSource.addSourceBuffer(videoMime);
+              mseState.videoSB.mode = 'segments';
+
+              var hasAudio = !mseState.debugInfo || mseState.debugInfo.has_audio_init !== false;
+              if (hasAudio) {
+                try {
+                  mseState.audioSB = mseState.mediaSource.addSourceBuffer(audioMime);
+                  mseState.audioSB.mode = 'segments';
+                } catch (e) { hasAudio = false; }
+              }
+
+              mseWaitUpdate(mseState.videoSB).then(function() {
+                mseState.videoSB.appendBuffer(videoBuf);
+                return mseWaitUpdate(mseState.videoSB);
+              }).then(function() {
+                if (hasAudio && mseState.audioSB) {
+                  return fetchInitWithRetry(audioInitUrl, 30, 500).then(function(audioBuf) {
+                    mseState.audioSB.appendBuffer(audioBuf);
+                    return mseWaitUpdate(mseState.audioSB);
+                  }).catch(function() {});
+                }
+              }).then(function() {
+                if (statusEl) { statusEl.textContent = 'Buffering...'; statusEl.style.color = '#ffa726'; }
+                var gen = String((mseState.debugInfo && mseState.debugInfo.generation) || 1);
+                pollSegments('video', videoSegUrl, gen);
+                if (hasAudio && mseState.audioSB) pollSegments('audio', audioSegUrl, gen);
+              }).catch(function() {
+                if (statusEl) { statusEl.textContent = 'MSE init error'; statusEl.style.color = '#ff6b6b'; }
+              });
+            }, {once: true});
+          })
+          .catch(function(e) {
+            if (statusEl) {
+              statusEl.style.color = '#ff6b6b';
+              var msg = e.message || String(e);
+              if (msg.indexOf('HTTP 503') >= 0) statusEl.textContent = 'Pipeline not ready';
+              else if (msg.indexOf('HTTP 404') >= 0) statusEl.textContent = 'Session not found';
+              else statusEl.textContent = 'MSE Error: ' + msg;
+            }
+            handleRetry();
+          });
+      }
+
+      return {
+        start: function(endpoints, streamID) {
+          lastStreamID = streamID;
+          lastEndpoints = endpoints;
+          startMSEInternal(videoEl, streamID, endpoints);
+        },
+        stop: function() {
+          mseCleanup();
+        },
+        retry: function() {
+          if (lastStreamID) {
+            mseCleanup();
+            initPlayer(lastStreamID);
+          }
+        }
+      };
+    }
+  };
+  PlayerRegistry.register('mse', MSEPlayer);
+
+  var DirectPlayer = {
+    label: 'Direct',
+    isSupported: function() { return true; },
+    serverParams: function() { return {delivery: 'stream'}; },
+    create: function(videoEl) {
+      var lastStreamID = null;
+      var lastEndpoints = null;
+      return {
+        start: function(endpoints, streamID) {
+          lastStreamID = streamID;
+          lastEndpoints = endpoints;
+          videoEl.src = (endpoints && endpoints.stream) || ('/api/play/' + streamID + '/stream');
+          videoEl.play().catch(function() {});
+        },
+        stop: function() { videoEl.pause(); videoEl.src = ''; },
+        retry: function() {
+          if (lastStreamID) {
+            this.start(lastEndpoints, lastStreamID);
+          }
+        }
+      };
+    }
+  };
+  PlayerRegistry.register('stream', DirectPlayer);
 
   function startBufferWatch(videoEl) {
     if (playerState.bufferWatchInterval) clearInterval(playerState.bufferWatchInterval);
