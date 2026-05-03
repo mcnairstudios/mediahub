@@ -5080,11 +5080,11 @@
 
   function bindAutoSave(container, selectId, settingKey) {
     var sel = document.getElementById(selectId);
-    if (!sel && container) { sel = container.querySelector('#' + selectId); }
+    if (!sel && container) sel = container.querySelector('#' + selectId);
     if (!sel) return;
-    sel.onchange = function() {
-      saveSetting(settingKey, sel.value);
-    };
+    sel.addEventListener('change', function() {
+      saveSetting(settingKey, this.value);
+    });
   }
 
   function bindToggle(container, checkboxId, settingKey) {
