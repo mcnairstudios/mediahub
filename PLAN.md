@@ -127,6 +127,51 @@ Future: a "Custom Feed" source type where users configure feeds via a CRUD UI wi
 - Factory/startup logs: once at startup, not on every poll/status check
 - Source refresh: log start + result, not internal steps
 
+## Bugs Found & Fixed (Need Tests)
+
+### PTS Integer Overflow in Bridge (CRITICAL)
+**Symptom**: Video plays 2 seconds then freezes. Audio resumes after 6s, video never does.
+**Root cause**: `avTSToNanos()` computed `ts * 1_000_000_000 * tbNum / tbDen`. With 90kHz timestamps on live streams, `PTS * 1_000_000_000` overflows int64 after ~102 seconds of content. First segment works (small PTS), then overflow produces garbage timestamps → muxer writes 0.003s duration segments → browser has nothing to play.
+**Fix**: Overflow-safe rescale function: `(v / den) * num + (v % den) * num / den`. Applied to `conv.ToAVPacket()`, `bridge.avTSToNanos()`, and `resample.Convert()`.
+**Tests needed**: 
+- PTS conversion with large values (>100s at 90kHz = PTS > 9,000,000)
+- PTS conversion at int64 boundary values
+- Verify `avTSToNanos(9000000, 1/90000)` = 100,000,000,000 nanos (100s) not garbage
+- Segment duration stays correct after 2 minutes of streaming
+
+### Audio Input Timebase Mismatch
+**Symptom**: "Failed to reconcile encoded audio times with decoded output" in Chrome.
+**Root cause**: Bridge used hardcoded `audioTB = 1/48000` for converting audio PTS, but source audio may have different sample rate (e.g. AC3 at 48kHz with different packet timing). Should use actual source audio timebase.
+**Fix**: Added `audioInputTB` derived from `audioTrack.SampleRate`, used for `ToAVPacket` instead of hardcoded `audioTB`.
+**Tests needed**:
+- Audio PTS conversion with various sample rates (44100, 48000, 96000)
+- Audio sync test: verify A/V sync after 30 seconds of playback
+
+### Resampler PTS Drift
+**Symptom**: Audio gradually drifts out of sync over time.
+**Root cause**: Resampler copied input frame PTS to output frame, but resampling can change sample count (e.g. 44.1kHz → 48kHz). Output PTS should be based on cumulative output sample count, not input PTS.
+**Fix**: Track `nextPts` counter in resampler, increment by `NbSamples()` per output frame. Reset on `Reset()`.
+**Tests needed**:
+- Resample 44.1kHz → 48kHz, verify output PTS increments correctly
+- Resample then seek (Reset), verify PTS restarts
+
+### VideoToolbox HW Pipeline Findings
+**What works**:
+- Progressive: VT decode → scale_vt → VT encode (all GPU, 5.6x real-time)
+- Interlaced: SW decode → NV12 scale → VT encode with interlaced flags (57% CPU vs 600%)
+- `yadif_videotoolbox` exists but returns ENOSYS on homebrew ffmpeg 8.1
+
+**What needed fixing**:
+- VT encoder needs NV12 input (`PixelFormatNv12`) — added scaler for videotoolbox/vaapi
+- VT encoder needs `InterlacedDCT` + `InterlacedMe` flags for interlaced content
+- Skip CPU yadif when VT encoder handles interlaced natively
+- VT decode fails on interlaced H.264 — falls back to SW automatically
+
+**Tests needed**:
+- NV12 conversion test: yuv420p → nv12 → VT encode → valid output
+- Interlaced flags test: verify encoder context has correct flags set
+- Fallback test: VT decode failure → SW decode → encode still works
+
 ## Backlog (Low Priority)
 
 - Generic store CRUD helpers
