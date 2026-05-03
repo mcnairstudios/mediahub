@@ -472,10 +472,25 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
 	}
 	if info.Video != nil {
-		pluginCfg.Video = info.Video
+		v := *info.Video
+		if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
+			v.Codec = string(decision.VideoCodec)
+			if len(pipelineResult.VideoExtradata) > 0 {
+				v.Extradata = pipelineResult.VideoExtradata
+			} else {
+				v.Extradata = nil
+			}
+		}
+		pluginCfg.Video = &v
 	}
 	if len(info.AudioTracks) > 0 {
-		pluginCfg.Audio = &info.AudioTracks[0]
+		a := info.AudioTracks[0]
+		if decision.NeedsAudioTranscode && string(decision.AudioCodec) != "" {
+			a.Codec = string(decision.AudioCodec)
+			a.Channels = 2
+			a.SampleRate = 48000
+		}
+		pluginCfg.Audio = &a
 	}
 
 	plugin, err := deps.OutputReg.Create(delivery, pluginCfg)

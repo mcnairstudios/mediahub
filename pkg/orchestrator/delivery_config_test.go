@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -683,6 +684,119 @@ func TestPluginConfigAudioOnlyTranscode(t *testing.T) {
 	}
 	if cfg.Audio.SampleRate != 48000 {
 		t.Errorf("audio sample_rate: got %d, want 48000", cfg.Audio.SampleRate)
+	}
+}
+
+func TestHLSSegmentTypeFromPluginConfig(t *testing.T) {
+	tests := []struct {
+		name            string
+		needsTranscode  bool
+		videoCodec      media.VideoCodec
+		sourceCodec     string
+		wantSegmentType string
+	}{
+		{
+			name:            "HEVC transcode produces fMP4 HLS",
+			needsTranscode:  true,
+			videoCodec:      media.VideoH265,
+			sourceCodec:     "h264",
+			wantSegmentType: "fmp4",
+		},
+		{
+			name:            "HEVC copy produces fMP4 HLS",
+			needsTranscode:  false,
+			videoCodec:      media.VideoCopy,
+			sourceCodec:     "hevc",
+			wantSegmentType: "fmp4",
+		},
+		{
+			name:            "H264 transcode produces MPEG-TS HLS",
+			needsTranscode:  true,
+			videoCodec:      media.VideoH264,
+			sourceCodec:     "hevc",
+			wantSegmentType: "mpegts",
+		},
+		{
+			name:            "H264 copy produces MPEG-TS HLS",
+			needsTranscode:  false,
+			videoCodec:      media.VideoCopy,
+			sourceCodec:     "h264",
+			wantSegmentType: "mpegts",
+		},
+		{
+			name:            "HEVC source with h265 string produces fMP4 HLS",
+			needsTranscode:  false,
+			videoCodec:      media.VideoCopy,
+			sourceCodec:     "h265",
+			wantSegmentType: "fmp4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := strategy.Decision{
+				VideoCodec:     tt.videoCodec,
+				AudioCodec:     media.AudioAAC,
+				NeedsTranscode: tt.needsTranscode,
+			}
+			info := &media.ProbeResult{
+				Video:       &media.VideoInfo{Codec: tt.sourceCodec, Width: 1920, Height: 1080},
+				AudioTracks: []media.AudioTrack{{Codec: "aac", Channels: 2, SampleRate: 48000}},
+			}
+			pr := &session.PipelineResult{Info: info}
+
+			cfg := buildPluginConfig(decision, info, pr, "/tmp/test")
+
+			if cfg.Video == nil {
+				t.Fatal("expected Video to be set")
+			}
+
+			vc := strings.ToLower(cfg.Video.Codec)
+			isHEVC := vc == "h265" || vc == "hevc"
+
+			if tt.wantSegmentType == "fmp4" && !isHEVC {
+				t.Errorf("expected HEVC codec on pluginCfg.Video for fMP4, got %q", cfg.Video.Codec)
+			}
+			if tt.wantSegmentType == "mpegts" && isHEVC {
+				t.Errorf("expected non-HEVC codec on pluginCfg.Video for MPEG-TS, got %q", cfg.Video.Codec)
+			}
+		})
+	}
+}
+
+func TestPlayRecordingPluginConfigTranscodeOverridesCodec(t *testing.T) {
+	decision := strategy.Decision{
+		VideoCodec:          media.VideoH265,
+		AudioCodec:          media.AudioAAC,
+		NeedsTranscode:      true,
+		NeedsAudioTranscode: true,
+	}
+	info := &media.ProbeResult{
+		Video:       &media.VideoInfo{Codec: "h264", Width: 1920, Height: 1080},
+		AudioTracks: []media.AudioTrack{{Codec: "ac3", Channels: 6, SampleRate: 48000}},
+	}
+	encoderExtra := []byte{0x01, 0x21, 0x00}
+	pr := &session.PipelineResult{
+		Info:           info,
+		VideoExtradata: encoderExtra,
+	}
+
+	cfg := buildPluginConfig(decision, info, pr, "/tmp/rec-test")
+
+	if cfg.Video == nil {
+		t.Fatal("expected Video to be set")
+	}
+	if cfg.Video.Codec != "h265" {
+		t.Errorf("expected video codec h265 after transcode, got %q", cfg.Video.Codec)
+	}
+	if cfg.Audio == nil {
+		t.Fatal("expected Audio to be set")
+	}
+	if cfg.Audio.Codec != "aac" {
+		t.Errorf("expected audio codec aac after transcode, got %q", cfg.Audio.Codec)
+	}
+	if cfg.Audio.Channels != 2 {
+		t.Errorf("expected stereo downmix, got %d channels", cfg.Audio.Channels)
 	}
 }
 
