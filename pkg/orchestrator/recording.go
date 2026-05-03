@@ -147,10 +147,15 @@ func completeRecording(recordDir, sourcePath, title string) (string, error) {
 	if safeName == "" {
 		safeName = "recording"
 	}
-	destPath := filepath.Join(destDir, safeName+".ts")
+
+	ext := filepath.Ext(sourcePath)
+	if ext == "" {
+		ext = ".ts"
+	}
+	destPath := filepath.Join(destDir, safeName+ext)
 
 	for i := 1; fileExists(destPath); i++ {
-		destPath = filepath.Join(destDir, fmt.Sprintf("%s_%d.ts", safeName, i))
+		destPath = filepath.Join(destDir, fmt.Sprintf("%s_%d%s", safeName, i, ext))
 	}
 
 	if err := os.Rename(sourcePath, destPath); err != nil {

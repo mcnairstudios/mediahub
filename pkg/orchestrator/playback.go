@@ -306,8 +306,10 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 			}
 		}()
 		recCfg := pluginCfg
-		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source.ts")
-		recCfg.OutputFormat = "mpegts"
+		recExt := media.ContainerFileExtension(decision.Container)
+		recFmt := media.ContainerOutputFormat(decision.Container)
+		recCfg.OutputFilePath = filepath.Join(sess.OutputDir, "source"+recExt)
+		recCfg.OutputFormat = recFmt
 		if decision.NeedsTranscode {
 			recCfg.VideoCodecParams = pipelineResult.VideoCodecParams
 		}

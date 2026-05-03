@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 )
 
@@ -217,9 +218,12 @@ func (s *Server) handleChannelStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outputPath := filepath.Join(result.Session.OutputDir, "source.ts")
+	container := media.Container(result.Decision.Container)
+	ext := media.ContainerFileExtension(container)
+	contentType := media.ContainerContentType(container)
+	outputPath := filepath.Join(result.Session.OutputDir, "source"+ext)
 
-	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Transfer-Encoding", "chunked")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)

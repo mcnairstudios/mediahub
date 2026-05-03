@@ -164,6 +164,55 @@ func TestResolve_ContainerMKV(t *testing.T) {
 	}
 }
 
+func TestResolve_ContainerMatroska(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080},
+		Output{VideoCodec: "copy", AudioCodec: "copy", Container: "matroska"},
+	)
+	if d.Container != media.ContainerMatroska {
+		t.Errorf("expected matroska container, got %s", d.Container)
+	}
+	if d.AudioCodec != media.AudioCopy {
+		t.Errorf("matroska should allow any audio codec, got %s", d.AudioCodec)
+	}
+}
+
+func TestResolve_ContainerWebM(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080},
+		Output{VideoCodec: "copy", AudioCodec: "aac", Container: "webm"},
+	)
+	if d.Container != media.ContainerWebM {
+		t.Errorf("expected webm container, got %s", d.Container)
+	}
+	if d.AudioCodec != media.AudioOpus {
+		t.Errorf("webm should force opus audio, got %s", d.AudioCodec)
+	}
+	if !d.NeedsAudioTranscode {
+		t.Error("webm with non-opus audio should need audio transcode")
+	}
+}
+
+func TestResolve_ContainerWebMOpusPassthrough(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "h264", AudioCodec: "opus", Width: 1920, Height: 1080},
+		Output{VideoCodec: "copy", AudioCodec: "opus", Container: "webm"},
+	)
+	if d.AudioCodec != media.AudioOpus {
+		t.Errorf("expected opus, got %s", d.AudioCodec)
+	}
+}
+
+func TestResolve_ContainerWebMCopyAudioAllowed(t *testing.T) {
+	d := Resolve(
+		Input{VideoCodec: "h264", AudioCodec: "opus", Width: 1920, Height: 1080},
+		Output{VideoCodec: "copy", AudioCodec: "copy", Container: "webm"},
+	)
+	if d.AudioCodec != media.AudioCopy {
+		t.Errorf("webm with copy audio should stay copy, got %s", d.AudioCodec)
+	}
+}
+
 func TestResolve_AudioEAC3NormalizedToAC3(t *testing.T) {
 	d := Resolve(
 		Input{VideoCodec: "h264", AudioCodec: "eac3", Width: 1920, Height: 1080},

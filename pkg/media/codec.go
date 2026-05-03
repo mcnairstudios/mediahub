@@ -20,10 +20,57 @@ const (
 	AudioOpus AudioCodec = "opus"
 	AudioCopy AudioCodec = "copy"
 
-	ContainerMP4    Container = "mp4"
-	ContainerMPEGTS Container = "mpegts"
-	ContainerMKV    Container = "mkv"
+	ContainerMP4      Container = "mp4"
+	ContainerMPEGTS   Container = "mpegts"
+	ContainerMKV      Container = "mkv"
+	ContainerMatroska Container = "matroska"
+	ContainerWebM     Container = "webm"
 )
+
+func ContainerContentType(c Container) string {
+	switch c {
+	case ContainerMP4:
+		return "video/mp4"
+	case ContainerMPEGTS:
+		return "video/mp2t"
+	case ContainerMKV, ContainerMatroska:
+		return "video/x-matroska"
+	case ContainerWebM:
+		return "video/webm"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func ContainerFileExtension(c Container) string {
+	switch c {
+	case ContainerMP4:
+		return ".mp4"
+	case ContainerMPEGTS:
+		return ".ts"
+	case ContainerMKV, ContainerMatroska:
+		return ".mkv"
+	case ContainerWebM:
+		return ".webm"
+	default:
+		return ".ts"
+	}
+}
+
+func ContainerOutputFormat(c Container) string {
+	switch c {
+	case ContainerMP4:
+		return "mp4"
+	case ContainerMPEGTS:
+		return "mpegts"
+	case ContainerMKV, ContainerMatroska:
+		return "matroska"
+	case ContainerWebM:
+		return "webm"
+	default:
+		return "mpegts"
+	}
+}
 
 func NormalizeVideoCodec(s string) VideoCodec {
 	lower := strings.ToLower(s)

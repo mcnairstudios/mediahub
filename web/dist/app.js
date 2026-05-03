@@ -8448,6 +8448,7 @@
         '<option value="mp4"' + (!p.container || p.container === 'mp4' ? ' selected' : '') + '>MP4</option>' +
         '<option value="mpegts"' + (p.container === 'mpegts' ? ' selected' : '') + '>MPEG-TS</option>' +
         '<option value="matroska"' + (p.container === 'matroska' ? ' selected' : '') + '>Matroska</option>' +
+        '<option value="webm"' + (p.container === 'webm' ? ' selected' : '') + '>WebM</option>' +
         '</select></div>' +
         '<div class="form-group"><label class="form-label">Max Output Height</label>' +
         '<select class="form-input" id="cp-height">' +

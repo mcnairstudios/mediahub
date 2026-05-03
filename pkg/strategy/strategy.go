@@ -92,5 +92,10 @@ func Resolve(in Input, out Output) Decision {
 		d.AudioCodec = outAudio
 	}
 
+	if d.Container == media.ContainerWebM && d.AudioCodec != media.AudioOpus && d.AudioCodec != media.AudioCopy {
+		d.NeedsAudioTranscode = true
+		d.AudioCodec = media.AudioOpus
+	}
+
 	return d
 }

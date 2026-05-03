@@ -100,3 +100,63 @@ func TestBaseVideoCodec(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerContentType(t *testing.T) {
+	tests := []struct {
+		container Container
+		want      string
+	}{
+		{ContainerMP4, "video/mp4"},
+		{ContainerMPEGTS, "video/mp2t"},
+		{ContainerMKV, "video/x-matroska"},
+		{ContainerMatroska, "video/x-matroska"},
+		{ContainerWebM, "video/webm"},
+		{Container("unknown"), "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		got := ContainerContentType(tt.container)
+		if got != tt.want {
+			t.Errorf("ContainerContentType(%q) = %q, want %q", tt.container, got, tt.want)
+		}
+	}
+}
+
+func TestContainerFileExtension(t *testing.T) {
+	tests := []struct {
+		container Container
+		want      string
+	}{
+		{ContainerMP4, ".mp4"},
+		{ContainerMPEGTS, ".ts"},
+		{ContainerMKV, ".mkv"},
+		{ContainerMatroska, ".mkv"},
+		{ContainerWebM, ".webm"},
+		{Container("unknown"), ".ts"},
+	}
+	for _, tt := range tests {
+		got := ContainerFileExtension(tt.container)
+		if got != tt.want {
+			t.Errorf("ContainerFileExtension(%q) = %q, want %q", tt.container, got, tt.want)
+		}
+	}
+}
+
+func TestContainerOutputFormat(t *testing.T) {
+	tests := []struct {
+		container Container
+		want      string
+	}{
+		{ContainerMP4, "mp4"},
+		{ContainerMPEGTS, "mpegts"},
+		{ContainerMKV, "matroska"},
+		{ContainerMatroska, "matroska"},
+		{ContainerWebM, "webm"},
+		{Container("unknown"), "mpegts"},
+	}
+	for _, tt := range tests {
+		got := ContainerOutputFormat(tt.container)
+		if got != tt.want {
+			t.Errorf("ContainerOutputFormat(%q) = %q, want %q", tt.container, got, tt.want)
+		}
+	}
+}
