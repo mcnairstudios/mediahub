@@ -6,7 +6,7 @@ The server decides delivery mode and codec. The frontend gets whatever the serve
 
 ## How Playback Should Work
 
-The server launches the frontend — so the backend still decides what's available (client profiles, source profiles, what outputs exist). But by the time the frontend hits a playback URL, it knows what it can play and the backend has no choice but to obey.
+The server launches the frontend and often forces the choice via client profiles — "you're a Browser client, you get MSE/H.264/fMP4". The frontend reads the profile and obeys. By the time it hits a playback URL, the choice is made and the backend pipeline has no choice but to deliver exactly that. The frontend and the pipeline are always aligned because the client profile decided for both sides.
 
 ### The Flow
 
