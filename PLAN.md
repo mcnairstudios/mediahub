@@ -93,6 +93,10 @@ Delivery mode per client:
 - **DLNA**: Stream (raw HTTP chunked)
 - **Apple TV**: HLS
 
+## Source Plugin Form Builder
+
+Generic web form builder so adding a new source type doesn't require hardcoded `src.type === 'x'` checks in the frontend. Plugins register a form descriptor (fields, types, labels, defaults, color, badge label) and the frontend renders any source form from the descriptor via `GET /api/source-types`. Generic CRUD routes: `POST/PUT/DELETE /api/sources/{type}/{id}`.
+
 ## New Source Plugins (Planned)
 
 - **EarthCam** — Trending feed from earthcam.com. Live webcams of landmarks, cities, nature. Catches big events (volcanoes, storms, Times Square NYE). Source plugin fetches trending/featured cams as live streams.
