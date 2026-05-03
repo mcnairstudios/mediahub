@@ -66,6 +66,8 @@ type Bridge struct {
 	videoEncoderExtradata []byte
 	extractedExtradata   bool
 	bsfExtractor         *bsf.ExtraDataExtractor
+	hwVideoPath          bool
+	hwDeintPending       bool
 	mu                   sync.Mutex
 	log                  zerolog.Logger
 }
@@ -97,11 +99,15 @@ func New(cfg Config) (*Bridge, error) {
 			decHW = cfg.HWAccel
 		}
 
+		useHWVideoPath := (cfg.HWAccel == "videotoolbox") && decHW != "" && decHW != "none"
+		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
+
 		if cp, ok := cfg.VideoCodecParams.(*astiav.CodecParameters); ok && cp != nil {
 			b.videoDec, err = decode.NewVideoDecoderFromParams(cp, decode.DecodeOpts{
-				HWAccel:     decHW,
-				MaxBitDepth: cfg.MaxBitDepth,
-				DecoderName: cfg.DecoderName,
+				HWAccel:      decHW,
+				MaxBitDepth:  cfg.MaxBitDepth,
+				DecoderName:  cfg.DecoderName,
+				KeepHWFrames: useHWVideoPath,
 			})
 		} else {
 			videoCodecID, cerr := conv.CodecIDFromString(info.Video.Codec)
@@ -109,57 +115,69 @@ func New(cfg Config) (*Bridge, error) {
 				return nil, fmt.Errorf("bridge: video codec ID: %w", cerr)
 			}
 			b.videoDec, err = decode.NewVideoDecoder(videoCodecID, info.Video.Extradata, decode.DecodeOpts{
-				HWAccel:     decHW,
-				MaxBitDepth: cfg.MaxBitDepth,
-				DecoderName: cfg.DecoderName,
+				HWAccel:      decHW,
+				MaxBitDepth:  cfg.MaxBitDepth,
+				DecoderName:  cfg.DecoderName,
+				KeepHWFrames: useHWVideoPath,
 			})
 		}
 		if err != nil {
 			return nil, fmt.Errorf("bridge: video decoder: %w", err)
 		}
 
-		srcPixFmt := astiav.PixelFormatYuv420P
-		needsBitDepthConversion := cfg.MaxBitDepth > 0 && info.Video.BitDepth > cfg.MaxBitDepth
-		if needsBitDepthConversion {
-			srcPixFmt = astiav.PixelFormatYuv420P10Le
+		if useHWVideoPath && b.videoDec.HWDeviceContext() != nil {
+			b.hwVideoPath = true
+			if needsDeinterlace {
+				b.hwDeintPending = true
+			}
+			cfg.Log.Info().Msg("bridge: GPU video path enabled (zero CPU copies)")
 		}
 
-		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
-		if needsDeinterlace {
-			b.deint, err = filter.NewDeinterlacer(
-				info.Video.Width, info.Video.Height,
-				srcPixFmt,
-				astiav.NewRational(1, 90000),
-			)
-			if err != nil {
-				b.closeAll()
-				return nil, fmt.Errorf("bridge: deinterlacer: %w", err)
+		if !b.hwVideoPath {
+			srcPixFmt := astiav.PixelFormatYuv420P
+			needsBitDepthConversion := cfg.MaxBitDepth > 0 && info.Video.BitDepth > cfg.MaxBitDepth
+			if needsBitDepthConversion {
+				srcPixFmt = astiav.PixelFormatYuv420P10Le
+			}
+
+			if needsDeinterlace {
+				b.deint, err = filter.NewDeinterlacer(
+					info.Video.Width, info.Video.Height,
+					srcPixFmt,
+					astiav.NewRational(1, 90000),
+				)
+				if err != nil {
+					b.closeAll()
+					return nil, fmt.Errorf("bridge: deinterlacer: %w", err)
+				}
+			}
+
+			outW, outH, needsResolutionScale := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
+			needsPixFmtConversion := cfg.HWAccel == "videotoolbox" || cfg.HWAccel == "vaapi"
+			outPixFmt := astiav.PixelFormatYuv420P
+			if needsPixFmtConversion {
+				outPixFmt = astiav.PixelFormatNv12
+			}
+			if needsResolutionScale || needsBitDepthConversion || needsPixFmtConversion {
+				b.scaler, err = scale.NewScaler(
+					info.Video.Width, info.Video.Height, srcPixFmt,
+					outW, outH, outPixFmt,
+				)
+				if err != nil {
+					b.closeAll()
+					return nil, fmt.Errorf("bridge: scaler: %w", err)
+				}
 			}
 		}
 
-		outW, outH, needsResolutionScale := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
-		needsPixFmtConversion := cfg.HWAccel == "videotoolbox" || cfg.HWAccel == "vaapi"
-		outPixFmt := astiav.PixelFormatYuv420P
-		if needsPixFmtConversion {
-			outPixFmt = astiav.PixelFormatNv12
-		}
-		if needsResolutionScale || needsBitDepthConversion || needsPixFmtConversion {
-			b.scaler, err = scale.NewScaler(
-				info.Video.Width, info.Video.Height, srcPixFmt,
-				outW, outH, outPixFmt,
-			)
-			if err != nil {
-				b.closeAll()
-				return nil, fmt.Errorf("bridge: scaler: %w", err)
-			}
-		}
+		outW, outH, _ := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
 
 		outCodec := cfg.OutputCodec
 		if outCodec == "" {
 			outCodec = "h264"
 		}
 
-		videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, b.deint != nil, cfg.Framerate)
+		videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, needsDeinterlace, cfg.Framerate)
 
 		preset := cfg.Preset
 		if preset == "" {
@@ -311,6 +329,29 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 
 	for i, frame := range frames {
 		decFrame := frame
+
+		if b.hwVideoPath && b.hwDeintPending && b.deint == nil {
+			hwFramesCtx := frame.HardwareFramesContext()
+			hwDevCtx := b.videoDec.HWDeviceContext()
+			if hwFramesCtx != nil && hwDevCtx != nil {
+				b.deint, err = filter.NewDeinterlacerWithOpts(filter.DeinterlaceOpts{
+					Width:       frame.Width(),
+					Height:      frame.Height(),
+					PixFmt:      frame.PixelFormat(),
+					TimeBase:    astiav.NewRational(1, 90000),
+					HWAccel:     "videotoolbox",
+					HWDeviceCtx: hwDevCtx,
+					HWFramesCtx: hwFramesCtx,
+				})
+				if err != nil {
+					b.log.Warn().Err(err).Msg("bridge: HW deinterlacer init failed, disabling deinterlace")
+					b.hwDeintPending = false
+				} else {
+					b.hwDeintPending = false
+				}
+			}
+		}
+
 		if b.deint != nil {
 			frame, err = b.deint.Process(frame)
 			decFrame.Free()
