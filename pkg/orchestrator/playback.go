@@ -546,17 +546,28 @@ func resolveDecoderName(ctx context.Context, deps PlaybackDeps, codec string) st
 		return ""
 	}
 	codec = strings.ToLower(codec)
+	var val string
 	switch codec {
 	case "h264", "h265", "av1":
-		if val, err := deps.SettingsStore.Get(ctx, "decoder_"+codec); err == nil && val != "" {
-			return val
+		v, err := deps.SettingsStore.Get(ctx, "decoder_"+codec)
+		if err == nil && v != "" {
+			val = v
 		}
 	case "mpeg2", "mpeg2video":
-		if val, err := deps.SettingsStore.Get(ctx, "decoder_mpeg2"); err == nil && val != "" {
-			return val
+		v, err := deps.SettingsStore.Get(ctx, "decoder_mpeg2")
+		if err == nil && v != "" {
+			val = v
 		}
 	}
-	return ""
+	if val == "" {
+		return ""
+	}
+	for _, platform := range []string{"_videotoolbox", "_vaapi", "_nvenc", "_qsv", "_cuda"} {
+		if strings.HasSuffix(val, platform) {
+			return strings.TrimSuffix(val, platform)
+		}
+	}
+	return val
 }
 
 func applySourceProfile(ctx context.Context, deps PlaybackDeps, stream *media.Stream, cfg *session.PipelineConfig) {

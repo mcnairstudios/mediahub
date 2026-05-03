@@ -5281,7 +5281,10 @@
 
           var dselectOpts = [{ value: '', label: 'Auto (fallback chain)' }];
           if (dhwOpts.length > 0) {
-            var dhwItems = dhwOpts.map(function(d) { return { value: d.name, label: d.name + ' (' + d.platform + ')' }; });
+            var dhwItems = dhwOpts.map(function(d) {
+              var val = d.name + '_' + d.platform;
+              return { value: val, label: d.name + ' (' + d.platform + ')' };
+            });
             dselectOpts.push({ group: 'Hardware', items: dhwItems });
           }
           if (dswOpts.length > 0) {
