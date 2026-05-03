@@ -39,60 +39,47 @@ func (m *mockStreamStore) DeleteBySource(_ context.Context, _, _ string) error {
 }
 
 func TestRefresh(t *testing.T) {
-	feedEntries := []feedEntry{
-		{Title: "Test Movie", Poster: "/images/test.jpg", Location: "/trailers/studio/test/"},
-		{Title: "Another Film", Poster: "https://example.com/poster.jpg", Location: "/trailers/studio/another/"},
-		{Title: "", Poster: "", Location: ""},
-	}
-
-	itunesResp := itunesResult{
-		Results: []struct {
-			PreviewURL  string `json:"previewUrl"`
-			ArtworkURL  string `json:"artworkUrl100"`
-			ReleaseDate string `json:"releaseDate"`
-		}{
-			{PreviewURL: "https://video.itunes.apple.com/trailer.mp4", ArtworkURL: "https://is1-ssl.mzstatic.com/image/100x100bb.jpg", ReleaseDate: "2026-01-15T08:00:00Z"},
-		},
-	}
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/feed", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(feedEntries)
+	mux.HandleFunc("/movie/upcoming", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbMovieList{
+			Results: []tmdbMovie{
+				{ID: 101, Title: "Test Movie", PosterPath: "/poster1.jpg", ReleaseDate: "2026-06-15"},
+				{ID: 102, Title: "Another Film", PosterPath: "/poster2.jpg", ReleaseDate: "2025-12-01"},
+			},
+		})
 	})
-	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		term := r.URL.Query().Get("term")
-		resp := itunesResp
-		if term == "Another Film" {
-			resp = itunesResult{
-				Results: []struct {
-					PreviewURL  string `json:"previewUrl"`
-					ArtworkURL  string `json:"artworkUrl100"`
-					ReleaseDate string `json:"releaseDate"`
-				}{
-					{PreviewURL: "https://video.itunes.apple.com/another.mp4", ArtworkURL: "https://is1-ssl.mzstatic.com/image2/100x100bb.jpg", ReleaseDate: "2025-06-01T08:00:00Z"},
-				},
-			}
-		}
-		json.NewEncoder(w).Encode(resp)
+	mux.HandleFunc("/movie/now_playing", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbMovieList{Results: []tmdbMovie{}})
+	})
+	mux.HandleFunc("/movie/101/videos", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbVideoList{
+			Results: []tmdbVideo{
+				{Key: "abc123", Site: "YouTube", Type: "Trailer", Name: "Official Trailer"},
+			},
+		})
+	})
+	mux.HandleFunc("/movie/102/videos", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbVideoList{
+			Results: []tmdbVideo{
+				{Key: "def456", Site: "YouTube", Type: "Teaser", Name: "Teaser"},
+			},
+		})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
+
+	tmdbBaseOverride = srv.URL
+	defer func() { tmdbBaseOverride = "" }()
 
 	ss := &mockStreamStore{}
 	s := New(Config{
 		ID:          "test-source",
 		Name:        "Test Trailers",
 		IsEnabled:   true,
+		TMDBKey:     "test-key",
 		StreamStore: ss,
 		HTTPClient:  srv.Client(),
 	})
-
-	feedURLOverride = srv.URL + "/feed"
-	itunesSearchURLOverride = srv.URL + "/search"
-	defer func() {
-		feedURLOverride = ""
-		itunesSearchURLOverride = ""
-	}()
 
 	err := s.Refresh(context.Background())
 	if err != nil {
@@ -116,7 +103,7 @@ func TestRefresh(t *testing.T) {
 	if st.Year != "2026" {
 		t.Errorf("expected year=2026, got %s", st.Year)
 	}
-	if st.URL != "https://video.itunes.apple.com/trailer.mp4" {
+	if st.URL != "https://www.youtube.com/watch?v=abc123" {
 		t.Errorf("unexpected URL: %s", st.URL)
 	}
 
@@ -126,29 +113,44 @@ func TestRefresh(t *testing.T) {
 	}
 }
 
-func TestRefreshEmptyFeed(t *testing.T) {
+func TestRefreshNoKey(t *testing.T) {
+	ss := &mockStreamStore{}
+	s := New(Config{
+		ID:          "test-nokey",
+		Name:        "No Key",
+		IsEnabled:   true,
+		StreamStore: ss,
+	})
+
+	err := s.Refresh(context.Background())
+	if err == nil {
+		t.Fatal("expected error for missing TMDB key")
+	}
+}
+
+func TestRefreshEmptyResults(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/feed", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]feedEntry{})
+	mux.HandleFunc("/movie/upcoming", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbMovieList{Results: []tmdbMovie{}})
+	})
+	mux.HandleFunc("/movie/now_playing", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tmdbMovieList{Results: []tmdbMovie{}})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
+	tmdbBaseOverride = srv.URL
+	defer func() { tmdbBaseOverride = "" }()
+
 	ss := &mockStreamStore{}
 	s := New(Config{
 		ID:          "test-empty",
-		Name:        "Empty Trailers",
+		Name:        "Empty",
 		IsEnabled:   true,
+		TMDBKey:     "test-key",
 		StreamStore: ss,
 		HTTPClient:  srv.Client(),
 	})
-
-	feedURLOverride = srv.URL + "/feed"
-	itunesSearchURLOverride = srv.URL + "/search"
-	defer func() {
-		feedURLOverride = ""
-		itunesSearchURLOverride = ""
-	}()
 
 	err := s.Refresh(context.Background())
 	if err != nil {

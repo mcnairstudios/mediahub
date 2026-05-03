@@ -26,6 +26,7 @@ import (
 type sourceDeps struct {
 	SourceConfigStore sourceconfig.Store
 	StreamStore       store.StreamStore
+	SettingsStore     store.SettingsStore
 	Config            *config.Config
 	WGService         *wg.Service
 	TMDBCache         *tmdbcache.Cache
@@ -204,10 +205,12 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		if sc == nil {
 			return nil, errors.New("source config not found")
 		}
+		tmdbKey, _ := deps.SettingsStore.Get(ctx, "tmdb_api_key")
 		tCfg := trailerssource.Config{
 			ID:          sc.ID,
 			Name:        sc.Name,
 			IsEnabled:   sc.IsEnabled,
+			TMDBKey:     tmdbKey,
 			StreamStore: deps.StreamStore,
 		}
 		return trailerssource.New(tCfg), nil

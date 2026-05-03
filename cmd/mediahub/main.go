@@ -173,6 +173,7 @@ func main() {
 	registerSources(sourceReg, sourceDeps{
 		SourceConfigStore: sourceConfigStore,
 		StreamStore:       streamStore,
+		SettingsStore:     settingsStore,
 		Config:            cfg,
 		WGService:         wgService,
 		TMDBCache:         tmdbCache,

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -16,34 +15,20 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
 
-const (
-	defaultFeedURL         = "https://trailers.apple.com/trailers/home/feeds/just_added.json"
-	defaultItunesSearchURL = "https://itunes.apple.com/search"
-)
+var tmdbBaseOverride string
 
-var (
-	feedURLOverride         string
-	itunesSearchURLOverride string
-)
-
-func getFeedURL() string {
-	if feedURLOverride != "" {
-		return feedURLOverride
+func tmdbBase() string {
+	if tmdbBaseOverride != "" {
+		return tmdbBaseOverride
 	}
-	return defaultFeedURL
-}
-
-func getItunesSearchURL() string {
-	if itunesSearchURLOverride != "" {
-		return itunesSearchURLOverride
-	}
-	return defaultItunesSearchURL
+	return "https://api.themoviedb.org/3"
 }
 
 type Config struct {
 	ID          string
 	Name        string
 	IsEnabled   bool
+	TMDBKey     string
 	StreamStore store.StreamStore
 	HTTPClient  *http.Client
 }
@@ -63,66 +48,90 @@ func New(cfg Config) *Source {
 	}
 }
 
-type feedEntry struct {
-	Title       string `json:"title"`
-	ReleaseDate string `json:"releasedate"`
-	Poster      string `json:"poster"`
-	Location    string `json:"location"`
+type tmdbMovieList struct {
+	Results []tmdbMovie `json:"results"`
 }
 
-type itunesResult struct {
-	Results []struct {
-		PreviewURL  string `json:"previewUrl"`
-		ArtworkURL  string `json:"artworkUrl100"`
-		ReleaseDate string `json:"releaseDate"`
-	} `json:"results"`
+type tmdbMovie struct {
+	ID          int     `json:"id"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview"`
+	PosterPath  string  `json:"poster_path"`
+	ReleaseDate string  `json:"release_date"`
+	VoteAverage float64 `json:"vote_average"`
+}
+
+type tmdbVideoList struct {
+	Results []tmdbVideo `json:"results"`
+}
+
+type tmdbVideo struct {
+	Key  string `json:"key"`
+	Site string `json:"site"`
+	Type string `json:"type"`
+	Name string `json:"name"`
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
+	if s.cfg.TMDBKey == "" {
+		s.SetError("no TMDB API key configured")
+		return fmt.Errorf("no TMDB API key configured in settings")
+	}
+
 	log.Printf("trailers: refreshing source %s", s.cfg.Name)
 
-	entries, err := s.fetchFeed(ctx)
+	movies, err := s.fetchUpcoming(ctx)
 	if err != nil {
 		s.SetError(err.Error())
-		return fmt.Errorf("fetching apple trailers feed: %w", err)
+		return fmt.Errorf("fetching upcoming movies: %w", err)
 	}
-	log.Printf("trailers: fetched %d entries from feed for %s", len(entries), s.cfg.Name)
 
-	seen := make(map[string]struct{}, len(entries))
+	nowPlaying, err := s.fetchNowPlaying(ctx)
+	if err == nil {
+		movies = append(movies, nowPlaying...)
+	}
+
+	log.Printf("trailers: found %d movies for %s", len(movies), s.cfg.Name)
+
+	seen := make(map[string]struct{}, len(movies))
 	var streams []media.Stream
 	var keepIDs []string
 
-	for _, entry := range entries {
-		if entry.Title == "" {
+	for _, movie := range movies {
+		if movie.Title == "" {
 			continue
 		}
 
-		previewURL, artworkURL, year := s.lookupITunes(ctx, entry.Title)
-		if previewURL == "" {
+		trailerURL, trailerName := s.findTrailer(ctx, movie.ID)
+		if trailerURL == "" {
 			continue
 		}
 
-		id := deterministicStreamID(s.cfg.ID, previewURL)
+		id := deterministicStreamID(s.cfg.ID, fmt.Sprintf("%d", movie.ID))
 		if _, dup := seen[id]; dup {
 			continue
 		}
 		seen[id] = struct{}{}
 		keepIDs = append(keepIDs, id)
 
-		poster := entry.Poster
-		if poster != "" && !strings.HasPrefix(poster, "http") {
-			poster = "https://trailers.apple.com" + poster
+		poster := ""
+		if movie.PosterPath != "" {
+			poster = "https://image.tmdb.org/t/p/w500" + movie.PosterPath
 		}
-		if artworkURL != "" {
-			poster = strings.Replace(artworkURL, "100x100bb", "600x600bb", 1)
+
+		year := ""
+		if len(movie.ReleaseDate) >= 4 {
+			year = movie.ReleaseDate[:4]
 		}
+
+		name := movie.Title + " - " + trailerName
 
 		st := media.Stream{
 			ID:         id,
 			SourceType: string(source.TypeTrailers),
 			SourceID:   s.cfg.ID,
-			Name:       entry.Title + " - Trailer",
-			URL:        previewURL,
+			Name:       name,
+			URL:        trailerURL,
 			Group:      "Trailers",
 			TvgLogo:    poster,
 			VODType:    "movie",
@@ -170,8 +179,9 @@ func (s *Source) DeleteStreams(ctx context.Context) error {
 	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeTrailers), s.cfg.ID)
 }
 
-func (s *Source) fetchFeed(ctx context.Context) ([]feedEntry, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getFeedURL(), nil)
+func (s *Source) fetchMovieList(ctx context.Context, endpoint string) ([]tmdbMovie, error) {
+	u := fmt.Sprintf("%s/%s?api_key=%s&page=1", tmdbBase(), endpoint, url.QueryEscape(s.cfg.TMDBKey))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -183,55 +193,60 @@ func (s *Source) fetchFeed(ctx context.Context) ([]feedEntry, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("apple feed returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("TMDB %s returned %d", endpoint, resp.StatusCode)
 	}
 
-	var entries []feedEntry
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return nil, fmt.Errorf("decoding feed: %w", err)
+	var list tmdbMovieList
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return nil, fmt.Errorf("decoding %s: %w", endpoint, err)
 	}
-	return entries, nil
+	return list.Results, nil
 }
 
-func (s *Source) lookupITunes(ctx context.Context, title string) (previewURL, artworkURL, year string) {
-	params := url.Values{
-		"term":   {title},
-		"entity": {"movie"},
-		"limit":  {"1"},
-	}
+func (s *Source) fetchUpcoming(ctx context.Context) ([]tmdbMovie, error) {
+	return s.fetchMovieList(ctx, "movie/upcoming")
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getItunesSearchURL()+"?"+params.Encode(), nil)
+func (s *Source) fetchNowPlaying(ctx context.Context) ([]tmdbMovie, error) {
+	return s.fetchMovieList(ctx, "movie/now_playing")
+}
+
+func (s *Source) findTrailer(ctx context.Context, tmdbID int) (string, string) {
+	u := fmt.Sprintf("%s/movie/%d/videos?api_key=%s", tmdbBase(), tmdbID, url.QueryEscape(s.cfg.TMDBKey))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return "", "", ""
+		return "", ""
 	}
 
 	resp, err := s.cfg.HTTPClient.Do(req)
 	if err != nil {
-		return "", "", ""
+		return "", ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", ""
+		return "", ""
 	}
 
-	var result itunesResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", ""
+	var videos tmdbVideoList
+	if err := json.NewDecoder(resp.Body).Decode(&videos); err != nil {
+		return "", ""
 	}
 
-	if len(result.Results) == 0 {
-		return "", "", ""
+	for _, v := range videos.Results {
+		if v.Site == "YouTube" && v.Type == "Trailer" {
+			return "https://www.youtube.com/watch?v=" + v.Key, v.Name
+		}
 	}
-
-	r := result.Results[0]
-	if r.ReleaseDate != "" && len(r.ReleaseDate) >= 4 {
-		year = r.ReleaseDate[:4]
+	for _, v := range videos.Results {
+		if v.Site == "YouTube" && v.Type == "Teaser" {
+			return "https://www.youtube.com/watch?v=" + v.Key, v.Name
+		}
 	}
-	return r.PreviewURL, r.ArtworkURL, year
+	return "", ""
 }
 
-func deterministicStreamID(sourceID, url string) string {
-	h := sha256.Sum256([]byte(sourceID + ":" + url))
+func deterministicStreamID(sourceID, key string) string {
+	h := sha256.Sum256([]byte(sourceID + ":" + key))
 	return fmt.Sprintf("%x", h[:16])
 }
