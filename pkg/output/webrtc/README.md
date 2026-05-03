@@ -15,16 +15,23 @@ The router mounts the plugin's HTTP handler at the appropriate prefix.
 ## Media Flow
 
 1. Pipeline calls PushVideo/PushAudio with encoded packet data
-2. H.264 NAL units are extracted (supports both Annex B and AVCC framing)
-3. NALUs are packetized as RTP with FU-A fragmentation for large NALUs
+2. H.264/HEVC NAL units are extracted (supports both Annex B and AVCC framing)
+3. NALUs are packetized as RTP with FU-A fragmentation for large NALUs (RFC 6184 for H.264, RFC 7798 for HEVC)
 4. Audio is packetized as RTP with Opus payload type
 5. RTP packets are written to pion TrackLocalStaticRTP tracks
 6. pion handles DTLS/SRTP encryption and ICE transport to the browser
 
 ## Codec Support
 
-- Video: H.264 (payload type 96, clock rate 90000)
+- Video: H.264 and HEVC/H.265 (payload type 96, clock rate 90000). Codec selected from PluginConfig.Video.Codec.
 - Audio: Opus (payload type 97, clock rate 48000, stereo)
+
+## RTP Timestamp Handling
+
+- Video and audio timestamps derived from source PTS (presentation timestamps), not hardcoded frame rate increments
+- PTS base is captured from the first packet after connection or seek, ensuring timestamps start at 0
+- ResetForSeek clears PTS base, sequence numbers, and timestamps so post-seek packets start fresh
+- ptsToRTP converts from 90kHz PTS timebase to the track's clock rate
 
 ## ICE Configuration
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,23 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog"
+)
+
+const (
+	videoClockRate = 90000
+	audioClockRate = 48000
+
+	videoPayloadType = 96
+	audioPayloadType = 97
+
+	videoSSRC = 1
+	audioSSRC = 2
+
+	maxRTPPayload = 1400
+
+	h264NALUTypeFUA  = 28
+	hevcNALUTypeFU   = 49
+	hevcNALUTypeAPTr = 48
 )
 
 type Plugin struct {
@@ -30,6 +48,14 @@ type Plugin struct {
 	videoTS  uint32
 	audioTS  uint32
 
+	videoCodec  string
+	videoFPS    float64
+	lastVideoPTS int64
+	lastAudioPTS int64
+	ptsBaseVideo int64
+	ptsBaseAudio int64
+	ptsBaseSet   bool
+
 	generation   atomic.Int64
 	stopped      atomic.Bool
 	ready        atomic.Bool
@@ -39,9 +65,22 @@ type Plugin struct {
 func New(cfg output.PluginConfig) (output.OutputPlugin, error) {
 	log := zerolog.New(os.Stderr).With().Str("plugin", "webrtc").Logger()
 
+	codec := "h264"
+	fps := 30.0
+	if cfg.Video != nil {
+		if cfg.Video.Codec != "" {
+			codec = strings.ToLower(cfg.Video.Codec)
+		}
+		if cfg.Video.FPS() > 0 {
+			fps = cfg.Video.FPS()
+		}
+	}
+
 	p := &Plugin{
-		cfg: cfg,
-		log: log,
+		cfg:        cfg,
+		log:        log,
+		videoCodec: codec,
+		videoFPS:   fps,
 	}
 	p.generation.Store(1)
 
@@ -64,13 +103,29 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 		return nil
 	}
 
+	if !p.ptsBaseSet {
+		p.ptsBaseVideo = pts
+		p.ptsBaseAudio = pts
+		p.ptsBaseSet = true
+	}
+	p.lastVideoPTS = pts
+
+	rtpTS := ptsToRTP(pts-p.ptsBaseVideo, videoClockRate)
+
 	nalus := splitNALUs(data)
-	for _, nalu := range nalus {
+	for i, nalu := range nalus {
 		if len(nalu) == 0 {
 			continue
 		}
+		isLastNALU := i == len(nalus)-1
 
-		packets := packetizeH264(nalu, p.videoSeq, p.videoTS, 1400)
+		var packets []*rtp.Packet
+		if p.videoCodec == "hevc" || p.videoCodec == "h265" {
+			packets = packetizeHEVC(nalu, p.videoSeq, rtpTS, maxRTPPayload, isLastNALU)
+		} else {
+			packets = packetizeH264(nalu, p.videoSeq, rtpTS, maxRTPPayload, isLastNALU)
+		}
+
 		for _, pkt := range packets {
 			p.videoSeq = pkt.Header.SequenceNumber + 1
 			if err := track.WriteRTP(pkt); err != nil {
@@ -81,7 +136,6 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 		}
 	}
 
-	p.videoTS += 90000 / 30
 	p.mu.Unlock()
 	return nil
 }
@@ -98,19 +152,27 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
 		return nil
 	}
 
+	if !p.ptsBaseSet {
+		p.ptsBaseVideo = pts
+		p.ptsBaseAudio = pts
+		p.ptsBaseSet = true
+	}
+	p.lastAudioPTS = pts
+
+	rtpTS := ptsToRTP(pts-p.ptsBaseAudio, audioClockRate)
+
 	pkt := &rtp.Packet{
 		Header: rtp.Header{
 			Version:        2,
-			PayloadType:    97,
+			PayloadType:    audioPayloadType,
 			SequenceNumber: p.audioSeq,
-			Timestamp:      p.audioTS,
-			SSRC:           2,
+			Timestamp:      rtpTS,
+			SSRC:           audioSSRC,
 			Marker:         true,
 		},
 		Payload: data,
 	}
 	p.audioSeq++
-	p.audioTS += 960
 
 	if err := track.WriteRTP(pkt); err != nil {
 		p.mu.Unlock()
@@ -135,6 +197,15 @@ func (p *Plugin) EndOfStream() {
 }
 
 func (p *Plugin) ResetForSeek() {
+	p.mu.Lock()
+	p.videoSeq = 0
+	p.audioSeq = 0
+	p.videoTS = 0
+	p.audioTS = 0
+	p.ptsBaseSet = false
+	p.lastVideoPTS = 0
+	p.lastAudioPTS = 0
+	p.mu.Unlock()
 	p.generation.Add(1)
 }
 
@@ -198,6 +269,13 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (p *Plugin) videoMimeType() string {
+	if p.videoCodec == "hevc" || p.videoCodec == "h265" {
+		return "video/H265"
+	}
+	return webrtc.MimeTypeH264
+}
+
 func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -218,7 +296,7 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000},
+		webrtc.RTPCodecCapability{MimeType: p.videoMimeType(), ClockRate: videoClockRate},
 		"video", "mediahub-video",
 	)
 	if err != nil {
@@ -234,7 +312,7 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: audioClockRate, Channels: 2},
 		"audio", "mediahub-audio",
 	)
 	if err != nil {
@@ -281,9 +359,7 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.mu.Lock()
-	if p.pc != nil {
-		p.pc.Close()
-	}
+	oldPC := p.pc
 	p.pc = pc
 	p.videoTrack = videoTrack
 	p.audioTrack = audioTrack
@@ -291,12 +367,22 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	p.audioSeq = 0
 	p.videoTS = 0
 	p.audioTS = 0
+	p.ptsBaseSet = false
+	p.lastVideoPTS = 0
+	p.lastAudioPTS = 0
 	p.ready.Store(true)
 	p.mu.Unlock()
 
+	if oldPC != nil {
+		oldPC.Close()
+	}
+
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		p.log.Info().Str("state", state.String()).Msg("peer connection state changed")
-		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+		switch state {
+		case webrtc.PeerConnectionStateFailed,
+			webrtc.PeerConnectionStateClosed,
+			webrtc.PeerConnectionStateDisconnected:
 			p.mu.Lock()
 			if p.pc == pc {
 				p.pc = nil
@@ -325,6 +411,13 @@ func (p *Plugin) handleWHEPDelete(w http.ResponseWriter) {
 	}
 	p.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func ptsToRTP(pts int64, clockRate uint32) uint32 {
+	if pts < 0 {
+		pts = 0
+	}
+	return uint32((pts * int64(clockRate)) / 90000)
 }
 
 func splitNALUs(data []byte) [][]byte {
@@ -383,16 +476,16 @@ func splitAVCCNALUs(data []byte) [][]byte {
 	return result
 }
 
-func packetizeH264(nalu []byte, seq uint16, ts uint32, mtu int) []*rtp.Packet {
+func packetizeH264(nalu []byte, seq uint16, ts uint32, mtu int, markerOnLast bool) []*rtp.Packet {
 	if len(nalu) <= mtu {
 		return []*rtp.Packet{{
 			Header: rtp.Header{
 				Version:        2,
-				PayloadType:    96,
+				PayloadType:    videoPayloadType,
 				SequenceNumber: seq,
 				Timestamp:      ts,
-				SSRC:           1,
-				Marker:         true,
+				SSRC:           videoSSRC,
+				Marker:         markerOnLast,
 			},
 			Payload: nalu,
 		}}
@@ -411,30 +504,97 @@ func packetizeH264(nalu []byte, seq uint16, ts uint32, mtu int) []*rtp.Packet {
 		}
 		last := end == len(nalu)
 
-		var indicator byte
+		var fuHeader byte
 		if first {
-			indicator = 0x80
+			fuHeader = 0x80
 		}
 		if last {
-			indicator |= 0x40
+			fuHeader |= 0x40
 		}
-		indicator |= naluType
+		fuHeader |= naluType
 
-		fuHeader := make([]byte, 2+end-offset)
-		fuHeader[0] = 28 | nri
-		fuHeader[1] = indicator
-		copy(fuHeader[2:], nalu[offset:end])
+		payload := make([]byte, 2+end-offset)
+		payload[0] = h264NALUTypeFUA | nri
+		payload[1] = fuHeader
+		copy(payload[2:], nalu[offset:end])
 
 		packets = append(packets, &rtp.Packet{
 			Header: rtp.Header{
 				Version:        2,
-				PayloadType:    96,
+				PayloadType:    videoPayloadType,
 				SequenceNumber: seq,
 				Timestamp:      ts,
-				SSRC:           1,
-				Marker:         last,
+				SSRC:           videoSSRC,
+				Marker:         last && markerOnLast,
 			},
-			Payload: fuHeader,
+			Payload: payload,
+		})
+
+		seq++
+		offset = end
+		first = false
+	}
+
+	return packets
+}
+
+func packetizeHEVC(nalu []byte, seq uint16, ts uint32, mtu int, markerOnLast bool) []*rtp.Packet {
+	if len(nalu) < 2 {
+		return nil
+	}
+
+	if len(nalu) <= mtu {
+		return []*rtp.Packet{{
+			Header: rtp.Header{
+				Version:        2,
+				PayloadType:    videoPayloadType,
+				SequenceNumber: seq,
+				Timestamp:      ts,
+				SSRC:           videoSSRC,
+				Marker:         markerOnLast,
+			},
+			Payload: nalu,
+		}}
+	}
+
+	naluType := (nalu[0] >> 1) & 0x3f
+	tidByte := nalu[1]
+
+	var packets []*rtp.Packet
+	offset := 2
+	first := true
+	for offset < len(nalu) {
+		end := offset + mtu - 3
+		if end > len(nalu) {
+			end = len(nalu)
+		}
+		last := end == len(nalu)
+
+		var fuHeader byte
+		if first {
+			fuHeader = 0x80
+		}
+		if last {
+			fuHeader |= 0x40
+		}
+		fuHeader |= naluType
+
+		payload := make([]byte, 3+end-offset)
+		payload[0] = (hevcNALUTypeFU << 1) | (nalu[0] & 0x81)
+		payload[1] = tidByte
+		payload[2] = fuHeader
+		copy(payload[3:], nalu[offset:end])
+
+		packets = append(packets, &rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				PayloadType:    videoPayloadType,
+				SequenceNumber: seq,
+				Timestamp:      ts,
+				SSRC:           videoSSRC,
+				Marker:         last && markerOnLast,
+			},
+			Payload: payload,
 		})
 
 		seq++

@@ -4,11 +4,11 @@
 
 ### output.OutputPlugin
 - `Mode() DeliveryMode` — returns `DeliveryWebRTC`
-- `PushVideo(data []byte, pts, dts int64, keyframe bool) error` — packetizes H.264 NALUs as RTP and writes to video track
+- `PushVideo(data []byte, pts, dts int64, keyframe bool) error` — packetizes H.264/HEVC NALUs as RTP and writes to video track
 - `PushAudio(data []byte, pts, dts int64) error` — packetizes audio as RTP and writes to audio track
 - `PushSubtitle(data []byte, pts int64, duration int64) error` — no-op (WebRTC does not carry subtitles)
 - `EndOfStream()` — closes the PeerConnection
-- `ResetForSeek()` — increments generation counter
+- `ResetForSeek()` — resets RTP sequence numbers, timestamps, PTS base; increments generation counter
 - `Stop()` — closes PeerConnection and cleans up tracks
 - `Status() PluginStatus` — reports connection health and bytes written
 
@@ -23,7 +23,7 @@
 func New(cfg output.PluginConfig) (output.OutputPlugin, error)
 ```
 
-Takes the standard PluginConfig. The PeerConnection is created lazily on the first WHEP POST request, not at construction time.
+Takes the standard PluginConfig. Reads `Video.Codec` to select H.264 or HEVC packetization, and `Video.FPS()` for fallback frame rate. The PeerConnection is created lazily on the first WHEP POST request, not at construction time.
 
 ## HTTP Endpoints (via ServeHTTP)
 
