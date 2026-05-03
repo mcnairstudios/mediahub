@@ -99,15 +99,21 @@ This runs once on page load. The result determines which players are available.
 
 ## Implementation Order
 
-1. **Refactor frontend play()** — extract current MSE player into MSEPlayer plugin
-2. **Add capability detection** — probe browser on load, cache results
-3. **Pass delivery params in request** — frontend sends what it wants
-4. **Server reads params** — use request params instead of server-side strategy for delivery/codec
-5. **Extract HLSPlayer** — hls.js based player plugin for browser HLS
-6. **DASH output plugin** — server side MPD + segment production
-7. **DASHPlayer** — dash.js based frontend plugin
-8. **WebRTC output plugin** — WHEP/WHIP signalling + RTP
-9. **WebRTCPlayer** — RTCPeerConnection frontend plugin
+1. **Refactor frontend play()** — extract current MSE player into MSEPlayer plugin ✅
+2. **Add capability detection** — probe browser on load, cache results ✅
+3. **Pass delivery params in request** — frontend sends what it wants ✅
+4. **Server reads params** — use request params instead of server-side strategy for delivery/codec ✅
+5. **Extract HLSPlayer** — hls.js based player plugin for browser HLS ✅
+6. **DASH output plugin** — server side MPD + segment production ✅
+7. **DASHPlayer** — dash.js based frontend plugin ✅
+8. **WebRTC output plugin** — WHEP/WHIP signalling + RTP ✅
+9. **WebRTCPlayer** — RTCPeerConnection frontend plugin ✅
+
+All phases complete. The frontend PlayerRegistry holds all five player plugins (MSE, HLS, DASH, WebRTC, Direct). Each server output plugin has matching tests and INTERFACES.md documentation.
+
+### Manifest Validation Harness
+
+A `pkg/output/validate/` directory was created for a manifest/segment validation test harness (verifying MPD, m3u8, and fMP4/TS segment correctness). This is stubbed out for future implementation — the individual plugin test suites cover their own output formats for now.
 
 ## Rules
 

@@ -1,10 +1,7 @@
-# WebRTC Output Plugin
+# pkg/output/webrtc — WebRTC Output Plugin
 
-WebRTC output plugin for mediahub using the WHEP (WebRTC-HTTP Egress Protocol) signalling protocol.
-
-## Overview
-
-This plugin receives encoded video (H.264) and audio packets via the standard OutputPlugin interface, packetizes them as RTP, and sends them to browsers via a pion/webrtc PeerConnection. This provides ultra-low-latency media delivery compared to MSE or HLS.
+## Purpose
+Delivers media to browsers via WebRTC using the WHEP (WebRTC-HTTP Egress Protocol) signalling protocol. Receives encoded video (H.264) and audio (Opus) packets via the OutputPlugin interface, packetizes them as RTP, and sends them to browsers via a pion/webrtc PeerConnection. Ultra-low-latency delivery compared to MSE or HLS.
 
 ## Signalling (WHEP)
 
@@ -32,3 +29,13 @@ The router mounts the plugin's HTTP handler at the appropriate prefix.
 ## ICE Configuration
 
 Uses Google's public STUN server (`stun:stun.l.google.com:19302`) for NAT traversal. TURN servers are not configured by default.
+
+## Does NOT
+- Know about MSE, HLS, DASH, stream copy, or recording — it's one delivery plugin
+- Manage sessions — the session manager handles lifecycle
+- Decode or encode — receives already-encoded packets
+
+## Key Integration Points
+- **Input**: Receives packets from FanOut via PushVideo/PushAudio
+- **Output**: Serves WHEP signalling via ServeHTTP (implements ServablePlugin)
+- **Transport**: Uses pion/webrtc for PeerConnection, DTLS/SRTP, ICE

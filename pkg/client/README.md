@@ -27,6 +27,15 @@ if matched != nil {
 }
 ```
 
+## Delivery Resolution
+
+A client profile's delivery mode determines what the server produces:
+
+- **Forced mode** (e.g. `mse`, `hls`, `dash`) — the pipeline produces exactly that format. The frontend creates the matching player.
+- **`user`** (User Choice mode) — the frontend runs capability detection and presents a delivery dropdown showing only the modes the browser supports. The user picks, and the frontend sends `?delivery=mse` (or hls, dash, webrtc) on the playback request. The server creates a pipeline matching the user's selection.
+
+User Choice mode lets admins give users freedom to experiment with delivery modes while forced modes lock clients to a known-good configuration.
+
 ## Dependencies
 
 None. stdlib only. Does not depend on `net/http`, `pkg/output/`, or `pkg/source/`.
