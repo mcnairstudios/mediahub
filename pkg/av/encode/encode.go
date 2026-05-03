@@ -10,11 +10,12 @@ import (
 )
 
 type Encoder struct {
-	codecCtx    *astiav.CodecContext
-	hwCtx       *astiav.HardwareDeviceContext
-	hwFramesCtx *astiav.HardwareFramesContext
-	closed      bool
-	hasEncoded  bool
+	codecCtx      *astiav.CodecContext
+	hwCtx         *astiav.HardwareDeviceContext
+	hwFramesCtx   *astiav.HardwareFramesContext
+	inputTimeBase astiav.Rational
+	closed        bool
+	hasEncoded    bool
 }
 
 type EncodeOpts struct {
@@ -28,6 +29,7 @@ type EncodeOpts struct {
 	EncoderName      string
 	Framerate        int
 	Interlaced       bool
+	InputTimeBase    astiav.Rational
 }
 
 var hevcEncoders = map[string]string{
@@ -128,7 +130,7 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 		return nil, err
 	}
 
-	enc := &Encoder{}
+	enc := &Encoder{inputTimeBase: opts.InputTimeBase}
 
 	codec := astiav.FindEncoderByName(encoderName)
 	if codec == nil {
@@ -391,6 +393,9 @@ func (e *Encoder) Encode(frame *astiav.Frame) ([]*astiav.Packet, error) {
 				break
 			}
 			return packets, fmt.Errorf("encode: receive packet: %w", err)
+		}
+		if e.inputTimeBase.Num() > 0 && e.inputTimeBase.Den() > 0 {
+			pkt.RescaleTs(e.inputTimeBase, e.codecCtx.TimeBase())
 		}
 		packets = append(packets, pkt)
 		e.hasEncoded = true

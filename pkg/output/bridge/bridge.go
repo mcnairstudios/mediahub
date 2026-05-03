@@ -186,15 +186,16 @@ func New(cfg Config) (*Bridge, error) {
 		}
 		passInterlaced := info.Video.Interlaced && !needsDeinterlace
 		b.videoEnc, err = encode.NewVideoEncoder(encode.EncodeOpts{
-			Codec:       outCodec,
-			HWAccel:     cfg.HWAccel,
-			Bitrate:     cfg.Bitrate,
-			Width:       outW,
-			Height:      outH,
-			EncoderName: cfg.EncoderName,
-			Framerate:   videoFPS,
-			Preset:      preset,
-			Interlaced:  passInterlaced,
+			Codec:         outCodec,
+			HWAccel:       cfg.HWAccel,
+			Bitrate:       cfg.Bitrate,
+			Width:         outW,
+			Height:        outH,
+			EncoderName:   cfg.EncoderName,
+			Framerate:     videoFPS,
+			Preset:        preset,
+			Interlaced:    passInterlaced,
+			InputTimeBase: b.videoTB,
 		})
 		if err != nil {
 			b.closeAll()
@@ -379,8 +380,8 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 				return fmt.Errorf("bridge: scale: %w", err)
 			}
 		}
-		if b.hwVideoPath && frame.Pts() == astiav.NoPtsValue {
-			b.log.Warn().Int64("pts", frame.Pts()).Str("pixfmt", frame.PixelFormat().Name()).Msg("bridge: HW frame has no PTS before encode")
+		if b.hwVideoPath && b.audioPacketCount < 3 {
+			b.log.Info().Int64("frame_pts", frame.Pts()).Str("pixfmt", frame.PixelFormat().Name()).Msg("bridge: HW frame before encode")
 		}
 		encPkts, err := b.videoEnc.Encode(frame)
 		frame.Free()
