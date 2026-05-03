@@ -137,8 +137,18 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	if !isNew {
-		result.Delivery = sess.Delivery
-		return result, nil
+		if deps.DeliveryOverride != "" && deps.DeliveryOverride != sess.Delivery {
+			deps.SessionMgr.Stop(stream.ID)
+			sess, isNew, err = deps.SessionMgr.GetOrCreate(ctx, stream.ID, stream.URL, stream.Name)
+			if err != nil {
+				return nil, fmt.Errorf("recreate session: %w", err)
+			}
+			result.Session = sess
+			result.IsNew = isNew
+		} else {
+			result.Delivery = sess.Delivery
+			return result, nil
+		}
 	}
 
 	pipelineURL := stream.URL
