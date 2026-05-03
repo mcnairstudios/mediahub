@@ -61,6 +61,7 @@ type OrchestratorDeps struct {
 	Config            *config.Config
 	StaticFS          fs.FS
 	UserAgent         string
+	PipelineRunner    func(*session.Session, session.PipelineConfig) (*session.PipelineResult, error)
 	BypassHeader      string
 	BypassSecret      string
 	DBClearer         any

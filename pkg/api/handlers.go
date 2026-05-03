@@ -840,6 +840,7 @@ func (s *Server) playbackDeps() orchestrator.PlaybackDeps {
 		Strategy:          s.deps.Strategy,
 		ProbeCache:        s.deps.ProbeCache,
 		UserAgent:         s.deps.UserAgent,
+		PipelineRunner:    s.deps.PipelineRunner,
 	}
 }
 
