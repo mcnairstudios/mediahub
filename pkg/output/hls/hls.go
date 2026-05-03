@@ -56,9 +56,26 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		segDur = 6
 	}
 
+	segType := "mpegts"
+	if cfg.Video != nil {
+		vc := strings.ToLower(cfg.Video.Codec)
+		if vc == "h265" || vc == "hevc" {
+			segType = "fmp4"
+		}
+	}
+	if cfg.OutputFormat == "fmp4" {
+		segType = "fmp4"
+	}
+	if v, ok := cfg.Options["segment_type"]; ok {
+		if st, ok := v.(string); ok && (st == "fmp4" || st == "mpegts") {
+			segType = st
+		}
+	}
+
 	hlsOpts := mux.HLSMuxOpts{
 		OutputDir:          segDir,
 		SegmentDurationSec: segDur,
+		SegmentType:        segType,
 		VideoTimeBase:      astiav.NewRational(1, 90000),
 	}
 

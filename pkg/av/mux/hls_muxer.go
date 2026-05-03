@@ -14,6 +14,7 @@ import (
 type HLSMuxOpts struct {
 	OutputDir          string
 	SegmentDurationSec int
+	SegmentType        string
 	VideoCodecID       astiav.CodecID
 	VideoExtradata     []byte
 	VideoWidth         int
@@ -48,6 +49,9 @@ func NewHLSMuxer(opts HLSMuxOpts) (*HLSMuxer, error) {
 	}
 	if opts.SegmentDurationSec <= 0 {
 		opts.SegmentDurationSec = 6
+	}
+	if opts.SegmentType == "" {
+		opts.SegmentType = "mpegts"
 	}
 
 	m := &HLSMuxer{
@@ -132,9 +136,16 @@ func (m *HLSMuxer) openFormatContext() error {
 	dict := astiav.NewDictionary()
 	defer dict.Free()
 	dict.Set("hls_time", strconv.Itoa(m.opts.SegmentDurationSec), 0)
-	dict.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.ts"), 0)
 	dict.Set("hls_list_size", "0", 0)
 	dict.Set("hls_flags", "append_list", 0)
+
+	if m.opts.SegmentType == "fmp4" {
+		dict.Set("hls_segment_type", "fmp4", 0)
+		dict.Set("hls_fmp4_init_filename", "init.mp4", 0)
+		dict.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.m4s"), 0)
+	} else {
+		dict.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.ts"), 0)
+	}
 
 	if err := fc.WriteHeader(dict); err != nil {
 		fc.Free()
@@ -259,9 +270,16 @@ func (m *HLSMuxer) Reset() error {
 		m.fc = nil
 	}
 
-	matches, _ := filepath.Glob(filepath.Join(m.opts.OutputDir, "seg*.ts"))
+	segExt := "ts"
+	if m.opts.SegmentType == "fmp4" {
+		segExt = "m4s"
+	}
+	matches, _ := filepath.Glob(filepath.Join(m.opts.OutputDir, "seg*."+segExt))
 	for _, f := range matches {
 		os.Remove(f)
+	}
+	if m.opts.SegmentType == "fmp4" {
+		os.Remove(filepath.Join(m.opts.OutputDir, "init.mp4"))
 	}
 	os.Remove(filepath.Join(m.opts.OutputDir, "playlist.m3u8"))
 
@@ -274,7 +292,11 @@ func (m *HLSMuxer) Reset() error {
 func (m *HLSMuxer) SegmentCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	matches, _ := filepath.Glob(filepath.Join(m.opts.OutputDir, "seg*.ts"))
+	segExt := "ts"
+	if m.opts.SegmentType == "fmp4" {
+		segExt = "m4s"
+	}
+	matches, _ := filepath.Glob(filepath.Join(m.opts.OutputDir, "seg*."+segExt))
 	return len(matches)
 }
 
