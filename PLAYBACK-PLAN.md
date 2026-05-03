@@ -1,74 +1,117 @@
 # Playback Plan
 
-## Problem
+## Current Problem
 
-Playback is broken. The server decides codec/delivery and the frontend has to guess what it's getting. This leads to mismatches — H.265 sent to a browser expecting H.264, HLS sent when MSE was working, etc.
+The server decides delivery mode and codec. The frontend gets whatever the server gives it and tries to play it. This is backwards. You end up with HLS segments being fed to an MSE player, or H.265 being sent to a browser that only handles H.264.
 
-## Principle
+## How Playback Should Work
 
-The **frontend controls playback choices**. It knows what the browser supports. It requests the format it wants. The server delivers what's asked for.
+The **frontend is the trigger**. It is the only thing that knows what it can play.
 
-## Architecture
+### The Flow
 
-### 1. Playback is pluggable
+```
+1. User clicks Play
+2. Frontend checks: what can I play?
+   - MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028"') → true/false
+   - MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L120"') → true/false
+   - Can I do HLS natively? (Safari yes, Chrome via hls.js)
+   - Can I do DASH? (via dash.js)
+   - Can I do WebRTC? (RTCPeerConnection available)
+3. Frontend picks the best option from what it supports
+4. Frontend creates the player for that option
+5. Frontend requests the matching URL from the server:
+   - MSE:    GET /play/{id}?delivery=mse&video=h264&audio=aac&container=fmp4
+   - HLS:    GET /play/{id}?delivery=hls&video=h264&audio=aac
+   - DASH:   GET /play/{id}?delivery=dash&video=h264&audio=aac
+   - WebRTC: POST /play/{id}/whep (WebRTC signalling)
+6. Server creates a session matching exactly what was asked for
+7. Player consumes the output
+```
 
-Each playback method is a plugin:
-- **MSE** — fMP4 segments, browser SourceBuffer
-- **HLS** — MPEG-TS segments, hls.js or native
-- **DASH** — future, MPD manifest + segments
-- **WebRTC** — future, ultra-low latency
-- **Native** — direct video src= for simple formats
+The frontend and the server are **always aligned** because the frontend chose both sides — it created the player AND told the server what to produce.
 
-The frontend picks the plugin based on what the browser supports and what the user/client profile prefers.
+### Frontend Player Plugins
 
-### 2. Frontend controls the request
+Each delivery mode has a player plugin in app.js:
 
-The frontend knows:
-- What codecs the browser supports (MediaSource.isTypeSupported)
-- What delivery modes work (MSE, HLS native, HLS.js)
-- What the user's client profile says
+| Plugin | Creates | Consumes | Container |
+|--------|---------|----------|-----------|
+| MSEPlayer | MediaSource + SourceBuffer | polls fMP4 segments | fMP4 |
+| HLSPlayer | hls.js instance or native | m3u8 playlist + TS segments | MPEG-TS |
+| DASHPlayer | dash.js instance | MPD manifest + segments | fMP4 |
+| WebRTCPlayer | RTCPeerConnection | RTP via WHEP | RTP |
+| DirectPlayer | video.src = url | raw stream | mp4/ts |
 
-So the frontend tells the server:
-- `delivery=mse` or `delivery=hls` or `delivery=stream`
-- `video_codec=h264` or `video_codec=h265` (what it can accept)
-- `audio_codec=aac` (always for browser)
-- `container=fmp4` or `container=mpegts`
+The frontend has ONE play function:
 
-The server's job is just to deliver what's requested. No guessing.
+```
+function play(streamID) {
+    var caps = detectCapabilities();  // run once, cached
+    var player = pickBestPlayer(caps); // MSEPlayer, HLSPlayer, etc.
+    var params = player.serverParams(); // {delivery:'mse', video:'h264', ...}
+    var url = '/play/' + streamID + '?' + encode(params);
+    player.start(videoElement, url);
+}
+```
 
-### 3. Client profile = player preset
+### Server Output Plugins (unchanged)
 
-Changing client profile in the UI changes how the player is created:
-- Browser profile → MSE with fMP4, H.264/AAC
-- Browser H.265 → MSE with fMP4, H.265/AAC (if browser supports)
-- HLS profile → hls.js player, MPEG-TS segments
-- etc.
+The server already has output plugins (MSE, HLS, Stream, Record). The only change is: the server uses the delivery/codec params from the request instead of deciding itself. The strategy layer resolves copy vs transcode based on what the frontend asked for vs what the source provides.
 
-The profile is a frontend concern that maps to request parameters.
+### Client Profiles Become Player Presets
 
-## What was working
+A "client profile" in the UI is just a saved set of player preferences:
 
-- MSE (fMP4) — was working for browser playback
-- HLS — was working for Jellyfin/Apple TV
+- **Browser** → MSEPlayer, H.264, AAC, fMP4
+- **Browser H.265** → MSEPlayer, H.265, AAC, fMP4  
+- **HLS** → HLSPlayer, H.264, AAC, MPEG-TS
+- **Low Latency** → WebRTCPlayer (future)
+- **Adaptive** → DASHPlayer (future)
 
-## What broke
+Switching profile = switching which player plugin is used + what params are sent to the server. The profile dropdown is just a shortcut — advanced users could override individual settings.
 
-- Agent modified `pkg/output/hls/hls.go` and `pkg/orchestrator/playback.go` in commit b6f8e65
-- Changed extradata fallback, audio channel defaults, timebase handling, hasAudio detection
-- HLS stopped initialising in browser
-- Frontend started requesting HLS when MSE was the working path
+### Capability Detection (run once)
 
-## Immediate fix
+```
+var capabilities = {
+    mse: !!window.MediaSource,
+    mse_h264: MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028"'),
+    mse_h265: MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L120"'),
+    mse_av1:  MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"'),
+    hls_native: videoElement.canPlayType('application/vnd.apple.mpegurl') !== '',
+    hls_js: typeof Hls !== 'undefined' && Hls.isSupported(),
+    webrtc: !!window.RTCPeerConnection,
+};
+```
 
-1. Verify MSE still works (it was working before)
-2. Verify HLS works for Jellyfin (not browser — Jellyfin uses its own player)
-3. Don't mix them — MSE for browser, HLS for Jellyfin
+This runs once on page load. The result determines which players are available.
 
-## Implementation order
+### Why This Fixes Everything
 
-1. Fix current breakage — get MSE browser playback working again
-2. Frontend codec detection — `MediaSource.isTypeSupported` probing on startup
-3. Frontend delivery selection — request params based on what browser supports
-4. Server respects request — no server-side override of what frontend asks for
-5. DASH output plugin — new delivery mode
-6. WebRTC output plugin — new delivery mode, signalling server
+- No mismatch: frontend creates the player THEN tells the server what to produce
+- No guessing: server doesn't decide codec — it was told
+- Adding DASH = add DASHPlayer plugin in frontend + DASH output plugin on server
+- Adding WebRTC = add WebRTCPlayer plugin + WHEP signalling endpoint
+- Existing MSE/HLS unchanged — they become player plugins with the same interface
+- Jellyfin/Plex/DLNA are external clients that make their own requests — unaffected
+
+## Implementation Order
+
+1. **Refactor frontend play()** — extract current MSE player into MSEPlayer plugin
+2. **Add capability detection** — probe browser on load, cache results
+3. **Pass delivery params in request** — frontend sends what it wants
+4. **Server reads params** — use request params instead of server-side strategy for delivery/codec
+5. **Extract HLSPlayer** — hls.js based player plugin for browser HLS
+6. **DASH output plugin** — server side MPD + segment production
+7. **DASHPlayer** — dash.js based frontend plugin
+8. **WebRTC output plugin** — WHEP/WHIP signalling + RTP
+9. **WebRTCPlayer** — RTCPeerConnection frontend plugin
+
+## Rules
+
+- Frontend creates the player FIRST, then requests the matching stream
+- Server never overrides what the frontend asked for
+- One play() function, one interface, N player plugins
+- Capability detection is cached, not per-play
+- Pipeline code (pkg/session, pkg/output, pkg/lib/av) is NOT touched by agents
