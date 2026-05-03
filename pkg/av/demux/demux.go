@@ -118,11 +118,7 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 	probeSize := opts.ProbeSize
 	analyzeDur := opts.AnalyzeDuration
 	if probeSize <= 0 {
-		if isLive {
-			probeSize = 1000000
-		} else {
-			probeSize = 5000000
-		}
+		probeSize = 5000000
 	}
 	if analyzeDur <= 0 {
 		analyzeDur = 2000000
