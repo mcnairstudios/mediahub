@@ -2494,13 +2494,13 @@
       if (available[i] === currentDelivery) opt.selected = true;
       sel.appendChild(opt);
     }
-    sel.addEventListener('change', function() {
+    sel.addEventListener('change', async function() {
       var newDelivery = sel.value;
       if (newDelivery === playerState.delivery) return;
       playerState.deliveryOverride = newDelivery;
       if (playerState.activePlayer) playerState.activePlayer.stop();
       if (playerState.currentStreamID) {
-        api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+        await api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
       }
       initPlayer(streamID);
     });
