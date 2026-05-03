@@ -5079,12 +5079,12 @@
   }
 
   function bindAutoSave(container, selectId, settingKey) {
-    var sel = container.querySelector('#' + selectId);
-    if (!sel) { sel = document.getElementById(selectId); }
+    var sel = document.getElementById(selectId);
+    if (!sel && container) { sel = container.querySelector('#' + selectId); }
     if (!sel) return;
-    sel.addEventListener('change', function() {
+    sel.onchange = function() {
       saveSetting(settingKey, sel.value);
-    });
+    };
   }
 
   function bindToggle(container, checkboxId, settingKey) {
