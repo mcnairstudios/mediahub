@@ -3276,7 +3276,8 @@
       handleRetry();
     });
 
-    videoEl.addEventListener('click', function() {
+    videoEl.addEventListener('click', function(e) {
+      if (e.target !== videoEl) return;
       if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
     });
 
