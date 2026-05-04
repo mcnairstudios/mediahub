@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -244,11 +243,7 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	if pkt.Duration() <= 0 && m.opts.VideoFrameRate > 0 {
 		tb := m.video.stream.TimeBase()
 		if tb.Den() > 0 && tb.Num() > 0 {
-			dur := int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num()))
-			pkt.SetDuration(dur)
-			if m.video.pktCount < 3 {
-				log.Printf("mux: set video duration=%d (fps=%d tb=%s) before=%d after=%d", dur, m.opts.VideoFrameRate, tb.String(), int64(0), pkt.Duration())
-			}
+			pkt.SetDuration(int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num())))
 		}
 	}
 
