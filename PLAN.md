@@ -155,7 +155,26 @@ ffmpeg -hwaccel videotoolbox -i input.ts -vf "yadif=mode=send_frame,format=nv12"
 
 **Key test**: `/tmp/ffmpeg_subprocess_test.mp4` — 5s clip produced by ffmpeg CLI, correct timing.
 
-### fMP4 default_sample_duration=1 (ROOT CAUSE FOUND)
+### Playback Timing — FIXED (3 root causes found and fixed)
+
+**Fix 1: yadif mode=1 (send_field)**
+- `mode=send_frame` was outputting at 12.5fps (7200 tick spacing) for 50i content
+- `mode=1` (send_field) outputs correct 25fps with 3600 tick spacing
+- File: `pkg/av/filter/filter.go` line 84
+
+**Fix 2: ensureMonotonicDTS bumps by frame duration**
+- Was bumping non-monotonic DTS by +1 tick → muxer calculated dur=1
+- Now bumps by `tb.Den / (fps * tb.Num)` = 3600 ticks for 25fps at 90kHz
+- File: `pkg/av/mux/mux.go` and `pkg/av/mux/hls_muxer.go`
+
+**Fix 3: VideoFrameRate on muxer stream**
+- `SetAvgFrameRate` on fMP4 stream, `fixVideoDuration` on packets with dur=0
+- Ensures correct metadata in init segment and trun boxes
+- File: `pkg/av/mux/mux.go`, `pkg/output/mse/mse.go`
+
+**Verified**: MSE 25/1 fps 6.0s segments, HLS 2s segments valid m3u8, DASH valid MPD, all ffprobe correct.
+
+### fMP4 default_sample_duration=1 (HISTORICAL — FIXED)
 **Symptom**: ffprobe shows 0.003s-0.063s for segments that should be ~2s each.
 **Root cause**: The fMP4 muxer's tfhd box writes `default_sample_duration=1` (one tick at 90kHz = 0.000011s) because encoder packets have `duration=0`. Chrome MSE may tolerate this (uses PTS directly) but ffprobe calculates timing from it.
 **Proven by**: Parsing the moof/tfhd/trun boxes of live segments — `default_sample_duration=1`, no per-sample duration in trun.
