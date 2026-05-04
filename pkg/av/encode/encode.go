@@ -407,6 +407,13 @@ func (e *Encoder) CodecID() astiav.CodecID {
 	return e.codecCtx.CodecID()
 }
 
+func (e *Encoder) TimeBase() astiav.Rational {
+	if e.codecCtx == nil {
+		return astiav.NewRational(0, 1)
+	}
+	return e.codecCtx.TimeBase()
+}
+
 func (e *Encoder) Flush() ([]*astiav.Packet, error) {
 	if e.codecCtx == nil {
 		return nil, nil
