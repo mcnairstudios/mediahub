@@ -136,7 +136,24 @@ Future: a "Custom Feed" source type where users configure feeds via a CRUD UI wi
 **Reference output**: `/tmp/ref_fmp4_60/output.mp4` (correct 60.1s, produced by ffmpeg CLI).
 **Our output**: `/tmp/our_fmp4_60/` — 101,088s with double rescale, 28s without (still wrong — interlaced PTS spacing issue).
 **What the bridge does differently**: Converts ALL PTS to nanoseconds (avTSToNanos) before passing downstream. The muxer receives nanos and rescales to its stream timebase. This may avoid the double-rescale but needs verification with live playback.
-**Next step**: Start a playback session, grab the live segments, ffprobe them. Compare PTS values at each stage (decoder output → bridge nanos → muxer input).
+**Next step**: Fix the PTS chain. See findings below.
+
+### ffmpeg Subprocess Analysis (CRITICAL FINDING)
+**What ffmpeg CLI does with the same content**:
+```
+ffmpeg -hwaccel videotoolbox -i input.ts -vf "yadif=mode=send_frame,format=nv12" -c:v hevc_videotoolbox ...
+```
+1. VT decode FAILS on interlaced → falls back to SW `h264 (native)` decode
+2. CPU `yadif` deinterlace (same as ours)
+3. Auto-inserted `auto_scale_0`: yuv420p → nv12
+4. `hevc_videotoolbox` HW encode
+5. **Output: 25/1 fps, 5.02s for 5s input — CORRECT**
+
+**Our pipeline with same settings**: 25/2 fps (12.5fps), 28s for 3 segments — WRONG.
+
+**The difference**: ffmpeg internally manages PTS through the filter graph. When yadif deinterlaces 50i→25p, ffmpeg's filter graph halves the PTS spacing. Our code runs yadif via the filter graph but the PTS may not be adjusted for the frame rate change.
+
+**Key test**: `/tmp/ffmpeg_subprocess_test.mp4` — 5s clip produced by ffmpeg CLI, correct timing.
 
 ### PTS Integer Overflow in Bridge (CRITICAL)
 **Symptom**: Video plays 2 seconds then freezes. Audio resumes after 6s, video never does.
