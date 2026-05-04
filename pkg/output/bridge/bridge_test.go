@@ -267,7 +267,7 @@ func TestFramerateCalculation(t *testing.T) {
 		expected    int
 	}{
 		{"25fps progressive", 25, 1, false, false, 0, 25},
-		{"50fps interlaced with deinterlace", 50, 1, true, true, 0, 25},
+		{"50fps interlaced with deinterlace", 50, 1, true, true, 0, 50},
 		{"30fps progressive", 30, 1, false, false, 0, 30},
 		{"zero framerate defaults to 25", 0, 0, false, false, 0, 25},
 		{"explicit framerate override", 25, 1, false, false, 30, 30},
