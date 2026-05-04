@@ -30,14 +30,18 @@ type HLSMuxOpts struct {
 }
 
 type HLSMuxer struct {
-	opts       HLSMuxOpts
-	fc         *astiav.FormatContext
-	videoIdx   int
-	audioIdx   int
-	videoOutTB astiav.Rational
-	audioOutTB astiav.Rational
-	closed     bool
-	mu         sync.Mutex
+	opts         HLSMuxOpts
+	fc           *astiav.FormatContext
+	videoIdx     int
+	audioIdx     int
+	videoOutTB   astiav.Rational
+	audioOutTB   astiav.Rational
+	closed       bool
+	mu           sync.Mutex
+	lastVideoDTS int64
+	lastAudioDTS int64
+	videoDTSInit bool
+	audioDTSInit bool
 }
 
 func NewHLSMuxer(opts HLSMuxOpts) (*HLSMuxer, error) {
@@ -208,6 +212,23 @@ func (m *HLSMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	pkt.RescaleTs(m.opts.VideoTimeBase, m.videoOutTB)
 	pkt.SetStreamIndex(m.videoIdx)
 	m.fixVideoDuration(pkt)
+
+	dts := pkt.Dts()
+	if m.videoDTSInit && dts <= m.lastVideoDTS {
+		bump := pkt.Duration()
+		if bump <= 0 {
+			bump = 1
+		}
+		dts = m.lastVideoDTS + bump
+		pts := pkt.Pts()
+		if pts < dts {
+			pts = dts
+		}
+		pkt.SetDts(dts)
+		pkt.SetPts(pts)
+	}
+	m.lastVideoDTS = dts
+	m.videoDTSInit = true
 
 	if err := m.fc.WriteInterleavedFrame(pkt); err != nil {
 		return fmt.Errorf("avmux: write video packet: %w", err)
