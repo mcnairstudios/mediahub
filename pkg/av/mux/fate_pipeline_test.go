@@ -292,7 +292,8 @@ func runFATEPipeline(t *testing.T, inputPath string, maxPackets int) fatePipelin
 		VideoCodecID:  outVideoCodecID,
 		VideoWidth:    info.Video.Width,
 		VideoHeight:   info.Video.Height,
-		VideoTimeBase: astiav.NewRational(1, 90000),
+		VideoTimeBase:  astiav.NewRational(1, 90000),
+		VideoFrameRate: 25,
 	}
 	if ed := videoEnc.Extradata(); len(ed) > 0 {
 		muxOpts.VideoExtradata = make([]byte, len(ed))

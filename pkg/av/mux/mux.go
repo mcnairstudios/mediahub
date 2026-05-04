@@ -23,6 +23,7 @@ type MuxOpts struct {
 	VideoWidth        int
 	VideoHeight       int
 	VideoTimeBase     astiav.Rational
+	VideoFrameRate    int
 	AudioCodecID      astiav.CodecID
 	AudioExtradata    []byte
 	AudioChannels     int
@@ -36,6 +37,7 @@ type FragmentedMuxer struct {
 	videoStarted  bool
 	closed        bool
 	mu            sync.Mutex
+	opts          MuxOpts
 }
 
 type trackMuxer struct {
@@ -79,7 +81,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		audioFragMs = 2048
 	}
 
-	m := &FragmentedMuxer{}
+	m := &FragmentedMuxer{opts: opts}
 
 	if opts.VideoCodecID != astiav.CodecIDNone {
 		var videoThresholdUs int64
@@ -231,6 +233,13 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	}
 	if m.video == nil {
 		return errors.New("avmux: no video track configured")
+	}
+
+	if pkt.Duration() <= 0 && m.opts.VideoFrameRate > 0 {
+		tb := m.video.stream.TimeBase()
+		if tb.Den() > 0 && tb.Num() > 0 {
+			pkt.SetDuration(int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num())))
+		}
 	}
 
 	isKeyframe := pkt.Flags().Has(astiav.PacketFlagKey)

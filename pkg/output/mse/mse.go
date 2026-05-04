@@ -108,6 +108,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		}
 		muxOpts.VideoWidth = cfg.Video.Width
 		muxOpts.VideoHeight = cfg.Video.Height
+		if cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
+			muxOpts.VideoFrameRate = cfg.Video.FramerateN / cfg.Video.FramerateD
+		}
 	}
 
 	if len(cfg.AudioExtradata) > 0 {
