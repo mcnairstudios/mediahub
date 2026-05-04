@@ -261,17 +261,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		v := *info.Video
 		if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
 			v.Codec = string(decision.VideoCodec)
-			if len(pipelineResult.VideoExtradata) > 0 {
-				v.Extradata = pipelineResult.VideoExtradata
-			} else {
-				v.Extradata = nil
-			}
-			if decision.Deinterlace && v.Interlaced {
-				v.Interlaced = false
-				if v.FramerateN > 0 && v.FramerateD > 0 {
-					v.FramerateN = v.FramerateN / 2
-				}
-			}
+			v.Extradata = nil
 		}
 		pluginCfg.Video = &v
 	}
