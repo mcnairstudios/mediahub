@@ -68,7 +68,7 @@ type trackMuxer struct {
 	frameRate  int
 }
 
-const cmafMovflags = "frag_custom+dash+skip_sidx+skip_trailer"
+const cmafMovflags = "frag_custom+empty_moov+default_base_moof+skip_sidx+skip_trailer"
 
 func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 	if opts.OutputDir == "" {
@@ -242,10 +242,13 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	}
 
 	if pkt.Duration() <= 0 && m.opts.VideoFrameRate > 0 {
-		log.Printf("mux: fixing video duration: fps=%d tb=%s", m.opts.VideoFrameRate, m.video.stream.TimeBase().String())
 		tb := m.video.stream.TimeBase()
 		if tb.Den() > 0 && tb.Num() > 0 {
-			pkt.SetDuration(int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num())))
+			dur := int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num()))
+			pkt.SetDuration(dur)
+			if m.video.pktCount < 3 {
+				log.Printf("mux: set video duration=%d (fps=%d tb=%s) before=%d after=%d", dur, m.opts.VideoFrameRate, tb.String(), int64(0), pkt.Duration())
+			}
 		}
 	}
 
