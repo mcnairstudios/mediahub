@@ -140,10 +140,15 @@ func New(cfg Config) (*Bridge, error) {
 		}
 
 		outW, outH, needsResolutionScale := resolveOutputDimensions(info.Video.Width, info.Video.Height, cfg.OutputHeight)
-		if needsResolutionScale || needsBitDepthConversion {
+		needsPixFmtConversion := cfg.HWAccel == "videotoolbox" || cfg.HWAccel == "vaapi"
+		outPixFmt := astiav.PixelFormatYuv420P
+		if needsPixFmtConversion {
+			outPixFmt = astiav.PixelFormatNv12
+		}
+		if needsResolutionScale || needsBitDepthConversion || needsPixFmtConversion {
 			b.scaler, err = scale.NewScaler(
 				info.Video.Width, info.Video.Height, srcPixFmt,
-				outW, outH, astiav.PixelFormatYuv420P,
+				outW, outH, outPixFmt,
 			)
 			if err != nil {
 				b.closeAll()
