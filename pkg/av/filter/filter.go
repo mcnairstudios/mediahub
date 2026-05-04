@@ -13,7 +13,7 @@ type Deinterlacer struct {
 	bufferSink *astiav.BuffersinkFilterContext
 }
 
-func NewDeinterlacer(width, height int, pixFmt astiav.PixelFormat, timeBase astiav.Rational) (*Deinterlacer, error) {
+func NewDeinterlacer(width, height int, pixFmt astiav.PixelFormat, timeBase astiav.Rational, frameRate ...astiav.Rational) (*Deinterlacer, error) {
 	graph := astiav.AllocFilterGraph()
 	if graph == nil {
 		return nil, errors.New("filter: failed to allocate filter graph")
@@ -47,6 +47,9 @@ func NewDeinterlacer(width, height int, pixFmt astiav.PixelFormat, timeBase asti
 	params.SetHeight(height)
 	params.SetPixelFormat(pixFmt)
 	params.SetTimeBase(timeBase)
+	if len(frameRate) > 0 && frameRate[0].Num() > 0 {
+		params.SetFramerate(frameRate[0])
+	}
 	if err := srcCtx.SetParameters(params); err != nil {
 		graph.Free()
 		return nil, fmt.Errorf("filter: setting buffersrc params: %w", err)
@@ -78,7 +81,7 @@ func NewDeinterlacer(width, height int, pixFmt astiav.PixelFormat, timeBase asti
 	inputs.SetPadIdx(0)
 	inputs.SetNext(nil)
 
-	if err := graph.Parse("yadif=mode=send_frame:parity=auto:deint=interlaced", inputs, outputs); err != nil {
+	if err := graph.Parse("yadif=mode=1:parity=auto:deint=interlaced", inputs, outputs); err != nil {
 		graph.Free()
 		return nil, fmt.Errorf("filter: parsing yadif filter: %w", err)
 	}

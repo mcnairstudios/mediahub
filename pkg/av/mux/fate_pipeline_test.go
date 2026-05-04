@@ -229,10 +229,15 @@ func runFATEPipeline(t *testing.T, inputPath string, maxPackets int) fatePipelin
 	}
 	defer videoDec.Close()
 
+	srcFR := astiav.NewRational(25, 1)
+	if info.Video.FramerateN > 0 && info.Video.FramerateD > 0 {
+		srcFR = astiav.NewRational(info.Video.FramerateN, info.Video.FramerateD)
+	}
 	deint, err := filter.NewDeinterlacer(
 		info.Video.Width, info.Video.Height,
 		astiav.PixelFormatYuv420P,
 		astiav.NewRational(1, 90000),
+		srcFR,
 	)
 	if err != nil {
 		t.Fatalf("deinterlacer: %v", err)

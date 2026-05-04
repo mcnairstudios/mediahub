@@ -128,10 +128,19 @@ func New(cfg Config) (*Bridge, error) {
 
 		needsDeinterlace := cfg.Deinterlace || info.Video.Interlaced
 		if needsDeinterlace {
+			srcFR := astiav.NewRational(25, 1)
+			if info.Video.FramerateN > 0 && info.Video.FramerateD > 0 {
+				fr := info.Video.FramerateN / info.Video.FramerateD
+				if info.Video.Interlaced && fr > 25 {
+					fr = fr / 2
+				}
+				srcFR = astiav.NewRational(fr, 1)
+			}
 			b.deint, err = filter.NewDeinterlacer(
 				info.Video.Width, info.Video.Height,
 				srcPixFmt,
 				astiav.NewRational(1, 90000),
+				srcFR,
 			)
 			if err != nil {
 				b.closeAll()
