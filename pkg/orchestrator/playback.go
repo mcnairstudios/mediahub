@@ -240,8 +240,10 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	result.DeliverySwitchable = deliverySwitchable
 
 	pluginCfg := output.PluginConfig{
-		OutputDir: sess.OutputDir,
-		IsLive:    true,
+		OutputDir:      sess.OutputDir,
+		OutputFilePath: filepath.Join(sess.OutputDir, "source.ts"),
+		OutputFormat:   "mpegts",
+		IsLive:         true,
 	}
 	if !decision.NeedsTranscode {
 		pluginCfg.VideoCodecParams = pipelineResult.VideoCodecParams
