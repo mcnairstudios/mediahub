@@ -432,7 +432,17 @@ func (t *trackMuxer) ensureMonotonicDTS(pkt *astiav.Packet) {
 	dts := pkt.Dts()
 	pts := pkt.Pts()
 	if t.dtsInited && dts <= t.lastDTS {
-		dts = t.lastDTS + 1
+		bump := int64(1)
+		if t.frameRate > 0 {
+			tb := t.stream.TimeBase()
+			if tb.Den() > 0 && tb.Num() > 0 {
+				bump = int64(tb.Den()) / (int64(t.frameRate) * int64(tb.Num()))
+			}
+		}
+		if bump < 1 {
+			bump = 1
+		}
+		dts = t.lastDTS + bump
 		if pts < dts {
 			pts = dts
 		}
