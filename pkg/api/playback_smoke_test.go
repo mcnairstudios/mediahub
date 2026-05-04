@@ -46,7 +46,7 @@ func newSmokePlugin(mode output.DeliveryMode) *smokeOutputPlugin {
 
 func (p *smokeOutputPlugin) Mode() output.DeliveryMode { return p.mode }
 
-func (p *smokeOutputPlugin) PushVideo(data []byte, _, _, _ int64, _ bool) error {
+func (p *smokeOutputPlugin) PushVideo(data []byte, _, _ int64, _ bool) error {
 	p.mu.Lock()
 	p.videoPkts++
 	p.bytesTotal += int64(len(data))
@@ -55,7 +55,7 @@ func (p *smokeOutputPlugin) PushVideo(data []byte, _, _, _ int64, _ bool) error 
 	return nil
 }
 
-func (p *smokeOutputPlugin) PushAudio(data []byte, _, _, _ int64) error {
+func (p *smokeOutputPlugin) PushAudio(data []byte, _, _ int64) error {
 	p.mu.Lock()
 	p.audioPkts++
 	p.bytesTotal += int64(len(data))

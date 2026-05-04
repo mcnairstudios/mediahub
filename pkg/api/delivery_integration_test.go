@@ -25,8 +25,8 @@ type mockOutputPlugin struct {
 }
 
 func (m *mockOutputPlugin) Mode() output.DeliveryMode                      { return m.mode }
-func (m *mockOutputPlugin) PushVideo([]byte, int64, int64, int64, bool) error     { return nil }
-func (m *mockOutputPlugin) PushAudio([]byte, int64, int64, int64) error           { return nil }
+func (m *mockOutputPlugin) PushVideo([]byte, int64, int64, bool) error     { return nil }
+func (m *mockOutputPlugin) PushAudio([]byte, int64, int64) error           { return nil }
 func (m *mockOutputPlugin) PushSubtitle([]byte, int64, int64) error               { return nil }
 func (m *mockOutputPlugin) EndOfStream()                                   {}
 func (m *mockOutputPlugin) ResetForSeek()                                  {}
