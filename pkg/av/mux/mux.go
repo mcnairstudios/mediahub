@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -64,6 +65,7 @@ type trackMuxer struct {
 	height     int
 	channels   int
 	sampleRate int
+	frameRate  int
 }
 
 const cmafMovflags = "frag_custom+dash+skip_sidx+skip_trailer"
@@ -90,7 +92,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		}
 		tm, err := newTrackMuxer(opts.OutputDir, "video", opts.VideoCodecID,
 			opts.VideoExtradata, opts.VideoTimeBase, opts.VideoWidth, opts.VideoHeight,
-			0, 0, videoThresholdUs)
+			0, 0, opts.VideoFrameRate, videoThresholdUs)
 		if err != nil {
 			return nil, fmt.Errorf("avmux: video track: %w", err)
 		}
@@ -109,7 +111,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		}
 		tm, err := newTrackMuxer(opts.OutputDir, "audio", audioCodecID,
 			opts.AudioExtradata, tb, 0, 0,
-			opts.AudioChannels, opts.AudioSampleRate, int64(audioFragMs)*1000)
+			opts.AudioChannels, opts.AudioSampleRate, 0, int64(audioFragMs)*1000)
 		if err != nil {
 			if m.video != nil {
 				m.video.close()
@@ -124,7 +126,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 
 func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 	extradata []byte, timeBase astiav.Rational, width, height int,
-	channels, sampleRate int, fragThresholdUs int64) (*trackMuxer, error) {
+	channels, sampleRate, frameRate int, fragThresholdUs int64) (*trackMuxer, error) {
 
 	tm := &trackMuxer{
 		outputDir:       outputDir,
@@ -138,6 +140,7 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 		height:          height,
 		channels:        channels,
 		sampleRate:      sampleRate,
+		frameRate:       frameRate,
 	}
 
 	fc, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
@@ -191,6 +194,9 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 		}
 	}
 	s.SetTimeBase(timeBase)
+	if frameRate > 0 {
+		s.SetAvgFrameRate(astiav.NewRational(frameRate, 1))
+	}
 
 	if len(extradata) > 0 {
 		if err := cp.SetExtraData(extradata); err != nil {
@@ -236,6 +242,7 @@ func (m *FragmentedMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	}
 
 	if pkt.Duration() <= 0 && m.opts.VideoFrameRate > 0 {
+		log.Printf("mux: fixing video duration: fps=%d tb=%s", m.opts.VideoFrameRate, m.video.stream.TimeBase().String())
 		tb := m.video.stream.TimeBase()
 		if tb.Den() > 0 && tb.Num() > 0 {
 			pkt.SetDuration(int64(tb.Den()) / (int64(m.opts.VideoFrameRate) * int64(tb.Num())))
@@ -319,7 +326,7 @@ func (m *FragmentedMuxer) Reset() error {
 		m.video.close()
 		tm, err := newTrackMuxer(m.video.outputDir, m.video.prefix, m.video.codecID,
 			m.video.extradata, m.video.timeBase, m.video.width, m.video.height,
-			0, 0, m.video.fragThresholdUs)
+			0, 0, m.video.frameRate, m.video.fragThresholdUs)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -338,7 +345,7 @@ func (m *FragmentedMuxer) Reset() error {
 		m.audio.close()
 		tm, err := newTrackMuxer(m.audio.outputDir, m.audio.prefix, m.audio.codecID,
 			m.audio.extradata, m.audio.timeBase, 0, 0,
-			m.audio.channels, m.audio.sampleRate, m.audio.fragThresholdUs)
+			m.audio.channels, m.audio.sampleRate, 0, m.audio.fragThresholdUs)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
