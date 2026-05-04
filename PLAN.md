@@ -155,6 +155,15 @@ ffmpeg -hwaccel videotoolbox -i input.ts -vf "yadif=mode=send_frame,format=nv12"
 
 **Key test**: `/tmp/ffmpeg_subprocess_test.mp4` — 5s clip produced by ffmpeg CLI, correct timing.
 
+### fMP4 default_sample_duration=1 (ROOT CAUSE FOUND)
+**Symptom**: ffprobe shows 0.003s-0.063s for segments that should be ~2s each.
+**Root cause**: The fMP4 muxer's tfhd box writes `default_sample_duration=1` (one tick at 90kHz = 0.000011s) because encoder packets have `duration=0`. Chrome MSE may tolerate this (uses PTS directly) but ffprobe calculates timing from it.
+**Proven by**: Parsing the moof/tfhd/trun boxes of live segments — `default_sample_duration=1`, no per-sample duration in trun.
+**Fix applied**: Added `fixVideoDuration` in FragmentedMuxer that sets duration from `VideoFrameRate` when packet has duration=0. MSE plugin passes framerate.
+**Status**: Fix applies for the direct muxer test path but NOT for the live MSE path — the MSE plugin's deferred muxer creation may bypass the opts. Need to verify the deferred path passes `VideoFrameRate`.
+**Reference**: go-astiav transcoding example sets encoder timebase = decoder timebase, and does `pkt.RescaleTs(enc.TimeBase(), outputStream.TimeBase())` before writing. Our bridge does nanos conversion instead.
+**Tests**: `TestFATE_Pipeline_FramerateCorrect` catches the 25/2 issue. Need to also test default_sample_duration in trun/tfhd boxes directly.
+
 ### PTS Integer Overflow in Bridge (CRITICAL)
 **Symptom**: Video plays 2 seconds then freezes. Audio resumes after 6s, video never does.
 **Root cause**: `avTSToNanos()` computed `ts * 1_000_000_000 * tbNum / tbDen`. With 90kHz timestamps on live streams, `PTS * 1_000_000_000` overflows int64 after ~102 seconds of content. First segment works (small PTS), then overflow produces garbage timestamps → muxer writes 0.003s duration segments → browser has nothing to play.
