@@ -383,9 +383,8 @@
       { id: 'recordings', label: 'Recordings', icon: 'recordings' },
       { id: 'favorites', label: 'Favorites', icon: 'favorites' },
       { section: 'Sources', adminOnly: true },
-      { id: 'sources', label: 'Sources', icon: 'sources', adminOnly: true },
-      { id: 'epgsources', label: 'EPG Sources', icon: 'epg', adminOnly: true },
       { id: 'streams', label: 'Streams', icon: 'streams', adminOnly: true },
+      { id: 'epgsources', label: 'EPG Sources', icon: 'epg', adminOnly: true },
       { section: 'Stream Management', adminOnly: true },
       { id: 'sourceprofiles', label: 'Source Profiles', icon: 'sourceprofiles', adminOnly: true },
       { id: 'clients', label: 'Clients', icon: 'clients', adminOnly: true },
@@ -796,12 +795,63 @@
     }
   }
 
+  var _addSourceTypes = {
+    m3u: { label: 'M3U', form: 'add-m3u-form' },
+    tvpstreams: { label: 'TVP Streams', form: 'add-tvp-form' },
+    xtream: { label: 'Xtream Codes', form: 'add-xtream-form' },
+    hdhr: { label: 'HDHomeRun', form: 'add-hdhr-form' },
+    satip: { label: 'SAT>IP', form: 'add-satip-form' },
+    radiogarden: { label: 'Radio Garden', form: 'add-radiogarden-form' },
+    spacex: { label: 'Space Launches', form: 'add-spacex-form' },
+    trailers: { label: 'TMDB Trailers', form: 'add-trailers-form' },
+    demo: { label: 'Demo Streams', form: 'add-demo-form' }
+  };
+
+  function _navigateToAddSource(formId) {
+    window._autoOpenSourceForm = formId;
+    router.navigate('sources');
+  }
+
   function buildSourcePicker(el, sources) {
     var picker = document.getElementById('stream-source-picker');
     if (!picker) return;
 
     if (sources.length === 0) {
-      picker.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">No sources configured. Add a source first.</div>';
+      picker.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">' +
+        '<p style="margin-bottom:12px">No sources configured.</p>' +
+        '<button class="btn btn-primary" id="stream-add-first-source-btn">' + icons.plus + ' Add your first source</button>' +
+        '<div id="stream-add-first-dropdown" style="display:none;position:absolute;left:50%;transform:translateX(-50%);margin-top:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.2);z-index:100;min-width:200px;overflow:hidden"></div>' +
+        '</div>';
+      var firstBtn = document.getElementById('stream-add-first-source-btn');
+      var firstDd = document.getElementById('stream-add-first-dropdown');
+      if (firstBtn && firstDd) {
+        var ddHtml = '';
+        var keys = Object.keys(_addSourceTypes);
+        for (var k = 0; k < keys.length; k++) {
+          ddHtml += '<div class="stream-add-source-item" data-form="' + _addSourceTypes[keys[k]].form + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + _addSourceTypes[keys[k]].label + '</div>';
+        }
+        firstDd.innerHTML = ddHtml;
+        firstBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          firstDd.style.display = firstDd.style.display === 'none' ? 'block' : 'none';
+        });
+        firstDd.addEventListener('click', function(e) {
+          var item = e.target.closest('.stream-add-source-item');
+          if (!item) return;
+          firstDd.style.display = 'none';
+          _navigateToAddSource(item.getAttribute('data-form'));
+        });
+        firstDd.querySelectorAll('.stream-add-source-item').forEach(function(item) {
+          item.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+          item.addEventListener('mouseleave', function() { this.style.background = ''; });
+        });
+        document.addEventListener('click', function _closeFirstDd(e) {
+          if (!firstBtn.contains(e.target) && !firstDd.contains(e.target)) {
+            firstDd.style.display = 'none';
+          }
+          if (!document.contains(firstBtn)) document.removeEventListener('click', _closeFirstDd);
+        });
+      }
       return;
     }
 
@@ -809,27 +859,57 @@
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
       var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'TMDB' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'Space' : src.type === 'radiogarden' ? 'Radio' : 'M3U';
-      html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
+      html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '" data-source-name="' + esc(src.name) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
     }
-    html += '<button class="btn btn-ghost" id="stream-refresh-btn" title="Refresh" style="padding:4px 8px">' + icons.refresh + '</button>';
+    html += '<div style="position:relative;display:inline-block">' +
+      '<button class="btn btn-ghost" id="stream-add-source-btn" title="Add Source" style="padding:4px 10px;font-size:18px;font-weight:bold;border:1px dashed var(--border);border-radius:6px;line-height:1">+</button>' +
+      '<div id="stream-add-source-dropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.2);z-index:100;min-width:200px;overflow:hidden">' +
+      '</div></div>';
     html += '</div>';
     picker.innerHTML = html;
 
-    picker.addEventListener('click', function(e) {
-      var refreshBtn = e.target.closest('#stream-refresh-btn');
-      if (refreshBtn) {
-        var activeTab = picker.querySelector('.stream-source-tab.active');
-        if (activeTab) {
-          var st = activeTab.dataset.sourceType;
-          var si = activeTab.dataset.sourceId;
-          var cacheKey = 'streams_' + st + '_' + si;
-          try { sessionStorage.removeItem(cacheKey); sessionStorage.removeItem(cacheKey + '_ts'); } catch (ex) {}
-          loadSourceStreams(st, si, st === 'tvpstreams');
-        }
-        return;
+    var addBtn = document.getElementById('stream-add-source-btn');
+    var addDd = document.getElementById('stream-add-source-dropdown');
+    if (addBtn && addDd) {
+      var ddHtml = '';
+      var keys = Object.keys(_addSourceTypes);
+      for (var k = 0; k < keys.length; k++) {
+        ddHtml += '<div class="stream-add-source-item" data-form="' + _addSourceTypes[keys[k]].form + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + _addSourceTypes[keys[k]].label + '</div>';
       }
+      ddHtml += '<div style="border-top:1px solid var(--border);margin:4px 0"></div>';
+      ddHtml += '<div class="stream-add-source-item" data-action="discover-hdhr" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">Discover HDHomeRun</div>';
+      addDd.innerHTML = ddHtml;
+      addBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        addDd.style.display = addDd.style.display === 'none' ? 'block' : 'none';
+      });
+      addDd.addEventListener('click', function(e) {
+        var item = e.target.closest('.stream-add-source-item');
+        if (!item) return;
+        addDd.style.display = 'none';
+        if (item.getAttribute('data-action') === 'discover-hdhr') {
+          window._autoDiscoverHDHR = true;
+          router.navigate('sources');
+          return;
+        }
+        _navigateToAddSource(item.getAttribute('data-form'));
+      });
+      addDd.querySelectorAll('.stream-add-source-item').forEach(function(item) {
+        item.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+        item.addEventListener('mouseleave', function() { this.style.background = ''; });
+      });
+      document.addEventListener('click', function _closeAddDd(e) {
+        if (!addBtn.contains(e.target) && !addDd.contains(e.target)) {
+          addDd.style.display = 'none';
+        }
+        if (!document.contains(addBtn)) document.removeEventListener('click', _closeAddDd);
+      });
+    }
+
+    picker.addEventListener('click', function(e) {
+      if (e.target.closest('#stream-add-source-btn') || e.target.closest('#stream-add-source-dropdown')) return;
       var btn = e.target.closest('.stream-source-tab');
       if (!btn) return;
       var tabs = picker.querySelectorAll('.stream-source-tab');
@@ -844,6 +924,198 @@
     if (sources.length === 1) {
       picker.querySelector('.stream-source-tab').click();
     }
+  }
+
+  function buildSourceActionToolbar() {
+    var toolbar = document.createElement('div');
+    toolbar.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    var btnStyle = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-muted);cursor:pointer;transition:opacity 0.15s;opacity:0.8;';
+
+    var editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit source';
+    editBtn.style.cssText = btnStyle + 'color:#4fc3f7;border-color:#4fc3f7;';
+    editBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(79,195,247,0.15)'; });
+    editBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    editBtn.addEventListener('click', function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      var type = activeTab.dataset.sourceType;
+      var name = activeTab.dataset.sourceName;
+      window._autoEditSource = { id: id, type: type, name: name };
+      router.navigate('sources');
+    });
+
+    var refreshBtn = document.createElement('button');
+    refreshBtn.textContent = 'Refresh';
+    refreshBtn.title = 'Refresh source';
+    refreshBtn.style.cssText = btnStyle + 'color:#66bb6a;border-color:#66bb6a;';
+    refreshBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(102,187,106,0.15)'; });
+    refreshBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    refreshBtn.addEventListener('click', function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      var type = activeTab.dataset.sourceType;
+      api.post('/api/sources/' + id + '/refresh', {}).then(function(r) {
+        if (r.ok) {
+          toast('Source refresh started');
+        } else {
+          toast('Failed to refresh source', 'error');
+        }
+      }).catch(function() {
+        toast('Failed to refresh source', 'error');
+      });
+      var cacheKey = 'streams_' + type + '_' + id;
+      try { sessionStorage.removeItem(cacheKey); sessionStorage.removeItem(cacheKey + '_ts'); } catch (ex) {}
+      setTimeout(function() {
+        loadSourceStreams(type, id, type === 'tvpstreams');
+      }, 3000);
+    });
+
+    var deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.title = 'Delete source';
+    deleteBtn.style.cssText = btnStyle + 'color:var(--danger);border-color:var(--danger);';
+    deleteBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(244,67,54,0.15)'; });
+    deleteBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    deleteBtn.addEventListener('click', async function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      var type = activeTab.dataset.sourceType;
+      var name = activeTab.dataset.sourceName;
+      if (!confirm('Delete source "' + name + '"? All its streams will be removed.')) return;
+      try {
+        var r = await api.del('/api/sources/' + type + '/' + id);
+        if (r.ok || r.status === 204) {
+          toast('Source deleted');
+          activeTab.remove();
+          var remaining = picker.querySelectorAll('.stream-source-tab');
+          if (remaining.length > 0) {
+            remaining[0].click();
+          } else {
+            var container = document.getElementById('stream-list');
+            if (container) container.innerHTML = '<div class="empty-state">' + icons.empty + '<p>No sources configured.</p></div>';
+          }
+        } else {
+          toast('Failed to delete source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to delete source', 'error');
+      }
+    });
+
+    var scanBtn = document.createElement('button');
+    scanBtn.textContent = 'Scan';
+    scanBtn.title = 'Scan for channels';
+    scanBtn.style.cssText = btnStyle + 'color:#ffa726;border-color:#ffa726;';
+    scanBtn.style.display = 'none';
+    scanBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(255,167,38,0.15)'; });
+    scanBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    scanBtn.addEventListener('click', function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      var type = activeTab.dataset.sourceType;
+      if (type !== 'hdhr' && type !== 'satip') return;
+      api.post('/api/sources/' + type + '/' + id + '/scan').then(function(r) {
+        if (r.ok) {
+          toast('Scan started');
+        } else {
+          toast('Scan failed', 'error');
+        }
+      }).catch(function() {
+        toast('Scan failed', 'error');
+      });
+      var cacheKey = 'streams_' + type + '_' + id;
+      try { sessionStorage.removeItem(cacheKey); sessionStorage.removeItem(cacheKey + '_ts'); } catch (ex) {}
+      setTimeout(function() {
+        loadSourceStreams(type, id, type === 'tvpstreams');
+      }, 5000);
+    });
+
+    var retuneBtn = document.createElement('button');
+    retuneBtn.textContent = 'Retune';
+    retuneBtn.title = 'Retune HDHR device';
+    retuneBtn.style.cssText = btnStyle + 'color:#ce93d8;border-color:#ce93d8;';
+    retuneBtn.style.display = 'none';
+    retuneBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(206,147,216,0.15)'; });
+    retuneBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    retuneBtn.addEventListener('click', function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      if (!confirm('Retune this HDHR source?')) return;
+      api.post('/api/sources/hdhr/' + id + '/retune').then(function(r) {
+        if (r.ok) {
+          toast('Retune started');
+        } else {
+          toast('Retune failed', 'error');
+        }
+      }).catch(function() {
+        toast('Retune failed', 'error');
+      });
+    });
+
+    var clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Clear';
+    clearBtn.title = 'Clear all streams';
+    clearBtn.style.cssText = btnStyle + 'color:#ff9800;border-color:#ff9800;';
+    clearBtn.style.display = 'none';
+    clearBtn.addEventListener('mouseenter', function() { this.style.opacity = '1'; this.style.background = 'rgba(255,152,0,0.15)'; });
+    clearBtn.addEventListener('mouseleave', function() { this.style.opacity = '0.8'; this.style.background = 'var(--bg-input)'; });
+    clearBtn.addEventListener('click', function() {
+      var picker = document.getElementById('stream-source-picker');
+      if (!picker) return;
+      var activeTab = picker.querySelector('.stream-source-tab.active');
+      if (!activeTab) return;
+      var id = activeTab.dataset.sourceId;
+      var type = activeTab.dataset.sourceType;
+      if (type !== 'hdhr' && type !== 'satip') return;
+      if (!confirm('Clear all streams for this source?')) return;
+      api.post('/api/sources/' + type + '/' + id + '/clear').then(function(r) {
+        if (r.ok) {
+          toast('Streams cleared');
+          var cacheKey = 'streams_' + type + '_' + id;
+          try { sessionStorage.removeItem(cacheKey); sessionStorage.removeItem(cacheKey + '_ts'); } catch (ex) {}
+          setTimeout(function() { loadSourceStreams(type, id, false); }, 1000);
+        } else {
+          toast('Clear failed', 'error');
+        }
+      }).catch(function() {
+        toast('Clear failed', 'error');
+      });
+    });
+
+    var activeTab = document.querySelector('.stream-source-tab.active');
+    var sourceType = activeTab ? activeTab.dataset.sourceType : '';
+    if (sourceType === 'hdhr' || sourceType === 'satip') {
+      scanBtn.style.display = '';
+      clearBtn.style.display = '';
+    }
+    if (sourceType === 'hdhr') {
+      retuneBtn.style.display = '';
+    }
+
+    toolbar.appendChild(editBtn);
+    toolbar.appendChild(refreshBtn);
+    toolbar.appendChild(scanBtn);
+    toolbar.appendChild(retuneBtn);
+    toolbar.appendChild(clearBtn);
+    toolbar.appendChild(deleteBtn);
+    return toolbar;
   }
 
   async function loadSourceStreams(sourceType, sourceId, isTvpStreams) {
@@ -1201,6 +1473,8 @@
     var headerDiv = document.createElement('div');
     headerDiv.className = 'stream-groups-header';
     headerDiv.appendChild(summaryEl);
+    var toolbar = buildSourceActionToolbar();
+    headerDiv.appendChild(toolbar);
     var searchWrap = document.createElement('div');
     searchWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
     searchWrap.appendChild(searchInput);
@@ -1290,6 +1564,8 @@
     var headerDiv = document.createElement('div');
     headerDiv.className = 'stream-groups-header';
     headerDiv.appendChild(summaryEl);
+    var toolbar = buildSourceActionToolbar();
+    headerDiv.appendChild(toolbar);
     var searchWrap = document.createElement('div');
     searchWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
     searchWrap.appendChild(searchInput);
@@ -5173,6 +5449,37 @@
           }
         });
       });
+      if (window._autoOpenSourceForm) {
+        var autoFormId = window._autoOpenSourceForm;
+        window._autoOpenSourceForm = null;
+        var autoFormBtnMap = {
+          'add-m3u-form': 'add-m3u-btn',
+          'add-tvp-form': 'add-tvp-btn',
+          'add-xtream-form': 'add-xtream-btn',
+          'add-hdhr-form': 'add-hdhr-btn',
+          'add-satip-form': 'add-satip-btn',
+          'add-radiogarden-form': 'add-radiogarden-btn',
+          'add-spacex-form': 'add-spacex-btn',
+          'add-trailers-form': 'add-trailers-btn',
+          'add-demo-form': 'add-demo-btn'
+        };
+        var triggerBtnId = autoFormBtnMap[autoFormId];
+        if (triggerBtnId) {
+          var triggerBtn = document.getElementById(triggerBtnId);
+          if (triggerBtn) triggerBtn.click();
+        }
+      }
+      if (window._autoEditSource) {
+        var autoEdit = window._autoEditSource;
+        window._autoEditSource = null;
+        var editBtn = container.querySelector('.edit-source-btn[data-id="' + autoEdit.id + '"]');
+        if (editBtn) editBtn.click();
+      }
+      if (window._autoDiscoverHDHR) {
+        window._autoDiscoverHDHR = null;
+        var discoverBtn = document.getElementById('discover-hdhr-btn');
+        if (discoverBtn) discoverBtn.click();
+      }
     } catch (e) {
       document.getElementById('source-list').innerHTML = '<div class="empty-state">' + icons.empty + '<p>Failed to load sources</p></div>';
     }
