@@ -25,12 +25,13 @@ func tmdbBase() string {
 }
 
 type Config struct {
-	ID          string
-	Name        string
-	IsEnabled   bool
-	TMDBKey     string
-	StreamStore store.StreamStore
-	HTTPClient  *http.Client
+	ID            string
+	Name          string
+	IsEnabled     bool
+	TMDBKey       string
+	StreamStore   store.StreamStore
+	HTTPClient    *http.Client
+	OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -160,6 +161,9 @@ func (s *Source) Refresh(ctx context.Context) error {
 	log.Printf("trailers: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
 
 	s.SetRefreshResult(len(streams))
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, "", len(streams))
+	}
 	return nil
 }
 

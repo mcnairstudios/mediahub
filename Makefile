@@ -29,7 +29,8 @@ start: stop build
 	 MEDIAHUB_RECORD_DIR=$(RECORD_DIR) \
 	 MEDIAHUB_VOD_OUTPUT_DIR=$(RECORD_DIR) \
 	 MEDIAHUB_BASE_URL=$(BASE_URL) \
-	 nohup ./$(BINARY) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE)
+	 GOTRACEBACK=all \
+	 nohup ./$(BINARY) >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE)
 	@sleep 3
 	@curl -s -o /dev/null -w "http %{http_code}\n" http://localhost$(LISTEN_ADDR)/ 2>/dev/null || echo "not responding"
 	@echo "started (pid $$(cat $(PID_FILE)), log $(LOG_FILE))"

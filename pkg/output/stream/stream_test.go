@@ -62,7 +62,7 @@ func TestPushVideoWritesToFile(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		data := makeNALU(4096)
 		pts := int64(i) * 33_333_333
-		if err := p.PushVideo(data, pts, pts, i == 0); err != nil {
+		if err := p.PushVideo(data, pts, pts, 0, i == 0); err != nil {
 			t.Fatalf("PushVideo[%d]: %v", i, err)
 		}
 	}
@@ -86,11 +86,11 @@ func TestPushAudioWritesToFile(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		pts := int64(i) * 33_333_333
-		if err := p.PushVideo(makeNALU(4096), pts, pts, i == 0); err != nil {
+		if err := p.PushVideo(makeNALU(4096), pts, pts, 0, i == 0); err != nil {
 			t.Fatalf("PushVideo[%d]: %v", i, err)
 		}
 		audioPTS := int64(i) * 21_333_333
-		if err := p.PushAudio(make([]byte, 1024), audioPTS, audioPTS); err != nil {
+		if err := p.PushAudio(make([]byte, 1024), audioPTS, audioPTS, 0); err != nil {
 			t.Fatalf("PushAudio[%d]: %v", i, err)
 		}
 	}
@@ -111,7 +111,7 @@ func TestStopFinalizesFile(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		pts := int64(i) * 33_333_333
-		_ = p.PushVideo(makeNALU(4096), pts, pts, i == 0)
+		_ = p.PushVideo(makeNALU(4096), pts, pts, 0, i == 0)
 	}
 
 	filePath := p.FilePath()
@@ -139,7 +139,7 @@ func TestStatusReportsHealthyAndBytes(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		pts := int64(i) * 33_333_333
-		_ = p.PushVideo(makeNALU(4096), pts, pts, i == 0)
+		_ = p.PushVideo(makeNALU(4096), pts, pts, 0, i == 0)
 	}
 
 	p.Stop()
@@ -160,10 +160,10 @@ func TestPushAfterStopIsNoop(t *testing.T) {
 	p := mustNewPlugin(t, "mpegts")
 	p.Stop()
 
-	if err := p.PushVideo([]byte{0x00}, 0, 0, true); err != nil {
+	if err := p.PushVideo([]byte{0x00}, 0, 0, 0, true); err != nil {
 		t.Fatalf("PushVideo after stop should not error, got: %v", err)
 	}
-	if err := p.PushAudio([]byte{0x00}, 0, 0); err != nil {
+	if err := p.PushAudio([]byte{0x00}, 0, 0, 0); err != nil {
 		t.Fatalf("PushAudio after stop should not error, got: %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func TestPushAudioNoAudioStream(t *testing.T) {
 	}
 	defer p.Stop()
 
-	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0); err != nil {
 		t.Fatalf("PushAudio with no audio stream should return nil, got: %v", err)
 	}
 }
@@ -233,7 +233,7 @@ func TestPushVideoAfterStopReturnsNil(t *testing.T) {
 	p := mustNewPlugin(t, "mpegts")
 	p.Stop()
 
-	if err := p.PushVideo(makeNALU(128), 0, 0, true); err != nil {
+	if err := p.PushVideo(makeNALU(128), 0, 0, 0, true); err != nil {
 		t.Fatalf("PushVideo after stop should return nil, got: %v", err)
 	}
 }

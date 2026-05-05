@@ -56,13 +56,13 @@ func TestSeek_FanOut_AcceptsPacketsAfterSeek(t *testing.T) {
 	fo.Add(p1)
 	fo.Add(p2)
 
-	if err := fo.PushVideo([]byte{0x01}, 1000, 1000, true); err != nil {
+	if err := fo.PushVideo([]byte{0x01}, 1000, 1000, 0, true); err != nil {
 		t.Fatal(err)
 	}
 
 	fo.ResetForSeek()
 
-	if err := fo.PushVideo([]byte{0x02}, 50000, 50000, true); err != nil {
+	if err := fo.PushVideo([]byte{0x02}, 50000, 50000, 0, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,13 +80,13 @@ func TestSeek_FanOut_AudioAcceptedAfterSeek(t *testing.T) {
 	fo := NewFanOut()
 	fo.Add(p1)
 
-	if err := fo.PushAudio([]byte{0xFF}, 1000, 1000); err != nil {
+	if err := fo.PushAudio([]byte{0xFF}, 1000, 1000, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	fo.ResetForSeek()
 
-	if err := fo.PushAudio([]byte{0xFF}, 50000, 50000); err != nil {
+	if err := fo.PushAudio([]byte{0xFF}, 50000, 50000, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,7 +109,7 @@ func TestSeek_FanOut_ConcurrentSeekAndPush(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = fo.PushVideo([]byte{0x01}, int64(i*3600), int64(i*3600), i%10 == 0)
+			_ = fo.PushVideo([]byte{0x01}, int64(i*3600), int64(i*3600), 0, i%10 == 0)
 		}
 	}()
 
@@ -117,7 +117,7 @@ func TestSeek_FanOut_ConcurrentSeekAndPush(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = fo.PushAudio([]byte{0xFF}, int64(i*1024), int64(i*1024))
+			_ = fo.PushAudio([]byte{0xFF}, int64(i*1024), int64(i*1024), 0)
 		}
 	}()
 
@@ -164,11 +164,11 @@ func TestSeek_FanOut_BackwardsPTSAfterSeek(t *testing.T) {
 	fo := NewFanOut()
 	fo.Add(p1)
 
-	_ = fo.PushVideo([]byte{0x01}, 90000, 90000, true)
+	_ = fo.PushVideo([]byte{0x01}, 90000, 90000, 0, true)
 
 	fo.ResetForSeek()
 
-	_ = fo.PushVideo([]byte{0x01}, 45000, 45000, true)
+	_ = fo.PushVideo([]byte{0x01}, 45000, 45000, 0, true)
 
 	if p1.videoPackets != 2 {
 		t.Fatalf("expected 2 video packets, got %d", p1.videoPackets)
@@ -184,7 +184,7 @@ func TestSeek_FanOut_RapidSeekBurst(t *testing.T) {
 	fo.Add(p2)
 
 	for i := 0; i < 50; i++ {
-		_ = fo.PushVideo([]byte{0x01}, int64(i*90000), int64(i*90000), true)
+		_ = fo.PushVideo([]byte{0x01}, int64(i*90000), int64(i*90000), 0, true)
 		fo.ResetForSeek()
 	}
 

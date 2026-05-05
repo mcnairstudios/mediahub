@@ -40,6 +40,7 @@ func (s *Scaler) Scale(src *astiav.Frame) (*astiav.Frame, error) {
 		dst.Free()
 		return nil, err
 	}
+	dst.SetPts(src.Pts())
 	return dst, nil
 }
 

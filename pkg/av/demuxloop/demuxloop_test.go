@@ -45,7 +45,7 @@ type mockSink struct {
 	pushErr  error
 }
 
-func (s *mockSink) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (s *mockSink) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	if s.pushErr != nil {
 		return s.pushErr
 	}
@@ -55,7 +55,7 @@ func (s *mockSink) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (s *mockSink) PushAudio(data []byte, pts, dts int64) error {
+func (s *mockSink) PushAudio(data []byte, pts, dts, duration int64) error {
 	if s.pushErr != nil {
 		return s.pushErr
 	}

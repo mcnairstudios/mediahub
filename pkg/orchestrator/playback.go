@@ -70,6 +70,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		BitDepth:   stream.BitDepth,
 	}
 
+	bitrate := 0
 	out := strategy.Output{
 		VideoCodec: "copy",
 		AudioCodec: "aac",
@@ -88,6 +89,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 	if detectedClient != nil {
 		p := detectedClient.Profile
+		log.Printf("detected client: %s video=%s audio=%s delivery=%s hwaccel=%s", detectedClient.Name, p.VideoCodec, p.AudioCodec, p.Delivery, p.HWAccel)
 		if p.VideoCodec != "" {
 			out.VideoCodec = p.VideoCodec
 		}
@@ -102,6 +104,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		}
 		if p.OutputHeight > 0 {
 			out.OutputHeight = p.OutputHeight
+		}
+		if p.Bitrate > 0 {
+			bitrate = p.Bitrate
 		}
 	}
 
@@ -195,6 +200,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		MaxBitDepth:         out.MaxBitDepth,
 		EncoderName:         encoderName,
 		DecoderName:         decoderName,
+		Bitrate:             bitrate,
 		IsLive:              true,
 		CachedStreamInfo:    cachedProbe,
 	}
@@ -354,6 +360,7 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		return result, nil
 	}
 
+	bitrate := 0
 	out := strategy.Output{
 		VideoCodec: "copy",
 		AudioCodec: "aac",
@@ -379,6 +386,9 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 			}
 			if p.OutputHeight > 0 {
 				out.OutputHeight = p.OutputHeight
+			}
+			if p.Bitrate > 0 {
+				bitrate = p.Bitrate
 			}
 		}
 	}
@@ -425,6 +435,7 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		MaxBitDepth:         out.MaxBitDepth,
 		EncoderName:         encoderName,
 		DecoderName:         decoderName,
+		Bitrate:             bitrate,
 	}
 
 	runner := deps.PipelineRunner

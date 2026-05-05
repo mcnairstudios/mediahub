@@ -47,12 +47,20 @@ type Config struct {
 	Log              zerolog.Logger
 }
 
+type scalerConfig struct {
+	srcW, srcH int
+	outW, outH int
+	outPixFmt  astiav.PixelFormat
+}
+
 type Bridge struct {
 	downstream           av.PacketSink
 	videoDec             *decode.Decoder
 	videoEnc             *encode.Encoder
 	deint                *filter.Deinterlacer
 	scaler               *scale.Scaler
+	scalerCfg            *scalerConfig
+	videoFrameDurNanos   int64
 	audioDec             *decode.Decoder
 	audioResample        *resample.Resampler
 	audioEnc             *encode.Encoder
@@ -63,6 +71,7 @@ type Bridge struct {
 	audioLatched         bool
 	audioErrorCount      int
 	audioPacketCount     int
+	videoPacketCount     int
 	stopped              bool
 	videoEncoderExtradata []byte
 	extractedExtradata   bool
@@ -155,13 +164,13 @@ func New(cfg Config) (*Bridge, error) {
 			outPixFmt = astiav.PixelFormatNv12
 		}
 		if needsResolutionScale || needsBitDepthConversion || needsPixFmtConversion {
-			b.scaler, err = scale.NewScaler(
-				info.Video.Width, info.Video.Height, srcPixFmt,
-				outW, outH, outPixFmt,
-			)
-			if err != nil {
-				b.closeAll()
-				return nil, fmt.Errorf("bridge: scaler: %w", err)
+			// Defer scaler creation until first decoded frame so we can read
+			// the actual pixel format (e.g. p010le from VT decode of 10-bit HEVC)
+			// instead of guessing.
+			b.scalerCfg = &scalerConfig{
+				srcW: info.Video.Width, srcH: info.Video.Height,
+				outW: outW, outH: outH,
+				outPixFmt: outPixFmt,
 			}
 		}
 
@@ -171,6 +180,9 @@ func New(cfg Config) (*Bridge, error) {
 		}
 
 		videoFPS := resolveFramerate(info.Video.FramerateN, info.Video.FramerateD, info.Video.Interlaced, b.deint != nil, cfg.Framerate)
+		if videoFPS > 0 {
+			b.videoFrameDurNanos = 1_000_000_000 / int64(videoFPS)
+		}
 
 		preset := cfg.Preset
 		if preset == "" {
@@ -237,15 +249,6 @@ func New(cfg Config) (*Bridge, error) {
 			return nil, fmt.Errorf("bridge: audio decoder: %w", err)
 		}
 
-		b.audioResample, err = resample.NewResampler(
-			audioTrack.Channels, audioTrack.SampleRate, astiav.SampleFormatFltp,
-			2, 48000, astiav.SampleFormatFltp,
-		)
-		if err != nil {
-			b.closeAll()
-			return nil, fmt.Errorf("bridge: audio resampler: %w", err)
-		}
-
 		audioCodecName := cfg.OutputAudioCodec
 		if audioCodecName == "" {
 			audioCodecName = "aac"
@@ -257,6 +260,16 @@ func New(cfg Config) (*Bridge, error) {
 		if err != nil {
 			b.closeAll()
 			return nil, fmt.Errorf("bridge: audio encoder (%s): %w", audioCodecName, err)
+		}
+
+		outSampleFmt := b.audioEnc.SampleFormat()
+		b.audioResample, err = resample.NewResampler(
+			audioTrack.Channels, audioTrack.SampleRate, astiav.SampleFormatFltp,
+			2, 48000, outSampleFmt,
+		)
+		if err != nil {
+			b.closeAll()
+			return nil, fmt.Errorf("bridge: audio resampler: %w", err)
 		}
 
 		b.audioFifo = encode.NewAudioFIFOFromEncoder(b.audioEnc, 2, astiav.ChannelLayoutStereo, 48000)
@@ -298,14 +311,14 @@ func (b *Bridge) AudioEncoderCodecID() astiav.CodecID {
 	return b.audioEnc.CodecID()
 }
 
-func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (b *Bridge) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {
 		return nil
 	}
 	if b.videoDec == nil {
-		return b.downstream.PushVideo(data, pts, dts, keyframe)
+		return b.downstream.PushVideo(data, pts, dts, duration, keyframe)
 	}
 
 	pkt := &av.Packet{Type: av.Video, Data: data, PTS: pts, DTS: dts, Keyframe: keyframe}
@@ -316,11 +329,19 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 
 	frames, err := b.videoDec.Decode(avPkt)
 	avPkt.Free()
+	b.videoPacketCount++
 	if err != nil {
 		for _, f := range frames {
 			f.Free()
 		}
+		if b.videoPacketCount <= 50 {
+			b.log.Debug().Int("pkt", b.videoPacketCount).Msg("bridge: skipping initial video decode error")
+			return nil
+		}
 		return fmt.Errorf("bridge: video decode: %w", err)
+	}
+	if b.videoPacketCount <= 5 || b.videoPacketCount%500 == 0 {
+		b.log.Info().Int("pkt", b.videoPacketCount).Int("decoded_frames", len(frames)).Msg("bridge: video decode")
 	}
 
 	for i, frame := range frames {
@@ -335,11 +356,30 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 				return fmt.Errorf("bridge: deinterlace: %w", err)
 			}
 			if frame == nil {
+				if b.videoPacketCount <= 5 {
+					b.log.Info().Int("pkt", b.videoPacketCount).Msg("bridge: yadif EAGAIN (buffering)")
+				}
 				continue
 			}
 			decFrame = frame
 		}
-		if b.scaler != nil {
+		if b.scaler != nil || b.scalerCfg != nil {
+			if b.scaler == nil {
+				sc := b.scalerCfg
+				b.scaler, err = scale.NewScaler(
+					sc.srcW, sc.srcH, frame.PixelFormat(),
+					sc.outW, sc.outH, sc.outPixFmt,
+				)
+				if err != nil {
+					decFrame.Free()
+					for _, f := range frames[i+1:] {
+						f.Free()
+					}
+					return fmt.Errorf("bridge: scaler init: %w", err)
+				}
+				b.scalerCfg = nil
+				b.log.Info().Str("src_pixfmt", frame.PixelFormat().String()).Int("src_w", sc.srcW).Int("src_h", sc.srcH).Int("dst_w", sc.outW).Int("dst_h", sc.outH).Msg("bridge: scaler created from first frame")
+			}
 			frame, err = b.scaler.Scale(frame)
 			decFrame.Free()
 			if err != nil {
@@ -350,6 +390,9 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			}
 		}
 		encPkts, err := b.videoEnc.Encode(frame)
+		if b.videoPacketCount <= 5 || b.videoPacketCount%500 == 0 {
+			b.log.Info().Int("pkt", b.videoPacketCount).Int("enc_pkts", len(encPkts)).Msg("bridge: video encode")
+		}
 		frame.Free()
 		if err != nil {
 			for _, f := range frames[i+1:] {
@@ -360,8 +403,12 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 		for _, encPkt := range encPkts {
 			encData := make([]byte, encPkt.Size())
 			copy(encData, encPkt.Data())
-			encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
-			encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
+			encPTS := b.tsToNanosSafe(encPkt.Pts(), b.videoTB)
+			encDTS := b.tsToNanosSafe(encPkt.Dts(), b.videoTB)
+			encDur := b.avTSToNanos(encPkt.Duration(), b.videoTB)
+			if encDur <= 0 && b.videoFrameDurNanos > 0 {
+				encDur = b.videoFrameDurNanos
+			}
 			isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
 
 			if !b.extractedExtradata && b.videoEnc != nil {
@@ -369,7 +416,7 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 			}
 			encPkt.Free()
 
-			if err := b.downstream.PushVideo(encData, encPTS, encDTS, isKey); err != nil {
+			if err := b.downstream.PushVideo(encData, encPTS, encDTS, encDur, isKey); err != nil {
 				for _, f := range frames[i+1:] {
 					f.Free()
 				}
@@ -380,7 +427,7 @@ func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
+func (b *Bridge) PushAudio(data []byte, pts, dts, duration int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped || b.audioLatched {
@@ -437,10 +484,11 @@ func (b *Bridge) PushAudio(data []byte, pts, dts int64) error {
 		for _, encPkt := range encPkts {
 			encData := make([]byte, encPkt.Size())
 			copy(encData, encPkt.Data())
-			encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
-			encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
+			encPTS := b.tsToNanosSafe(encPkt.Pts(), b.audioTB)
+			encDTS := b.tsToNanosSafe(encPkt.Dts(), b.audioTB)
+			encDur := b.avTSToNanos(encPkt.Duration(), b.audioTB)
 			encPkt.Free()
-			if err := b.downstream.PushAudio(encData, encPTS, encDTS); err != nil {
+			if err := b.downstream.PushAudio(encData, encPTS, encDTS, encDur); err != nil {
 				b.latchAudioError(err)
 				return nil
 			}
@@ -473,11 +521,15 @@ func (b *Bridge) EndOfStream() {
 			for _, encPkt := range pkts {
 				encData := make([]byte, encPkt.Size())
 				copy(encData, encPkt.Data())
-				encPTS := b.avTSToNanos(encPkt.Pts(), b.videoTB)
-				encDTS := b.avTSToNanos(encPkt.Dts(), b.videoTB)
+				encPTS := b.tsToNanosSafe(encPkt.Pts(), b.videoTB)
+				encDTS := b.tsToNanosSafe(encPkt.Dts(), b.videoTB)
+				encDur := b.avTSToNanos(encPkt.Duration(), b.videoTB)
+				if encDur <= 0 && b.videoFrameDurNanos > 0 {
+					encDur = b.videoFrameDurNanos
+				}
 				isKey := encPkt.Flags().Has(astiav.PacketFlagKey)
 				encPkt.Free()
-				b.downstream.PushVideo(encData, encPTS, encDTS, isKey) //nolint:errcheck
+				b.downstream.PushVideo(encData, encPTS, encDTS, encDur, isKey) //nolint:errcheck
 			}
 		}
 	}
@@ -519,10 +571,11 @@ func (b *Bridge) pushAudioPackets(pkts []*astiav.Packet) {
 	for _, encPkt := range pkts {
 		encData := make([]byte, encPkt.Size())
 		copy(encData, encPkt.Data())
-		encPTS := b.avTSToNanos(encPkt.Pts(), b.audioTB)
-		encDTS := b.avTSToNanos(encPkt.Dts(), b.audioTB)
+		encPTS := b.tsToNanosSafe(encPkt.Pts(), b.audioTB)
+		encDTS := b.tsToNanosSafe(encPkt.Dts(), b.audioTB)
+		encDur := b.avTSToNanos(encPkt.Duration(), b.audioTB)
 		encPkt.Free()
-		b.downstream.PushAudio(encData, encPTS, encDTS) //nolint:errcheck
+		b.downstream.PushAudio(encData, encPTS, encDTS, encDur) //nolint:errcheck
 	}
 }
 
@@ -674,6 +727,15 @@ func safeRescale(v int64, num, den int64) int64 {
 
 func (b *Bridge) avTSToNanos(ts int64, tb astiav.Rational) int64 {
 	return safeRescale(ts, 1_000_000_000*int64(tb.Num()), int64(tb.Den()))
+}
+
+// tsToNanosSafe converts a timestamp to nanoseconds, preserving NoPtsValue
+// as av.NoPtsNanos so the downstream muxer can detect "unset" PTS.
+func (b *Bridge) tsToNanosSafe(ts int64, tb astiav.Rational) int64 {
+	if ts == astiav.NoPtsValue {
+		return av.NoPtsNanos
+	}
+	return b.avTSToNanos(ts, tb)
 }
 
 func resolveFramerate(framerateN, framerateD int, interlaced, hasDeinterlacer bool, explicit int) int {

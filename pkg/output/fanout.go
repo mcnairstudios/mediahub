@@ -30,7 +30,7 @@ func NewFanOut(plugins ...OutputPlugin) *FanOut {
 
 // PushVideo sends a video packet to all plugins. Returns the first error
 // encountered, but always delivers to every plugin regardless of errors.
-func (f *FanOut) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (f *FanOut) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
@@ -40,7 +40,7 @@ func (f *FanOut) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 
 	var deliveryErr error
 	for _, p := range f.plugins {
-		if err := safePushVideo(p, data, pts, dts, keyframe); err != nil {
+		if err := safePushVideo(p, data, pts, dts, duration, keyframe); err != nil {
 			if p.Mode() == DeliveryRecord {
 				log.Warn().Err(err).Msg("fanout: record plugin error (non-fatal)")
 			} else if deliveryErr == nil {
@@ -51,7 +51,7 @@ func (f *FanOut) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return deliveryErr
 }
 
-func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
+func (f *FanOut) PushAudio(data []byte, pts, dts, duration int64) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
@@ -61,7 +61,7 @@ func (f *FanOut) PushAudio(data []byte, pts, dts int64) error {
 
 	var deliveryErr error
 	for _, p := range f.plugins {
-		if err := safePushAudio(p, data, pts, dts); err != nil {
+		if err := safePushAudio(p, data, pts, dts, duration); err != nil {
 			if p.Mode() == DeliveryRecord {
 				log.Warn().Err(err).Msg("fanout: record plugin error (non-fatal)")
 			} else if deliveryErr == nil {
@@ -186,24 +186,24 @@ func (f *FanOut) Status() []PluginStatus {
 	return statuses
 }
 
-func safePushVideo(p OutputPlugin, data []byte, pts, dts int64, keyframe bool) (err error) {
+func safePushVideo(p OutputPlugin, data []byte, pts, dts, duration int64, keyframe bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("fanout: panic in %s PushVideo: %v", p.Mode(), r)
 			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in PushVideo")
 		}
 	}()
-	return p.PushVideo(data, pts, dts, keyframe)
+	return p.PushVideo(data, pts, dts, duration, keyframe)
 }
 
-func safePushAudio(p OutputPlugin, data []byte, pts, dts int64) (err error) {
+func safePushAudio(p OutputPlugin, data []byte, pts, dts, duration int64) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("fanout: panic in %s PushAudio: %v", p.Mode(), r)
 			log.Error().Str("plugin", string(p.Mode())).Interface("panic", r).Msg("recovered panic in PushAudio")
 		}
 	}()
-	return p.PushAudio(data, pts, dts)
+	return p.PushAudio(data, pts, dts, duration)
 }
 
 func safePushSubtitle(p OutputPlugin, data []byte, pts int64, duration int64) (err error) {

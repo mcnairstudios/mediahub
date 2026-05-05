@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/media"
@@ -20,15 +21,28 @@ func apiBase() string {
 	if apiBaseOverride != "" {
 		return apiBaseOverride
 	}
-	return "https://api.spacexdata.com/v4"
+	return "https://ll.thespacedevs.com/2.2.0"
 }
 
+// maxPastPages limits how many pages of past launches we fetch (50 per page = 500 launches).
+const maxPastPages = 10
+
+// maxUpcomingPages limits upcoming launch pages (50 per page = 250 launches).
+const maxUpcomingPages = 5
+
+// pageSize is the number of results per API request.
+const pageSize = 50
+
+// paginationDelay is the pause between paginated API requests to respect rate limits.
+const paginationDelay = 100 * time.Millisecond
+
 type Config struct {
-	ID          string
-	Name        string
-	IsEnabled   bool
-	StreamStore store.StreamStore
-	HTTPClient  *http.Client
+	ID            string
+	Name          string
+	IsEnabled     bool
+	StreamStore   store.StreamStore
+	HTTPClient    *http.Client
+	OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -46,40 +60,159 @@ func New(cfg Config) *Source {
 	}
 }
 
-type launch struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	DateUTC string `json:"date_utc"`
-	Success *bool  `json:"success"`
-	Details string `json:"details"`
-	Links   struct {
-		Patch struct {
-			Small string `json:"small"`
-			Large string `json:"large"`
-		} `json:"patch"`
-		Webcast   string `json:"webcast"`
-		YouTubeID string `json:"youtube_id"`
-	} `json:"links"`
+// Launch Library 2 API response types.
+
+type ll2Response struct {
+	Count   int         `json:"count"`
+	Next    *string     `json:"next"`
+	Results []ll2Launch `json:"results"`
+}
+
+type ll2Launch struct {
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	Net    string    `json:"net"`
+	Status any `json:"status"`
+	Image  string    `json:"image"`
+
+	// List mode fields (flat strings).
+	LSPName     string `json:"lsp_name"`
+	Mission     any    `json:"mission"`
+	MissionType string `json:"mission_type"`
+	Location    string `json:"location"`
+
+	// Detailed mode fields.
+	LaunchServiceProvider *ll2LSP      `json:"launch_service_provider"`
+	VidURLs               []ll2VidURL  `json:"vidURLs"`
+	Pad                   any          `json:"pad"`
+}
+
+type ll2Status struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Abbrev string `json:"abbrev"`
+}
+
+type ll2LSP struct {
+	Name string `json:"name"`
+}
+
+type ll2VidURL struct {
+	Priority int    `json:"priority"`
+	URL      string `json:"url"`
+	Title    string `json:"title"`
+}
+
+type ll2Mission struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+}
+
+type ll2Pad struct {
+	Name     string       `json:"name"`
+	Location *ll2Location `json:"location"`
+}
+
+type ll2Location struct {
+	Name string `json:"name"`
+}
+
+// statusAbbrev returns the status abbreviation from either list or detailed mode.
+func (l *ll2Launch) statusAbbrev() string {
+	switch s := l.Status.(type) {
+	case map[string]any:
+		if abbrev, ok := s["abbrev"].(string); ok {
+			return abbrev
+		}
+	case string:
+		return s
+	}
+	return ""
+}
+
+// providerName returns the launch service provider name from either list or detailed mode.
+func (l *ll2Launch) providerName() string {
+	if l.LSPName != "" {
+		return l.LSPName
+	}
+	if l.LaunchServiceProvider != nil {
+		return l.LaunchServiceProvider.Name
+	}
+	return "Unknown"
+}
+
+// missionDescription returns the mission description if available.
+func (l *ll2Launch) missionDescription() string {
+	if l.Mission == nil {
+		return ""
+	}
+	switch m := l.Mission.(type) {
+	case map[string]any:
+		if desc, ok := m["description"].(string); ok {
+			return desc
+		}
+	case string:
+		// list mode returns mission as a string (the mission name)
+		return ""
+	}
+	return ""
+}
+
+// locationName returns the launch location from either list or detailed mode.
+func (l *ll2Launch) locationName() string {
+	if l.Location != "" {
+		return l.Location
+	}
+	if m, ok := l.Pad.(map[string]any); ok {
+		if loc, ok := m["location"].(map[string]any); ok {
+			if name, ok := loc["name"].(string); ok {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// bestVideoURL returns the highest-priority video URL (lowest priority number = highest priority).
+func (l *ll2Launch) bestVideoURL() string {
+	if len(l.VidURLs) == 0 {
+		return ""
+	}
+	best := l.VidURLs[0]
+	for _, v := range l.VidURLs[1:] {
+		if v.Priority < best.Priority {
+			best = v
+		}
+	}
+	return best.URL
 }
 
 func (s *Source) Refresh(ctx context.Context) error {
-	log.Printf("spacex: refreshing source %s", s.cfg.Name)
+	log.Printf("spacex: refreshing from Launch Library 2")
 
-	launches, err := s.fetchLaunches(ctx)
+	// Fetch past launches (detailed mode for video URLs).
+	past, err := s.fetchPages(ctx, apiBase()+fmt.Sprintf("/launch/previous/?mode=detailed&limit=%d", pageSize), maxPastPages)
 	if err != nil {
 		s.SetError(err.Error())
-		return fmt.Errorf("fetching launches: %w", err)
+		return fmt.Errorf("fetching past launches: %w", err)
 	}
 
-	seen := make(map[string]struct{}, len(launches))
+	// Fetch upcoming launches (list mode is sufficient — rarely have videos yet).
+	upcoming, err := s.fetchPages(ctx, apiBase()+fmt.Sprintf("/launch/upcoming/?mode=list&limit=%d", pageSize), maxUpcomingPages)
+	if err != nil {
+		s.SetError(err.Error())
+		return fmt.Errorf("fetching upcoming launches: %w", err)
+	}
+
+	all := append(past, upcoming...)
+	log.Printf("spacex: fetched %d past + %d upcoming = %d total launches", len(past), len(upcoming), len(all))
+
+	seen := make(map[string]struct{}, len(all))
 	var streams []media.Stream
 	var keepIDs []string
 
-	for _, l := range launches {
-		if l.Links.YouTubeID == "" {
-			continue
-		}
-
+	for _, l := range all {
 		id := deterministicStreamID(s.cfg.ID, l.ID)
 		if _, dup := seen[id]; dup {
 			continue
@@ -87,34 +220,50 @@ func (s *Source) Refresh(ctx context.Context) error {
 		seen[id] = struct{}{}
 		keepIDs = append(keepIDs, id)
 
-		webcastURL := "https://www.youtube.com/watch?v=" + l.Links.YouTubeID
-
-		poster := l.Links.Patch.Large
-		if poster == "" {
-			poster = l.Links.Patch.Small
-		}
+		videoURL := l.bestVideoURL()
 
 		year := ""
-		if len(l.DateUTC) >= 4 {
-			year = l.DateUTC[:4]
+		displayName := l.Name
+		if l.Net != "" {
+			if t, err := time.Parse(time.RFC3339Nano, l.Net); err == nil {
+				year = t.Format("2006")
+				displayName = l.Name + " (" + t.Format("Jan 2, 2006") + ")"
+			} else if t, err := time.Parse("2006-01-02T15:04:05Z", l.Net); err == nil {
+				year = t.Format("2006")
+				displayName = l.Name + " (" + t.Format("Jan 2, 2006") + ")"
+			} else if len(l.Net) >= 4 {
+				year = l.Net[:4]
+			}
 		}
 
+		// Build tags from launch status.
+		var tags []string
+		statusLower := strings.ToLower(l.statusAbbrev())
+		if statusLower != "" {
+			tags = append(tags, statusLower)
+		}
+
+		// Use provider name as group for UI tabs.
+		group := l.providerName()
+
 		st := media.Stream{
-			ID:         id,
-			SourceType: string(source.TypeSpaceX),
-			SourceID:   s.cfg.ID,
-			Name:       l.Name,
-			URL:        webcastURL,
-			Group:      "SpaceX Launches",
-			TvgLogo:    poster,
-			VODType:    "movie",
-			Year:       year,
-			IsActive:   true,
+			ID:          id,
+			SourceType:  string(source.TypeSpaceX),
+			SourceID:    s.cfg.ID,
+			Name:        displayName,
+			URL:         videoURL,
+			Group:       group,
+			TvgLogo:     l.Image,
+			VODType:     "movie",
+			Year:        year,
+			EpisodeName: l.missionDescription(),
+			Tags:        tags,
+			IsActive:    true,
 		}
 		streams = append(streams, st)
 	}
 
-	log.Printf("spacex: found %d launches with webcasts for %s", len(streams), s.cfg.Name)
+	log.Printf("spacex: built %d streams", len(streams))
 
 	if len(streams) == 0 {
 		s.SetRefreshResult(0)
@@ -131,9 +280,12 @@ func (s *Source) Refresh(ctx context.Context) error {
 		s.SetError(err.Error())
 		return fmt.Errorf("deleting stale streams: %w", err)
 	}
-	log.Printf("spacex: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
+	log.Printf("spacex: upserted %d, deleted %d stale", len(streams), len(deleted))
 
 	s.SetRefreshResult(len(streams))
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, "", len(streams))
+	}
 	return nil
 }
 
@@ -153,8 +305,44 @@ func (s *Source) DeleteStreams(ctx context.Context) error {
 	return s.cfg.StreamStore.DeleteBySource(ctx, string(source.TypeSpaceX), s.cfg.ID)
 }
 
-func (s *Source) fetchLaunches(ctx context.Context) ([]launch, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase()+"/launches", nil)
+// fetchPages paginates through the Launch Library 2 API starting at startURL.
+// It fetches at most maxPages pages, sleeping briefly between requests.
+func (s *Source) fetchPages(ctx context.Context, startURL string, maxPages int) ([]ll2Launch, error) {
+	var all []ll2Launch
+	url := startURL
+
+	for page := 0; page < maxPages && url != ""; page++ {
+		if page > 0 {
+			time.Sleep(paginationDelay)
+		}
+
+		resp, err := s.fetchPage(ctx, url)
+		if err != nil {
+			return all, err
+		}
+		all = append(all, resp.Results...)
+
+		if resp.Next != nil {
+			nextURL := *resp.Next
+			// In tests the next URL from the API might be absolute with the real
+			// host, but we need to use the test server. When apiBaseOverride is set,
+			// rewrite the next URL to use it.
+			if apiBaseOverride != "" && !strings.HasPrefix(nextURL, apiBaseOverride) {
+				// Extract the path+query from the next URL.
+				if idx := strings.Index(nextURL, "/launch/"); idx >= 0 {
+					nextURL = apiBaseOverride + nextURL[idx:]
+				}
+			}
+			url = nextURL
+		} else {
+			url = ""
+		}
+	}
+	return all, nil
+}
+
+func (s *Source) fetchPage(ctx context.Context, url string) (*ll2Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -166,14 +354,14 @@ func (s *Source) fetchLaunches(ctx context.Context) ([]launch, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("SpaceX API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("Launch Library 2 API returned %d", resp.StatusCode)
 	}
 
-	var launches []launch
-	if err := json.NewDecoder(resp.Body).Decode(&launches); err != nil {
-		return nil, fmt.Errorf("decoding launches: %w", err)
+	var result ll2Response
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
 	}
-	return launches, nil
+	return &result, nil
 }
 
 func deterministicStreamID(sourceID, launchID string) string {

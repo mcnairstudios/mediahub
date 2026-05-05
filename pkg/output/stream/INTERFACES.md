@@ -23,12 +23,12 @@ func (p *Plugin) FileSize() int64    // current file size (for progress)
 
 ## Packet Flow
 ```
-PushVideo(data, pts, dts, keyframe)
+PushVideo(data, pts, dts, duration, keyframe)
   → conv.ToAVPacket(packet, videoTimeBase)
   → streamMuxer.WritePacket(avPkt)
   → bytes appended to output file
 
-PushAudio(data, pts, dts)
+PushAudio(data, pts, dts, duration)
   → conv.ToAVPacket(packet, audioTimeBase)
   → streamMuxer.WritePacket(avPkt)
 ```

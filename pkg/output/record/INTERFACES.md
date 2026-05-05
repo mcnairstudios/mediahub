@@ -29,12 +29,12 @@ func (p *Plugin) IsPreserved() bool
 
 ## Packet Flow
 ```
-PushVideo(data, pts, dts, keyframe)
+PushVideo(data, pts, dts, duration, keyframe)
   → conv.ToAVPacket(packet, videoTimeBase)
   → streamMuxer.WritePacket(avPkt)
   → bytes appended to recording mp4
 
-PushAudio(data, pts, dts)
+PushAudio(data, pts, dts, duration)
   → conv.ToAVPacket(packet, audioTimeBase)
   → streamMuxer.WritePacket(avPkt)
 ```

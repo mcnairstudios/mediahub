@@ -196,11 +196,7 @@ func main() {
 	cacheReg := cache.NewRegistry()
 	cacheReg.Register(tmdbCache)
 
-	var detectorClients []client.Client
-	if storedClients, err := clientStore.List(ctx); err == nil {
-		detectorClients = storedClients
-	}
-	detector := client.NewDetector(detectorClients)
+	detector := client.NewDetectorWithStore(clientStore)
 
 	sessionTmpDir := filepath.Join(os.TempDir(), "mediahub-sessions")
 	os.MkdirAll(sessionTmpDir, 0755)
@@ -504,85 +500,76 @@ func main() {
 	}()
 
 	enqueueTMDBStreams := func() {
-		streams, err := streamStore.List(ctx)
-		if err != nil {
-			log.Printf("tmdb enqueue: list streams: %v", err)
+		// Reconcile the pending index on first run to catch any streams
+		// that were added before the index existed.
+		if count, err := streamStore.TMDBPendingCount(ctx); err == nil && count == 0 {
+			added, err := streamStore.TMDBPendingReconcile(ctx)
+			if err != nil {
+				log.Printf("tmdb: reconcile pending index: %v", err)
+			} else if added > 0 {
+				log.Printf("tmdb: reconciled %d pending streams into index", added)
+			}
+		}
+
+		total, _ := streamStore.TMDBPendingCount(ctx)
+		if total == 0 {
 			return
 		}
-		enqueued := 0
-		var toResolve []tmdb.StreamToResolve
-		for _, st := range streams {
-			if st.VODType == "" {
-				continue
-			}
-			mediaType := "movie"
-			if st.VODType == "series" || st.VODType == "episode" {
-				mediaType = "series"
+		log.Printf("tmdb resolver: %d streams pending TMDB resolution", total)
+
+		// Process in batches of 100 — never load all streams at once.
+		for {
+			batch, err := streamStore.TMDBPendingBatch(ctx, 100)
+			if err != nil || len(batch) == 0 {
+				break
 			}
 
-			if st.TMDBID != "" {
-				tmdbID := 0
-				fmt.Sscanf(st.TMDBID, "%d", &tmdbID)
-				if tmdbID <= 0 {
-					continue
-				}
-				lookupName := st.SeriesName
-				if lookupName == "" {
-					lookupName = st.Name
-				}
-				if lookupName != "" {
-					tmdbStore.SetName(lookupName, tmdbID, mediaType)
-				}
-				if has, _ := tmdbStore.HasBlobTyped(mediaType, tmdbID); has {
-					continue
-				}
-				if err := tmdbStore.EnqueueMetadata(tmdb.QueueEntry{
-					TMDBID:    tmdbID,
-					MediaType: mediaType,
-					Status:    "resolving",
-					CreatedAt: time.Now().Unix(),
-				}); err == nil {
-					enqueued++
-				}
-			} else {
-				lookupName := st.SeriesName
-				if lookupName == "" {
-					lookupName = st.Name
-				}
+			var toResolve []tmdb.StreamToResolve
+			for _, p := range batch {
 				toResolve = append(toResolve, tmdb.StreamToResolve{
-					StreamID:  st.ID,
-					Name:      lookupName,
-					Year:      st.Year,
-					MediaType: mediaType,
+					StreamID:  p.StreamID,
+					Name:      p.Name,
+					Year:      p.Year,
+					MediaType: p.MediaType,
 				})
 			}
-		}
-		if enqueued > 0 {
-			log.Printf("tmdb enqueue: queued %d items for metadata resolution", enqueued)
-		}
 
-		if len(toResolve) > 0 {
-			log.Printf("tmdb resolver: resolving %d streams without TMDB IDs", len(toResolve))
 			resolved := metadataWorker.ResolveStreams(ctx, toResolve)
 			if len(resolved) > 0 {
-				streamMap := make(map[string]*media.Stream)
-				for i := range streams {
-					streamMap[streams[i].ID] = &streams[i]
-				}
 				var updated []media.Stream
 				for _, r := range resolved {
-					if st, ok := streamMap[r.StreamID]; ok {
-						st.TMDBID = strconv.Itoa(r.TMDBID)
-						updated = append(updated, *st)
+					st, err := streamStore.Get(ctx, r.StreamID)
+					if err != nil || st == nil {
+						streamStore.TMDBPendingRemove(ctx, r.StreamID)
+						continue
 					}
+					st.TMDBID = strconv.Itoa(r.TMDBID)
+					updated = append(updated, *st)
 				}
 				if len(updated) > 0 {
 					if err := streamStore.BulkUpsert(ctx, updated); err != nil {
 						log.Printf("tmdb resolver: update streams: %v", err)
-					} else {
-						log.Printf("tmdb resolver: updated %d streams with TMDB IDs", len(updated))
 					}
 				}
+			}
+
+			// Remove resolved and failed entries from the pending index
+			for _, p := range batch {
+				found := false
+				for _, r := range resolved {
+					if r.StreamID == p.StreamID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					// Unresolvable — remove from pending to avoid infinite retries
+					streamStore.TMDBPendingRemove(ctx, p.StreamID)
+				}
+			}
+
+			if ctx.Err() != nil {
+				break
 			}
 		}
 	}

@@ -55,10 +55,10 @@ func TestPushVideoAudio(t *testing.T) {
 	p, err := New(cfg)
 	require.NoError(t, err)
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, 0, true)
 	assert.NoError(t, err)
 
-	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0)
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0, 0)
 	assert.NoError(t, err)
 
 	p.Stop()
@@ -85,7 +85,7 @@ func TestStopFinalizesMp4(t *testing.T) {
 	p, err := New(cfg)
 	require.NoError(t, err)
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, 0, true)
 	require.NoError(t, err)
 
 	p.Stop()
@@ -104,7 +104,7 @@ func TestResetForSeekIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, 0, true)
 	require.NoError(t, err)
 
 	beforeStatus := p.Status()
@@ -187,7 +187,7 @@ func TestPushVideoNilAudio(t *testing.T) {
 	p, err := New(cfg)
 	require.NoError(t, err)
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, 0, true)
 	assert.NoError(t, err)
 
 	p.Stop()
@@ -210,7 +210,7 @@ func TestPushAudioNoAudioStream(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0)
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0, 0)
 	assert.NoError(t, err)
 }
 
@@ -221,7 +221,7 @@ func TestPushVideoAfterStop(t *testing.T) {
 
 	p.Stop()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true)
 	assert.NoError(t, err)
 }
 
@@ -232,6 +232,6 @@ func TestPushAudioAfterStop(t *testing.T) {
 
 	p.Stop()
 
-	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0)
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0, 0)
 	assert.NoError(t, err)
 }

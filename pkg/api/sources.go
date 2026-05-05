@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
@@ -966,6 +969,195 @@ func (s *Server) handleDeleteSpaceXSource(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCreateRadioGardenSource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Places    []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"places"`
+		PlaceID   string `json:"place_id"`
+		PlaceName string `json:"place_name"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+	if req.Name == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "name required")
+		return
+	}
+
+	// Fall back to single place_id/place_name if places array is empty
+	if len(req.Places) == 0 && req.PlaceID != "" {
+		req.Places = append(req.Places, struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{ID: req.PlaceID, Name: req.PlaceName})
+	}
+
+	if len(req.Places) == 0 {
+		httputil.RespondError(w, http.StatusBadRequest, "at least one place required")
+		return
+	}
+
+	placesJSON, _ := json.Marshal(req.Places)
+
+	sc := &sourceconfig.SourceConfig{
+		ID:        uuid.New().String(),
+		Type:      string(source.TypeRadioGarden),
+		Name:      req.Name,
+		IsEnabled: true,
+		Config: map[string]string{
+			"places": string(placesJSON),
+		},
+	}
+
+	if err := s.deps.SourceConfigStore.Create(r.Context(), sc); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to create source")
+		return
+	}
+
+	go func() {
+		ctx := r.Context()
+		src, err := s.deps.SourceReg.Create(ctx, source.TypeRadioGarden, sc.ID)
+		if err != nil {
+			return
+		}
+		src.Refresh(ctx)
+	}()
+
+	httputil.RespondJSON(w, http.StatusCreated, sc)
+}
+
+func (s *Server) handleUpdateRadioGardenSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	existing, err := s.deps.SourceConfigStore.Get(r.Context(), id)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to get source")
+		return
+	}
+	if existing == nil {
+		httputil.RespondError(w, http.StatusNotFound, errSourceNotFound)
+		return
+	}
+
+	var req struct {
+		Name      *string `json:"name"`
+		IsEnabled *bool   `json:"is_enabled"`
+		Places    []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"places"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.IsEnabled != nil {
+		existing.IsEnabled = *req.IsEnabled
+	}
+	if req.Places != nil {
+		placesJSON, _ := json.Marshal(req.Places)
+		existing.Config["places"] = string(placesJSON)
+		// Clean up old single-place keys
+		delete(existing.Config, "place_id")
+		delete(existing.Config, "place_name")
+	}
+
+	if err := s.deps.SourceConfigStore.Update(r.Context(), existing); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update source")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleDeleteRadioGardenSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	if err := s.deps.StreamStore.DeleteBySource(r.Context(), string(source.TypeRadioGarden), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source streams")
+		return
+	}
+
+	if err := s.deps.SourceConfigStore.Delete(r.Context(), id); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRadioGardenPlaces(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "missing q parameter")
+		return
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://radio.garden/api/ara/content/places", nil)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to build request")
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, "failed to fetch places")
+		return
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Data struct {
+			List []struct {
+				ID      string `json:"id"`
+				Title   string `json:"title"`
+				Country string `json:"country"`
+				Size    int    `json:"size"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		httputil.RespondError(w, http.StatusBadGateway, "failed to decode places")
+		return
+	}
+
+	query := strings.ToLower(q)
+	var matches []map[string]any
+	for _, p := range data.Data.List {
+		if strings.Contains(strings.ToLower(p.Title), query) || strings.Contains(strings.ToLower(p.Country), query) {
+			matches = append(matches, map[string]any{
+				"id":      p.ID,
+				"title":   p.Title,
+				"country": p.Country,
+				"size":    p.Size,
+			})
+			if len(matches) >= 20 {
+				break
+			}
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, matches)
 }
 
 func boolStr(b bool) string {

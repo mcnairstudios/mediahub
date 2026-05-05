@@ -47,12 +47,12 @@ func TestSeek_VOD_AcceptsPacketsAfterReset(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 1000, 1000, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 1000, 1000, 0, true)
 	require.NoError(t, err)
 
 	p.ResetForSeek()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 50000, 50000, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 50000, 50000, 0, true)
 	require.NoError(t, err)
 
 	assert.True(t, p.Status().Healthy)
@@ -66,7 +66,7 @@ func TestSeek_VOD_AcceptsDifferentPTSAfterReset(t *testing.T) {
 
 	for i := int64(0); i < 5; i++ {
 		pts := i * 3600
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i == 0)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i == 0)
 		require.NoError(t, err)
 	}
 
@@ -75,7 +75,7 @@ func TestSeek_VOD_AcceptsDifferentPTSAfterReset(t *testing.T) {
 	seekPTS := int64(90000 * 30)
 	for i := int64(0); i < 5; i++ {
 		pts := seekPTS + i*3600
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i == 0)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i == 0)
 		require.NoError(t, err)
 	}
 
@@ -120,12 +120,12 @@ func TestSeek_Live_BackwardsPTSAccepted(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 90000, 90000, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 90000, 90000, 0, true)
 	require.NoError(t, err)
 
 	p.ResetForSeek()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 45000, 45000, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 45000, 45000, 0, true)
 	require.NoError(t, err)
 
 	assert.True(t, p.Status().Healthy)
@@ -139,7 +139,7 @@ func TestSeek_Live_NoCrashOnPTSGoingBackwards(t *testing.T) {
 
 	for i := int64(0); i < 10; i++ {
 		pts := i * 3600
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i%5 == 0)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i%5 == 0)
 		require.NoError(t, err)
 	}
 
@@ -147,7 +147,7 @@ func TestSeek_Live_NoCrashOnPTSGoingBackwards(t *testing.T) {
 
 	for i := int64(0); i < 10; i++ {
 		pts := i * 3600
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i%5 == 0)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i%5 == 0)
 		require.NoError(t, err)
 	}
 
@@ -162,13 +162,13 @@ func TestSeek_ToPositionZero(t *testing.T) {
 
 	for i := int64(0); i < 5; i++ {
 		pts := i * 3600
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, true)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, true)
 		require.NoError(t, err)
 	}
 
 	p.ResetForSeek()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true)
 	require.NoError(t, err)
 
 	assert.True(t, p.Status().Healthy)
@@ -181,13 +181,13 @@ func TestSeek_NearEndOfVOD(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true)
 	require.NoError(t, err)
 
 	p.ResetForSeek()
 
 	nearEnd := int64(90000 * 7200)
-	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, nearEnd, nearEnd, true)
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, nearEnd, nearEnd, 0, true)
 	require.NoError(t, err)
 
 	p.EndOfStream()
@@ -201,7 +201,7 @@ func TestSeek_MultipleRapidSeeks(t *testing.T) {
 	defer p.Stop()
 
 	for seek := 0; seek < 20; seek++ {
-		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(seek*90000), int64(seek*90000), true)
+		err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(seek*90000), int64(seek*90000), 0, true)
 		require.NoError(t, err)
 		p.ResetForSeek()
 	}
@@ -222,7 +222,7 @@ func TestSeek_ConcurrentSeekAndPush(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(i*3600), int64(i*3600), i%10 == 0)
+			_ = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(i*3600), int64(i*3600), 0, i%10 == 0)
 		}
 	}()
 
@@ -277,12 +277,12 @@ func TestSeek_AudioAcceptedAfterReset(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Stop()
 
-	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 1000, 1000)
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 1000, 1000, 0)
 	require.NoError(t, err)
 
 	p.ResetForSeek()
 
-	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 50000, 50000)
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 50000, 50000, 0)
 	require.NoError(t, err)
 
 	assert.True(t, p.Status().Healthy)

@@ -24,6 +24,10 @@ type Plugin struct {
 	audioStream   *astiav.Stream
 	videoTB       astiav.Rational
 	audioTB       astiav.Rational
+	lastVideoDTS  int64
+	videoDTSInit  bool
+	lastAudioDTS  int64
+	audioDTSInit  bool
 	headerWritten bool
 	bytesWritten  atomic.Int64
 	preserved     atomic.Bool
@@ -35,8 +39,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	if cfg.OutputFilePath == "" {
 		return nil, errors.New("record: OutputFilePath is required")
 	}
-	if cfg.Video == nil && cfg.VideoCodecParams == nil {
-		return nil, errors.New("record: Video info or VideoCodecParams is required")
+	hasVideo := cfg.Video != nil || cfg.VideoCodecParams != nil
+	if !hasVideo && cfg.Audio == nil && cfg.AudioCodecParams == nil {
+		return nil, errors.New("record: Video or Audio info is required")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.OutputFilePath), 0755); err != nil {
@@ -60,48 +65,51 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	fc.SetPb(ioCtx)
 
-	var videoCP *astiav.CodecParameters
-	var freeVideoCP bool
-	if cfg.VideoCodecParams != nil {
-		videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
-	} else {
-		var err error
-		videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
-		if err != nil {
+	p := &Plugin{
+		filePath: cfg.OutputFilePath,
+		fc:       fc,
+		ioCtx:    ioCtx,
+	}
+
+	if hasVideo {
+		var videoCP *astiav.CodecParameters
+		var freeVideoCP bool
+		if cfg.VideoCodecParams != nil {
+			videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
+		} else {
+			var err error
+			videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
+			if err != nil {
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: video codec params: %w", err)
+			}
+			freeVideoCP = true
+		}
+
+		vs := fc.NewStream(nil)
+		if vs == nil {
+			if freeVideoCP {
+				videoCP.Free()
+			}
 			ioCtx.Close()
 			fc.Free()
-			return nil, fmt.Errorf("record: video codec params: %w", err)
+			return nil, errors.New("record: failed to allocate video stream")
 		}
-		freeVideoCP = true
-	}
-
-	vs := fc.NewStream(nil)
-	if vs == nil {
+		if err := videoCP.Copy(vs.CodecParameters()); err != nil {
+			if freeVideoCP {
+				videoCP.Free()
+			}
+			ioCtx.Close()
+			fc.Free()
+			return nil, fmt.Errorf("record: copy video params: %w", err)
+		}
 		if freeVideoCP {
 			videoCP.Free()
 		}
-		ioCtx.Close()
-		fc.Free()
-		return nil, errors.New("record: failed to allocate video stream")
-	}
-	if err := videoCP.Copy(vs.CodecParameters()); err != nil {
-		if freeVideoCP {
-			videoCP.Free()
-		}
-		ioCtx.Close()
-		fc.Free()
-		return nil, fmt.Errorf("record: copy video params: %w", err)
-	}
-	if freeVideoCP {
-		videoCP.Free()
-	}
-	vs.SetTimeBase(astiav.NewRational(1, 90000))
-
-	p := &Plugin{
-		filePath:    cfg.OutputFilePath,
-		fc:          fc,
-		ioCtx:       ioCtx,
-		videoStream: vs,
+		vs.CodecParameters().SetCodecTag(0)
+		vs.SetTimeBase(astiav.NewRational(1, 90000))
+		p.videoStream = vs
 	}
 
 	if cfg.Audio != nil || cfg.AudioCodecParams != nil {
@@ -140,6 +148,7 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		if freeAudioCP {
 			audioCP.Free()
 		}
+		as.CodecParameters().SetCodecTag(0)
 		if as.CodecParameters().CodecID() == astiav.CodecIDAac {
 			as.CodecParameters().SetFrameSize(1024)
 		}
@@ -164,7 +173,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		return nil, fmt.Errorf("record: write header: %w", err)
 	}
 
-	p.videoTB = vs.TimeBase()
+	if p.videoStream != nil {
+		p.videoTB = p.videoStream.TimeBase()
+	}
 	if p.audioStream != nil {
 		p.audioTB = p.audioStream.TimeBase()
 	}
@@ -177,7 +188,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryRecord
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr error) {
+func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: record PushVideo: %v\n%s", r, debug.Stack())
@@ -195,6 +206,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 		Data:     data,
 		PTS:      pts,
 		DTS:      dts,
+		Duration: duration,
 		Keyframe: keyframe,
 	}, p.videoTB)
 	if err != nil {
@@ -203,6 +215,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 	defer pkt.Free()
 
 	pkt.SetStreamIndex(p.videoStream.Index())
+	p.ensureMonotonicDTS(pkt, &p.lastVideoDTS, &p.videoDTSInit)
 	if err := p.fc.WriteInterleavedFrame(pkt); err != nil {
 		return fmt.Errorf("record: write video: %w", err)
 	}
@@ -210,7 +223,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) (retErr e
 	return nil
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
+func (p *Plugin) PushAudio(data []byte, pts, dts, duration int64) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC: record PushAudio: %v\n%s", r, debug.Stack())
@@ -225,9 +238,10 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 	}
 
 	pkt, err := conv.ToAVPacket(&av.Packet{
-		Data: data,
-		PTS:  pts,
-		DTS:  dts,
+		Data:     data,
+		PTS:      pts,
+		DTS:      dts,
+		Duration: duration,
 	}, p.audioTB)
 	if err != nil {
 		return err
@@ -235,6 +249,7 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) (retErr error) {
 	defer pkt.Free()
 
 	pkt.SetStreamIndex(p.audioStream.Index())
+	p.ensureMonotonicDTS(pkt, &p.lastAudioDTS, &p.audioDTSInit)
 	if err := p.fc.WriteInterleavedFrame(pkt); err != nil {
 		return fmt.Errorf("record: write audio: %w", err)
 	}
@@ -299,6 +314,21 @@ func (p *Plugin) SetPreserved(v bool) {
 
 func (p *Plugin) IsPreserved() bool {
 	return p.preserved.Load()
+}
+
+func (p *Plugin) ensureMonotonicDTS(pkt *astiav.Packet, lastDTS *int64, inited *bool) {
+	dts := pkt.Dts()
+	pts := pkt.Pts()
+	if *inited && dts <= *lastDTS {
+		dts = *lastDTS + 1
+		if pts < dts {
+			pts = dts
+		}
+		pkt.SetDts(dts)
+		pkt.SetPts(pts)
+	}
+	*lastDTS = dts
+	*inited = true
 }
 
 func (p *Plugin) updateBytesWritten() {

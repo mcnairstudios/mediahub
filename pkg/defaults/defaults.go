@@ -20,6 +20,7 @@ type ProfileDef struct {
 	Container    string `json:"container"`
 	HWAccel      string `json:"hwaccel,omitempty"`
 	OutputHeight int    `json:"output_height,omitempty"`
+	Bitrate      int    `json:"bitrate,omitempty"`
 }
 
 type ClientDef struct {

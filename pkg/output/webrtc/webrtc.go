@@ -84,6 +84,8 @@ func New(cfg output.PluginConfig) (output.OutputPlugin, error) {
 	}
 	p.generation.Store(1)
 
+	log.Info().Str("video_codec", codec).Float64("fps", fps).Msg("webrtc plugin created")
+
 	return p, nil
 }
 
@@ -91,7 +93,7 @@ func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryWebRTC
 }
 
-func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error {
 	if p.stopped.Load() {
 		return nil
 	}
@@ -107,10 +109,13 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 		p.ptsBaseVideo = pts
 		p.ptsBaseAudio = pts
 		p.ptsBaseSet = true
+		p.log.Info().Int("data_len", len(data)).Bool("keyframe", keyframe).Msg("webrtc: first video to track")
 	}
 	p.lastVideoPTS = pts
 
-	rtpTS := ptsToRTP(pts-p.ptsBaseVideo, videoClockRate)
+	relativePTS := pts - p.ptsBaseVideo
+	rtpTS := nanosToRTP(relativePTS, videoClockRate)
+
 
 	nalus := splitNALUs(data)
 	for i, nalu := range nalus {
@@ -140,7 +145,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
 	return nil
 }
 
-func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
+func (p *Plugin) PushAudio(data []byte, pts, dts, _ int64) error {
 	if p.stopped.Load() {
 		return nil
 	}
@@ -159,7 +164,7 @@ func (p *Plugin) PushAudio(data []byte, pts, dts int64) error {
 	}
 	p.lastAudioPTS = pts
 
-	rtpTS := ptsToRTP(pts-p.ptsBaseAudio, audioClockRate)
+	rtpTS := nanosToRTP(pts-p.ptsBaseAudio, audioClockRate)
 
 	pkt := &rtp.Packet{
 		Header: rtp.Header{
@@ -303,7 +308,7 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 
 	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
 		webrtc.RTPCodecCapability{MimeType: p.videoMimeType(), ClockRate: videoClockRate},
-		"video", "mediahub-video",
+		"video", "mediahub",
 	)
 	if err != nil {
 		pc.Close()
@@ -319,7 +324,7 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: audioClockRate, Channels: 2},
-		"audio", "mediahub-audio",
+		"audio", "mediahub",
 	)
 	if err != nil {
 		pc.Close()
@@ -424,6 +429,13 @@ func ptsToRTP(pts int64, clockRate uint32) uint32 {
 		pts = 0
 	}
 	return uint32((pts * int64(clockRate)) / 90000)
+}
+
+func nanosToRTP(nanos int64, clockRate uint32) uint32 {
+	if nanos < 0 {
+		nanos = 0
+	}
+	return uint32((nanos / 1000) * int64(clockRate) / 1_000_000)
 }
 
 func splitNALUs(data []byte) [][]byte {

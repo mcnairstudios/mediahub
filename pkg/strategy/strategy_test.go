@@ -273,11 +273,11 @@ func TestResolve_UnknownCodec_ExplicitTranscode(t *testing.T) {
 		Input{VideoCodec: "", AudioCodec: "", Width: 0, Height: 0},
 		Output{VideoCodec: "h264", AudioCodec: "aac", Container: "mp4"},
 	)
-	if d.NeedsTranscode {
-		t.Error("expected copy when input codec unknown even with explicit output codec")
+	if !d.NeedsTranscode {
+		t.Error("explicit output codec must transcode even when input unknown")
 	}
-	if d.VideoCodec != media.VideoCopy {
-		t.Errorf("expected video copy, got %s", d.VideoCodec)
+	if d.VideoCodec != media.VideoH264 {
+		t.Errorf("expected h264, got %s", d.VideoCodec)
 	}
 }
 

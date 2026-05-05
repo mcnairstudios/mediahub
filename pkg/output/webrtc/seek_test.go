@@ -90,12 +90,12 @@ func TestSeek_VOD_AcceptsVideoAfterReset(t *testing.T) {
 	require.NoError(t, err)
 	plugin := p.(*Plugin)
 
-	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 1000, 1000, true)
+	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 1000, 1000, 0, true)
 	require.NoError(t, err)
 
 	plugin.ResetForSeek()
 
-	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 50000, 50000, true)
+	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 50000, 50000, 0, true)
 	require.NoError(t, err)
 }
 
@@ -104,12 +104,12 @@ func TestSeek_VOD_AcceptsAudioAfterReset(t *testing.T) {
 	require.NoError(t, err)
 	plugin := p.(*Plugin)
 
-	err = plugin.PushAudio([]byte{0xFF, 0xF1}, 1000, 1000)
+	err = plugin.PushAudio([]byte{0xFF, 0xF1}, 1000, 1000, 0)
 	require.NoError(t, err)
 
 	plugin.ResetForSeek()
 
-	err = plugin.PushAudio([]byte{0xFF, 0xF1}, 50000, 50000)
+	err = plugin.PushAudio([]byte{0xFF, 0xF1}, 50000, 50000, 0)
 	require.NoError(t, err)
 }
 
@@ -138,12 +138,12 @@ func TestSeek_Live_BackwardsPTSAccepted(t *testing.T) {
 	require.NoError(t, err)
 	plugin := p.(*Plugin)
 
-	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 90000, 90000, true)
+	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 90000, 90000, 0, true)
 	require.NoError(t, err)
 
 	plugin.ResetForSeek()
 
-	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 45000, 45000, true)
+	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 45000, 45000, 0, true)
 	require.NoError(t, err)
 }
 
@@ -154,7 +154,7 @@ func TestSeek_Live_NoCrashOnPTSGoingBackwards(t *testing.T) {
 
 	for i := int64(0); i < 10; i++ {
 		pts := i * 3600
-		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i%5 == 0)
+		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i%5 == 0)
 		require.NoError(t, err)
 	}
 
@@ -162,7 +162,7 @@ func TestSeek_Live_NoCrashOnPTSGoingBackwards(t *testing.T) {
 
 	for i := int64(0); i < 10; i++ {
 		pts := i * 3600
-		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, i%5 == 0)
+		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, i%5 == 0)
 		require.NoError(t, err)
 	}
 }
@@ -174,13 +174,13 @@ func TestSeek_ToPositionZero(t *testing.T) {
 
 	for i := int64(0); i < 5; i++ {
 		pts := i * 3600
-		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, true)
+		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, pts, pts, 0, true)
 		require.NoError(t, err)
 	}
 
 	plugin.ResetForSeek()
 
-	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true)
+	err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true)
 	require.NoError(t, err)
 }
 
@@ -190,7 +190,7 @@ func TestSeek_MultipleRapidSeeks(t *testing.T) {
 	plugin := p.(*Plugin)
 
 	for seek := 0; seek < 20; seek++ {
-		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(seek*90000), int64(seek*90000), true)
+		err = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(seek*90000), int64(seek*90000), 0, true)
 		require.NoError(t, err)
 		plugin.ResetForSeek()
 	}
@@ -209,7 +209,7 @@ func TestSeek_ConcurrentSeekAndPush(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(i*3600), int64(i*3600), i%10 == 0)
+			_ = plugin.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, int64(i*3600), int64(i*3600), 0, i%10 == 0)
 		}
 	}()
 
@@ -296,12 +296,12 @@ func TestSeek_H265_AcceptsPacketsAfterReset(t *testing.T) {
 
 	assert.Equal(t, "hevc", plugin.videoCodec)
 
-	err = plugin.PushVideo([]byte{0x40, 0x01, 0xAA, 0xBB}, 1000, 1000, true)
+	err = plugin.PushVideo([]byte{0x40, 0x01, 0xAA, 0xBB}, 1000, 1000, 0, true)
 	require.NoError(t, err)
 
 	plugin.ResetForSeek()
 
-	err = plugin.PushVideo([]byte{0x40, 0x01, 0xCC, 0xDD}, 50000, 50000, true)
+	err = plugin.PushVideo([]byte{0x40, 0x01, 0xCC, 0xDD}, 50000, 50000, 0, true)
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(2), plugin.Generation())

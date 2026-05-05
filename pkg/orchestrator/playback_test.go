@@ -33,8 +33,8 @@ type mockPlugin struct {
 }
 
 func (m *mockPlugin) Mode() output.DeliveryMode                                 { return m.mode }
-func (m *mockPlugin) PushVideo([]byte, int64, int64, bool) error                { return nil }
-func (m *mockPlugin) PushAudio([]byte, int64, int64) error                      { return nil }
+func (m *mockPlugin) PushVideo([]byte, int64, int64, int64, bool) error         { return nil }
+func (m *mockPlugin) PushAudio([]byte, int64, int64, int64) error               { return nil }
 func (m *mockPlugin) PushSubtitle([]byte, int64, int64) error                   { return nil }
 func (m *mockPlugin) EndOfStream()                                              {}
 func (m *mockPlugin) ResetForSeek()                                             {}

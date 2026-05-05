@@ -28,10 +28,11 @@ var demoStreams = []demoStream{
 }
 
 type Config struct {
-	ID          string
-	Name        string
-	IsEnabled   bool
-	StreamStore store.StreamStore
+	ID            string
+	Name          string
+	IsEnabled     bool
+	StreamStore   store.StreamStore
+	OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 type Source struct {
@@ -81,6 +82,9 @@ func (s *Source) Refresh(ctx context.Context) error {
 	log.Printf("demo: upserted %d streams, deleted %d stale for %s", len(streams), len(deleted), s.cfg.Name)
 
 	s.SetRefreshResult(len(streams))
+	if s.cfg.OnRefreshDone != nil {
+		s.cfg.OnRefreshDone(s.cfg.ID, "", len(streams))
+	}
 	return nil
 }
 

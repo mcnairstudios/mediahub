@@ -32,6 +32,7 @@ func SeedDefaults(ctx context.Context, store Store, defs []defaults.ClientDef) e
 				Container:    d.Profile.Container,
 				HWAccel:      d.Profile.HWAccel,
 				OutputHeight: d.Profile.OutputHeight,
+				Bitrate:      d.Profile.Bitrate,
 			},
 		}
 		for _, r := range d.MatchRules {

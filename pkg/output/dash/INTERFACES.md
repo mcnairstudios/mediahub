@@ -4,8 +4,8 @@
 
 ### output.OutputPlugin
 - `Mode() DeliveryMode` — returns `DeliveryDASH`
-- `PushVideo(data []byte, pts, dts int64, keyframe bool) error`
-- `PushAudio(data []byte, pts, dts int64) error`
+- `PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error`
+- `PushAudio(data []byte, pts, dts, duration int64) error`
 - `PushSubtitle(data []byte, pts int64, duration int64) error`
 - `EndOfStream()`
 - `ResetForSeek()`

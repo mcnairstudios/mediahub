@@ -306,7 +306,11 @@ func NewAudioEncoder(opts AudioEncodeOpts) (*Encoder, error) {
 	}
 
 	cc.SetSampleRate(opts.SampleRate)
-	cc.SetSampleFormat(astiav.SampleFormatFltp)
+	sampleFmt := astiav.SampleFormatFltp
+	if fmts := codec.SupportedSampleFormats(); len(fmts) > 0 {
+		sampleFmt = fmts[0]
+	}
+	cc.SetSampleFormat(sampleFmt)
 
 	switch opts.Channels {
 	case 1:
@@ -405,6 +409,13 @@ func (e *Encoder) CodecID() astiav.CodecID {
 		return astiav.CodecIDNone
 	}
 	return e.codecCtx.CodecID()
+}
+
+func (e *Encoder) SampleFormat() astiav.SampleFormat {
+	if e.codecCtx == nil {
+		return astiav.SampleFormatFltp
+	}
+	return e.codecCtx.SampleFormat()
 }
 
 func (e *Encoder) TimeBase() astiav.Rational {

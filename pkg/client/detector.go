@@ -1,12 +1,14 @@
 package client
 
 import (
+	"context"
 	"regexp"
 	"sort"
 	"strings"
 )
 
 type Detector struct {
+	store   Store
 	clients []Client
 }
 
@@ -19,10 +21,20 @@ func NewDetector(clients []Client) *Detector {
 	return &Detector{clients: sorted}
 }
 
+func NewDetectorWithStore(store Store) *Detector {
+	return &Detector{store: store}
+}
+
 func (d *Detector) Detect(port int, headers map[string]string) *Client {
-	for i := range d.clients {
-		if Match(d.clients[i], port, headers) {
-			return &d.clients[i]
+	clients := d.clients
+	if d.store != nil {
+		if live, err := d.store.List(context.Background()); err == nil {
+			clients = live
+		}
+	}
+	for i := range clients {
+		if Match(clients[i], port, headers) {
+			return &clients[i]
 		}
 	}
 	return nil

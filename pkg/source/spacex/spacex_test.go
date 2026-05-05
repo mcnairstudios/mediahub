@@ -38,52 +38,73 @@ func (m *mockStreamStore) DeleteBySource(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func TestRefresh(t *testing.T) {
-	launches := []launch{
-		{
-			ID:   "launch1",
-			Name: "Crew-5",
-			DateUTC: "2022-10-05T16:00:00.000Z",
-			Links: struct {
-				Patch struct {
-					Small string `json:"small"`
-					Large string `json:"large"`
-				} `json:"patch"`
-				Webcast   string `json:"webcast"`
-				YouTubeID string `json:"youtube_id"`
-			}{
-				Patch: struct {
-					Small string `json:"small"`
-					Large string `json:"large"`
-				}{Small: "https://img.example.com/small.png", Large: "https://img.example.com/large.png"},
-				Webcast:   "https://youtu.be/abc123",
-				YouTubeID: "abc123",
+// samplePastResponse returns a Launch Library 2 previous launches response with vidURLs.
+func samplePastResponse() ll2Response {
+	return ll2Response{
+		Count: 2,
+		Next:  nil,
+		Results: []ll2Launch{
+			{
+				ID:   "uuid-crew5",
+				Name: "Falcon 9 Block 5 | Crew-5",
+				Net:  "2022-10-05T16:00:00Z",
+				Status: ll2Status{
+					ID: 3, Name: "Launch Successful", Abbrev: "Success",
+				},
+				Image: "https://img.example.com/crew5.jpg",
+				LaunchServiceProvider: &ll2LSP{Name: "SpaceX"},
+				Mission: map[string]any{
+					"name":        "Crew-5",
+					"description": "Fifth operational crew rotation mission.",
+				},
+				VidURLs: []ll2VidURL{
+					{Priority: 10, URL: "https://www.youtube.com/watch?v=abc123", Title: "Official Webcast"},
+					{Priority: 5, URL: "https://www.youtube.com/watch?v=best123", Title: "High Priority"},
+				},
 			},
-		},
-		{
-			ID:   "launch2",
-			Name: "No Webcast",
-		},
-		{
-			ID:   "launch3",
-			Name: "Starlink 4-35",
-			DateUTC: "2022-09-24T00:00:00.000Z",
-			Links: struct {
-				Patch struct {
-					Small string `json:"small"`
-					Large string `json:"large"`
-				} `json:"patch"`
-				Webcast   string `json:"webcast"`
-				YouTubeID string `json:"youtube_id"`
-			}{
-				Webcast:   "https://youtu.be/def456",
-				YouTubeID: "def456",
+			{
+				ID:      "uuid-nowebcast",
+				Name:    "Falcon 9 Block 5 | No Webcast",
+				Net:     "2022-09-20T00:00:00Z",
+				Status:  ll2Status{ID: 3, Abbrev: "Success"},
+				LSPName: "SpaceX",
 			},
 		},
 	}
+}
+
+// sampleUpcomingResponse returns a Launch Library 2 upcoming launches response.
+func sampleUpcomingResponse() ll2Response {
+	return ll2Response{
+		Count: 1,
+		Next:  nil,
+		Results: []ll2Launch{
+			{
+				ID:      "uuid-upcoming1",
+				Name:    "Electron | PREFIRE-2",
+				Net:     "2025-06-15T12:00:00Z",
+				Status:  ll2Status{ID: 1, Abbrev: "Go"},
+				Image:   "https://img.example.com/electron.jpg",
+				LSPName: "Rocket Lab",
+				Mission: "PREFIRE-2",
+			},
+		},
+	}
+}
+
+func TestRefresh(t *testing.T) {
+	past := samplePastResponse()
+	upcoming := sampleUpcomingResponse()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(launches)
+		switch {
+		case contains(r.URL.Path, "/launch/previous/"):
+			json.NewEncoder(w).Encode(past)
+		case contains(r.URL.Path, "/launch/upcoming/"):
+			json.NewEncoder(w).Encode(upcoming)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
@@ -92,8 +113,8 @@ func TestRefresh(t *testing.T) {
 
 	ss := &mockStreamStore{}
 	s := New(Config{
-		ID:          "test-spacex",
-		Name:        "SpaceX Launches",
+		ID:          "test-space",
+		Name:        "Space Launches",
 		IsEnabled:   true,
 		StreamStore: ss,
 		HTTPClient:  srv.Client(),
@@ -104,30 +125,66 @@ func TestRefresh(t *testing.T) {
 		t.Fatalf("Refresh failed: %v", err)
 	}
 
-	if len(ss.upserted) != 2 {
-		t.Fatalf("expected 2 upserted streams (skipped no-webcast), got %d", len(ss.upserted))
+	// 2 past + 1 upcoming = 3 streams (no-webcast launch still included, just with empty URL).
+	if len(ss.upserted) != 3 {
+		t.Fatalf("expected 3 upserted streams, got %d", len(ss.upserted))
 	}
 
-	st := ss.upserted[0]
-	if st.SourceType != "spacex" {
-		t.Errorf("expected source_type=spacex, got %s", st.SourceType)
+	// Find the Crew-5 stream.
+	var crew5 *media.Stream
+	for i := range ss.upserted {
+		if ss.upserted[i].Name == "Falcon 9 Block 5 | Crew-5 (Oct 5, 2022)" {
+			crew5 = &ss.upserted[i]
+			break
+		}
 	}
-	if st.Name != "Crew-5" {
-		t.Errorf("expected name=Crew-5, got %s", st.Name)
+	if crew5 == nil {
+		t.Fatal("could not find Crew-5 stream")
 	}
-	if st.URL != "https://www.youtube.com/watch?v=abc123" {
-		t.Errorf("unexpected URL: %s", st.URL)
+	if crew5.SourceType != "spacex" {
+		t.Errorf("expected source_type=spacex, got %s", crew5.SourceType)
 	}
-	if st.TvgLogo != "https://img.example.com/large.png" {
-		t.Errorf("expected large patch as logo, got %s", st.TvgLogo)
+	// Best video URL should be the one with lowest priority number (5).
+	if crew5.URL != "https://www.youtube.com/watch?v=best123" {
+		t.Errorf("expected best video URL (priority 5), got %s", crew5.URL)
 	}
-	if st.Year != "2022" {
-		t.Errorf("expected year=2022, got %s", st.Year)
+	if crew5.TvgLogo != "https://img.example.com/crew5.jpg" {
+		t.Errorf("expected launch image as logo, got %s", crew5.TvgLogo)
+	}
+	if crew5.Year != "2022" {
+		t.Errorf("expected year=2022, got %s", crew5.Year)
+	}
+	if crew5.Group != "SpaceX" {
+		t.Errorf("expected group=SpaceX, got %s", crew5.Group)
+	}
+	if crew5.EpisodeName != "Fifth operational crew rotation mission." {
+		t.Errorf("expected mission description as episode name, got %q", crew5.EpisodeName)
+	}
+	if crew5.VODType != "movie" {
+		t.Errorf("expected VODType=movie, got %s", crew5.VODType)
+	}
+
+	// Find the Rocket Lab upcoming stream.
+	var rl *media.Stream
+	for i := range ss.upserted {
+		if ss.upserted[i].Group == "Rocket Lab" {
+			rl = &ss.upserted[i]
+			break
+		}
+	}
+	if rl == nil {
+		t.Fatal("could not find Rocket Lab stream")
+	}
+	if rl.URL != "" {
+		t.Errorf("expected empty URL for upcoming launch without videos, got %s", rl.URL)
+	}
+	if rl.TvgLogo != "https://img.example.com/electron.jpg" {
+		t.Errorf("expected launch image, got %s", rl.TvgLogo)
 	}
 
 	info := s.Info(context.Background())
-	if info.StreamCount != 2 {
-		t.Errorf("expected StreamCount=2, got %d", info.StreamCount)
+	if info.StreamCount != 3 {
+		t.Errorf("expected StreamCount=3, got %d", info.StreamCount)
 	}
 }
 
@@ -161,4 +218,17 @@ func TestType(t *testing.T) {
 	if s.Type() != "spacex" {
 		t.Errorf("expected type=spacex, got %s", s.Type())
 	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }

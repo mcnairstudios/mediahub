@@ -27,12 +27,12 @@ PluginConfig fields used:
 
 ## Packet Flow
 ```
-PushVideo(data, pts, dts, keyframe)
+PushVideo(data, pts, dts, duration, keyframe)
   → conv.ToAVPacket(packet, videoTimeBase)
   → muxer.WriteVideoPacket(avPkt)  // RescaleTs + fixDuration inside muxer
   → seg{N}.ts written, playlist.m3u8 updated
 
-PushAudio(data, pts, dts)
+PushAudio(data, pts, dts, duration)
   → conv.ToAVPacket(packet, audioTimeBase)
   → muxer.WriteAudioPacket(avPkt)
 ```

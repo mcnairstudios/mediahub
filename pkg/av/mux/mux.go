@@ -444,6 +444,14 @@ func (t *trackMuxer) ensureMonotonicDTS(pkt *astiav.Packet) {
 		pkt.SetDts(dts)
 		pkt.SetPts(pts)
 	}
+	// Ensure PTS is set (ffmpeg warns "pts has no value" for NoPtsValue)
+	if pkt.Pts() == astiav.NoPtsValue {
+		pkt.SetPts(dts)
+	}
+	// Ensure duration is non-negative (rounding errors from nanos round-trip)
+	if pkt.Duration() < 0 {
+		pkt.SetDuration(1)
+	}
 	t.lastDTS = dts
 	t.dtsInited = true
 }

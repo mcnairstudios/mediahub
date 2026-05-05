@@ -16,6 +16,7 @@ import (
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
 	demosource "github.com/mcnairstudios/mediahub/pkg/source/demo"
+	radiogardensource "github.com/mcnairstudios/mediahub/pkg/source/radiogarden"
 	spacexsource "github.com/mcnairstudios/mediahub/pkg/source/spacex"
 	trailerssource "github.com/mcnairstudios/mediahub/pkg/source/trailers"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
@@ -206,11 +207,12 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		}
 		tmdbKey, _ := deps.SettingsStore.Get(ctx, "tmdb_api_key")
 		tCfg := trailerssource.Config{
-			ID:          sc.ID,
-			Name:        sc.Name,
-			IsEnabled:   sc.IsEnabled,
-			TMDBKey:     tmdbKey,
-			StreamStore: deps.StreamStore,
+			ID:            sc.ID,
+			Name:          sc.Name,
+			IsEnabled:     sc.IsEnabled,
+			TMDBKey:       tmdbKey,
+			StreamStore:   deps.StreamStore,
+			OnRefreshDone: deps.OnRefreshDone,
 		}
 		return trailerssource.New(tCfg), nil
 	})
@@ -224,12 +226,47 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 			return nil, errors.New("source config not found")
 		}
 		demoCfg := demosource.Config{
-			ID:          sc.ID,
-			Name:        sc.Name,
-			IsEnabled:   sc.IsEnabled,
-			StreamStore: deps.StreamStore,
+			ID:            sc.ID,
+			Name:          sc.Name,
+			IsEnabled:     sc.IsEnabled,
+			StreamStore:   deps.StreamStore,
+			OnRefreshDone: deps.OnRefreshDone,
 		}
 		return demosource.New(demoCfg), nil
+	})
+
+	reg.Register(source.TypeRadioGarden, func(ctx context.Context, sourceID string) (source.Source, error) {
+		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("get source config: %w", err)
+		}
+		if sc == nil {
+			return nil, errors.New("source config not found")
+		}
+		var places []radiogardensource.Place
+		if placesJSON := sc.Config["places"]; placesJSON != "" {
+			parsed, err := radiogardensource.ParsePlaces(placesJSON)
+			if err != nil {
+				log.Printf("radiogarden: failed to parse places for %s: %v", sc.Name, err)
+			} else {
+				places = parsed
+			}
+		}
+		// Backward compat: fall back to single place_id/place_name
+		if len(places) == 0 {
+			if pid := sc.Config["place_id"]; pid != "" {
+				places = []radiogardensource.Place{{ID: pid, Name: sc.Config["place_name"]}}
+			}
+		}
+		rgCfg := radiogardensource.Config{
+			ID:            sc.ID,
+			Name:          sc.Name,
+			IsEnabled:     sc.IsEnabled,
+			Places:        places,
+			StreamStore:   deps.StreamStore,
+			OnRefreshDone: deps.OnRefreshDone,
+		}
+		return radiogardensource.New(rgCfg), nil
 	})
 
 	reg.Register(source.TypeSpaceX, func(ctx context.Context, sourceID string) (source.Source, error) {
@@ -241,10 +278,11 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 			return nil, errors.New("source config not found")
 		}
 		sxCfg := spacexsource.Config{
-			ID:          sc.ID,
-			Name:        sc.Name,
-			IsEnabled:   sc.IsEnabled,
-			StreamStore: deps.StreamStore,
+			ID:            sc.ID,
+			Name:          sc.Name,
+			IsEnabled:     sc.IsEnabled,
+			StreamStore:   deps.StreamStore,
+			OnRefreshDone: deps.OnRefreshDone,
 		}
 		return spacexsource.New(sxCfg), nil
 	})

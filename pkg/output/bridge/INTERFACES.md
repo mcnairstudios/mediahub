@@ -31,8 +31,8 @@ func New(cfg Config) (*Bridge, error)
 
 ## Public Methods
 ```go
-func (b *Bridge) PushVideo(data []byte, pts, dts int64, keyframe bool) error
-func (b *Bridge) PushAudio(data []byte, pts, dts int64) error
+func (b *Bridge) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error
+func (b *Bridge) PushAudio(data []byte, pts, dts, duration int64) error
 func (b *Bridge) PushSubtitle(data []byte, pts int64, duration int64) error
 func (b *Bridge) EndOfStream()
 func (b *Bridge) ResetForSeek()

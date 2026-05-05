@@ -91,7 +91,9 @@ func (s *Session) Stop() {
 }
 
 func (s *Session) waitFinished() {
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(30 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		s.mu.Lock()
 		done := s.finished
@@ -102,10 +104,7 @@ func (s *Session) waitFinished() {
 		select {
 		case <-deadline:
 			return
-		case <-s.ctx.Done():
-			time.Sleep(100 * time.Millisecond)
-			return
-		case <-time.After(50 * time.Millisecond):
+		case <-ticker.C:
 		}
 	}
 }

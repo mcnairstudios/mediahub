@@ -26,6 +26,7 @@ type Profile struct {
 	Container    string `json:"container"`
 	HWAccel      string `json:"hwaccel"`
 	OutputHeight int    `json:"output_height,omitempty"`
+	Bitrate      int    `json:"bitrate,omitempty"`
 }
 
 type Store interface {

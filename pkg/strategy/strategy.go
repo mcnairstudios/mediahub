@@ -58,11 +58,7 @@ func Resolve(in Input, out Output) Decision {
 	}
 
 	if !isDefaultOrCopy {
-		if inputUnknown {
-			needsTranscode = false
-		} else if outVideo != srcVideo {
-			needsTranscode = true
-		}
+		needsTranscode = true
 	}
 
 	if inputUnknown && isDefaultOrCopy {

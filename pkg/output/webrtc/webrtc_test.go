@@ -92,7 +92,7 @@ func TestPushVideoNoTrack(t *testing.T) {
 	p, err := New(output.PluginConfig{})
 	require.NoError(t, err)
 
-	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65, 0xFF}, 0, 0, true)
+	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65, 0xFF}, 0, 0, 0, true)
 	assert.NoError(t, err)
 }
 
@@ -100,7 +100,7 @@ func TestPushAudioNoTrack(t *testing.T) {
 	p, err := New(output.PluginConfig{})
 	require.NoError(t, err)
 
-	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0)
+	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0)
 	assert.NoError(t, err)
 }
 
@@ -109,7 +109,7 @@ func TestPushVideoAfterStop(t *testing.T) {
 	require.NoError(t, err)
 
 	p.Stop()
-	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65}, 0, 0, true)
+	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65}, 0, 0, 0, true)
 	assert.NoError(t, err)
 }
 
@@ -118,7 +118,7 @@ func TestPushAudioAfterStop(t *testing.T) {
 	require.NoError(t, err)
 
 	p.Stop()
-	err = p.PushAudio([]byte{0xFF}, 0, 0)
+	err = p.PushAudio([]byte{0xFF}, 0, 0, 0)
 	assert.NoError(t, err)
 }
 

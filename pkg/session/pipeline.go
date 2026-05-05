@@ -16,6 +16,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/av/subtitle"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output/bridge"
+	ytresolve "github.com/mcnairstudios/mediahub/pkg/youtube"
 	"github.com/rs/zerolog"
 )
 
@@ -88,6 +89,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	}
 
 	log.Info().Str("url", cfg.StreamURL).Msg("pipeline: opening stream")
+
+	if ytresolve.IsYouTubeURL(cfg.StreamURL) {
+		resolved, ytErr := ytresolve.ResolveStreamURL(sess.Context(), cfg.StreamURL)
+		if ytErr != nil {
+			return nil, fmt.Errorf("pipeline: resolve YouTube URL %q: %w", cfg.StreamURL, ytErr)
+		}
+		log.Info().Str("original", cfg.StreamURL).Msg("pipeline: resolved YouTube URL")
+		cfg.StreamURL = resolved
+	}
 
 	if err := os.MkdirAll(sess.OutputDir, 0755); err != nil {
 		return nil, fmt.Errorf("pipeline: create output dir: %w", err)
@@ -206,12 +216,16 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	var sink av.PacketSink = sess.FanOut
 	var videoExtradata, audioExtradata []byte
 
+	if info.Video == nil && cfg.NeedsTranscode {
+		cfg.NeedsTranscode = false
+		log.Info().Msg("audio-only stream: disabling video transcode")
+	}
+
 	if cfg.NeedsTranscode || cfg.NeedsAudioTranscode {
-		if info.Video == nil && cfg.NeedsTranscode {
-			d.Close()
-			return nil, fmt.Errorf("pipeline: video transcode requested but no video stream found in %q — the stream appears to be audio-only", cfg.StreamURL)
-		}
 		audioOnly := !cfg.NeedsTranscode && cfg.NeedsAudioTranscode
+		if info.Video == nil {
+			audioOnly = true
+		}
 		b, err := bridge.New(bridge.Config{
 			Downstream:       sess.FanOut,
 			Info:             info,
@@ -360,6 +374,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 }
 
 func (m *Manager) openDemuxAndSink(sess *Session, cfg PipelineConfig, log zerolog.Logger, audioIdx int, info *media.ProbeResult) (*demux.Demuxer, av.PacketSink, error) {
+	if ytresolve.IsYouTubeURL(cfg.StreamURL) {
+		resolved, ytErr := ytresolve.ResolveStreamURL(sess.Context(), cfg.StreamURL)
+		if ytErr != nil {
+			return nil, nil, fmt.Errorf("resolve YouTube URL %q: %w", cfg.StreamURL, ytErr)
+		}
+		log.Info().Str("original", cfg.StreamURL).Msg("pipeline: re-resolved YouTube URL for retry")
+		cfg.StreamURL = resolved
+	}
+
 	opts := demux.DefaultDemuxOpts()
 	opts.UserAgent = cfg.UserAgent
 	opts.IsLive = cfg.IsLive
@@ -430,6 +453,15 @@ func (m *Manager) RunSubprocessPipelineMethod(sess *Session, cfg PipelineConfig)
 
 	if cfg.StreamURL == "" {
 		return nil, fmt.Errorf("subprocess pipeline: stream URL is empty")
+	}
+
+	if ytresolve.IsYouTubeURL(cfg.StreamURL) {
+		resolved, ytErr := ytresolve.ResolveStreamURL(sess.Context(), cfg.StreamURL)
+		if ytErr != nil {
+			return nil, fmt.Errorf("subprocess pipeline: resolve YouTube URL %q: %w", cfg.StreamURL, ytErr)
+		}
+		log.Info().Str("original", cfg.StreamURL).Msg("subprocess pipeline: resolved YouTube URL")
+		cfg.StreamURL = resolved
 	}
 
 	if err := os.MkdirAll(sess.OutputDir, 0755); err != nil {

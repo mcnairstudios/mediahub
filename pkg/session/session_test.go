@@ -123,7 +123,7 @@ func TestSessionStopDuringActivePush(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 100; i++ {
-			s.FanOut.PushVideo([]byte("frame"), int64(i)*1000, int64(i)*1000, i == 0)
+			s.FanOut.PushVideo([]byte("frame"), int64(i)*1000, int64(i)*1000, 0, i == 0)
 		}
 		close(done)
 	}()

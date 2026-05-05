@@ -34,7 +34,7 @@ func NewAudioFIFOFromEncoder(encoder *Encoder, channels int, layout astiav.Chann
 		encoder:   encoder,
 		frameSize: fs,
 		channels:  channels,
-		sampleFmt: astiav.SampleFormatFltp,
+		sampleFmt: encoder.SampleFormat(),
 		layout:    layout,
 		rate:      rate,
 	}

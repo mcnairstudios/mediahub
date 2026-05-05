@@ -64,16 +64,16 @@ func TestResolve_MPEG2Source(t *testing.T) {
 	}
 }
 
-func TestResolve_SameCodecStillCopy(t *testing.T) {
+func TestResolve_SameCodecStillTranscodes(t *testing.T) {
 	d := Resolve(
 		Input{VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080},
 		Output{VideoCodec: "h264", AudioCodec: "aac", Container: "mp4"},
 	)
-	if d.NeedsTranscode {
-		t.Error("expected copy when source and output codec match")
+	if !d.NeedsTranscode {
+		t.Error("explicit codec must transcode even when source matches")
 	}
-	if d.VideoCodec != media.VideoCopy {
-		t.Errorf("expected copy, got %s", d.VideoCodec)
+	if d.VideoCodec != media.VideoH264 {
+		t.Errorf("expected h264, got %s", d.VideoCodec)
 	}
 }
 
@@ -83,8 +83,11 @@ func TestResolve_HevcVariantNames(t *testing.T) {
 			Input{VideoCodec: name, AudioCodec: "aac", Width: 1920, Height: 1080},
 			Output{VideoCodec: "h265", AudioCodec: "aac", Container: "mp4"},
 		)
-		if d.NeedsTranscode {
-			t.Errorf("input %q should match h265 output without transcode", name)
+		if !d.NeedsTranscode {
+			t.Errorf("input %q with explicit h265 output must transcode", name)
+		}
+		if d.VideoCodec != media.VideoH265 {
+			t.Errorf("input %q: expected h265, got %s", name, d.VideoCodec)
 		}
 	}
 }
@@ -95,8 +98,11 @@ func TestResolve_H264VariantNames(t *testing.T) {
 			Input{VideoCodec: name, AudioCodec: "aac", Width: 1920, Height: 1080},
 			Output{VideoCodec: "h264", AudioCodec: "aac", Container: "mp4"},
 		)
-		if d.NeedsTranscode {
-			t.Errorf("input %q should match h264 output without transcode", name)
+		if !d.NeedsTranscode {
+			t.Errorf("input %q with explicit h264 output must transcode", name)
+		}
+		if d.VideoCodec != media.VideoH264 {
+			t.Errorf("input %q: expected h264, got %s", name, d.VideoCodec)
 		}
 	}
 }

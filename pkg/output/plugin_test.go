@@ -8,15 +8,17 @@ import (
 )
 
 type mockPlugin struct {
-	mode         DeliveryMode
-	videoPackets int
-	audioPackets int
-	subPackets   int
-	eosCount     int
-	seekCount    int
-	stopCount    int
-	healthy      bool
-	err          error
+	mode           DeliveryMode
+	videoPackets   int
+	audioPackets   int
+	subPackets     int
+	eosCount       int
+	seekCount      int
+	stopCount      int
+	healthy        bool
+	err            error
+	videoDurations []int64
+	audioDurations []int64
 }
 
 func newMockPlugin(mode DeliveryMode) *mockPlugin {
@@ -25,19 +27,21 @@ func newMockPlugin(mode DeliveryMode) *mockPlugin {
 
 func (m *mockPlugin) Mode() DeliveryMode { return m.mode }
 
-func (m *mockPlugin) PushVideo(data []byte, pts, dts int64, keyframe bool) error {
+func (m *mockPlugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error {
 	if m.err != nil {
 		return m.err
 	}
 	m.videoPackets++
+	m.videoDurations = append(m.videoDurations, duration)
 	return nil
 }
 
-func (m *mockPlugin) PushAudio(data []byte, pts, dts int64) error {
+func (m *mockPlugin) PushAudio(data []byte, pts, dts, duration int64) error {
 	if m.err != nil {
 		return m.err
 	}
 	m.audioPackets++
+	m.audioDurations = append(m.audioDurations, duration)
 	return nil
 }
 

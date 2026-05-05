@@ -82,7 +82,7 @@ func TestPushVideoAfterStopIsNoop(t *testing.T) {
 
 	p.Stop()
 
-	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65, 0xFF}, 0, 0, true)
+	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65, 0xFF}, 0, 0, 0, true)
 	assert.NoError(t, err)
 }
 
@@ -92,7 +92,7 @@ func TestPushAudioAfterStopIsNoop(t *testing.T) {
 
 	p.Stop()
 
-	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0)
+	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0)
 	assert.NoError(t, err)
 }
 

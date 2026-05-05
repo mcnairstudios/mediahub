@@ -656,8 +656,8 @@
 
       var sourcesEl = document.getElementById('dash-sources');
       if (sourcesEl && stats.sources) {
-        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800', demo: '#66bb6a', spacex: '#1e88e5' };
-        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL', demo: 'DEMO' };
+        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800', demo: '#66bb6a', spacex: '#1e88e5', radiogarden: '#43a047' };
+        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL', demo: 'DEMO', spacex: 'SPACE', radiogarden: 'RG' };
         var sHtml = '';
         for (var si = 0; si < stats.sources.length; si++) {
           var src = stats.sources[si];
@@ -808,7 +808,7 @@
     var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
-      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'TMDB' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'SpaceX' : 'M3U';
+      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'TMDB' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'Space' : src.type === 'radiogarden' ? 'Radio' : 'M3U';
       html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
@@ -1011,7 +1011,7 @@
 
       if (section === 'movies') {
         streamData.sort(function(a, b) {
-          if ((a.year || '') !== (b.year || '')) return (a.year || '').localeCompare(b.year || '');
+          if ((a.year || '') !== (b.year || '')) return (b.year || '').localeCompare(a.year || '');
           return a.name.localeCompare(b.name);
         });
         var rows = [];
@@ -2486,7 +2486,7 @@
     var sel = document.createElement('select');
     sel.id = 'delivery-switcher';
     sel.className = 'delivery-switcher';
-    sel.style.cssText = 'background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;margin-left:8px;';
+    sel.style.cssText = 'background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;margin-left:8px;pointer-events:auto;';
     for (var i = 0; i < available.length; i++) {
       var opt = document.createElement('option');
       opt.value = available[i];
@@ -2845,21 +2845,36 @@
           .then(function(r) { return r.ok ? r.json() : {}; })
           .then(function(debugInfo) {
             mseState.debugInfo = debugInfo;
-            return fetchInitWithRetry(videoInitUrl, 60, 500);
+            var hasVideo = !debugInfo || debugInfo.has_video_init !== false;
+            var audioOnly = debugInfo && debugInfo.has_video_init === false && debugInfo.has_audio_init !== false;
+            if (hasVideo) {
+              return fetchInitWithRetry(videoInitUrl, 60, 500);
+            }
+            return null;
           })
           .then(function(videoBuf) {
             if (mseState.stopped) return;
-            var videoCodec = detectVideoCodec(videoBuf);
-            var videoMime = 'video/mp4; codecs="' + videoCodec + '"';
             var audioCodecStr = (mseState.debugInfo && mseState.debugInfo.audio_codec) || 'mp4a.40.2';
             var audioMime = 'audio/mp4; codecs="' + audioCodecStr + '"';
+            var hasVideo = videoBuf != null;
+            var videoMime = '';
+            if (hasVideo) {
+              var videoCodec = detectVideoCodec(videoBuf);
+              videoMime = 'video/mp4; codecs="' + videoCodec + '"';
+            }
 
             mseState.mediaSource = new MediaSource();
             vidEl.src = URL.createObjectURL(mseState.mediaSource);
 
             mseState.mediaSource.addEventListener('sourceopen', function() {
-              mseState.videoSB = mseState.mediaSource.addSourceBuffer(videoMime);
-              mseState.videoSB.mode = 'segments';
+              var probe = playerState.probeInfo || {};
+              if (probe.duration_ms > 0) {
+                try { mseState.mediaSource.duration = probe.duration_ms / 1000; } catch(e) {}
+              }
+              if (hasVideo) {
+                mseState.videoSB = mseState.mediaSource.addSourceBuffer(videoMime);
+                mseState.videoSB.mode = 'segments';
+              }
 
               var hasAudio = !mseState.debugInfo || mseState.debugInfo.has_audio_init !== false;
               if (hasAudio) {
@@ -2869,10 +2884,13 @@
                 } catch (e) { hasAudio = false; }
               }
 
-              mseWaitUpdate(mseState.videoSB).then(function() {
-                mseState.videoSB.appendBuffer(videoBuf);
-                return mseWaitUpdate(mseState.videoSB);
-              }).then(function() {
+              var videoReady = hasVideo
+                ? mseWaitUpdate(mseState.videoSB).then(function() {
+                    mseState.videoSB.appendBuffer(videoBuf);
+                    return mseWaitUpdate(mseState.videoSB);
+                  })
+                : Promise.resolve();
+              videoReady.then(function() {
                 if (hasAudio && mseState.audioSB) {
                   return fetchInitWithRetry(audioInitUrl, 30, 500).then(function(audioBuf) {
                     mseState.audioSB.appendBuffer(audioBuf);
@@ -2882,7 +2900,7 @@
               }).then(function() {
                 if (statusEl) { statusEl.textContent = 'Buffering...'; statusEl.style.color = '#ffa726'; }
                 var gen = String((mseState.debugInfo && mseState.debugInfo.generation) || 1);
-                pollSegments('video', videoSegUrl, gen);
+                if (hasVideo && mseState.videoSB) pollSegments('video', videoSegUrl, gen);
                 if (hasAudio && mseState.audioSB) pollSegments('audio', audioSegUrl, gen);
               }).catch(function() {
                 if (statusEl) { statusEl.textContent = 'MSE init error'; statusEl.style.color = '#ff6b6b'; }
@@ -3913,7 +3931,8 @@
       '<button class="btn btn-primary" id="add-satip-btn">' + icons.plus + ' Add SAT>IP Source</button>' +
       '<button class="btn btn-primary" id="add-trailers-btn">' + icons.plus + ' Add TMDB Trailers</button>' +
       '<button class="btn btn-primary" id="add-demo-btn">' + icons.plus + ' Add Demo Streams</button>' +
-      '<button class="btn btn-primary" id="add-spacex-btn">' + icons.plus + ' Add SpaceX Launches</button>' +
+      '<button class="btn btn-primary" id="add-spacex-btn">' + icons.plus + ' Add Space Launches</button>' +
+      '<button class="btn btn-primary" id="add-radiogarden-btn">' + icons.plus + ' Add Radio Garden</button>' +
       '<button class="btn btn-ghost" id="discover-hdhr-btn">Discover HDHomeRun</button>' +
       '</div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
@@ -3984,13 +4003,20 @@
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-demo-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-demo-btn">Cancel</button></div></div>' +
       '<div id="add-spacex-form" style="display:none" class="card">' +
-      '<div class="card-title">New SpaceX Launches Source</div>' +
-      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="spacex-name" placeholder="SpaceX Launches" value="SpaceX Launches"></div>' +
+      '<div class="card-title">New Space Launches Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="spacex-name" placeholder="Space Launches" value="Space Launches"></div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-spacex-btn">Create</button>' +
       '<button class="btn btn-ghost" id="cancel-spacex-btn">Cancel</button></div></div>' +
+      '<div id="add-radiogarden-form" style="display:none" class="card">' +
+      '<div class="card-title">New Radio Garden Source</div>' +
+      '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="rg-name" placeholder="London Radio"></div>' +
+      '<div class="form-group"><label class="form-label">Location Search</label><input class="form-input" id="rg-search" placeholder="Search for a city..."><div id="rg-search-results" style="max-height:200px;overflow-y:auto;margin-top:4px;border:1px solid var(--border);border-radius:var(--radius);display:none"></div></div>' +
+      '<div class="form-group"><label class="form-label">Selected Places</label><div id="rg-places-list" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px"></div></div>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="create-radiogarden-btn">Create</button>' +
+      '<button class="btn btn-ghost" id="cancel-radiogarden-btn">Cancel</button></div></div>' +
       '<div id="hdhr-discover-modal" style="display:none"></div>';
 
-    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form', 'add-trailers-form', 'add-demo-form', 'add-spacex-form'];
+    var allForms = ['add-m3u-form', 'add-tvp-form', 'add-xtream-form', 'add-hdhr-form', 'add-satip-form', 'add-trailers-form', 'add-demo-form', 'add-spacex-form', 'add-radiogarden-form'];
     var editingSourceId = null;
     var editingSourceType = null;
 
@@ -4151,11 +4177,84 @@
     document.getElementById('cancel-demo-btn').addEventListener('click', function() { hideAllForms(); });
     document.getElementById('add-spacex-btn').addEventListener('click', function() {
       resetFormFields('add-spacex-form');
-      setFormTitle('add-spacex-form', 'New SpaceX Launches Source');
+      setFormTitle('add-spacex-form', 'New Space Launches Source');
       setSubmitBtnText('create-spacex-btn', 'Create');
       showSourceFormAsModal('add-spacex-form');
     });
     document.getElementById('cancel-spacex-btn').addEventListener('click', function() { hideAllForms(); });
+    var rgSelectedPlaces = [];
+
+    function renderRgPlaces() {
+      var container = document.getElementById('rg-places-list');
+      if (!container) return;
+      container.innerHTML = rgSelectedPlaces.length === 0
+        ? '<span style="color:var(--text-muted);font-size:13px">No locations selected</span>'
+        : rgSelectedPlaces.map(function(p, i) {
+        return '<span style="background:var(--bg-input);border:1px solid var(--border);border-radius:16px;padding:4px 8px 4px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px">' +
+          (p.name || p.id) +
+          '<button class="rg-remove-place" data-index="' + i + '" style="background:var(--danger);color:#fff;border:none;border-radius:50%;cursor:pointer;width:18px;height:18px;font-size:14px;padding:0;line-height:1;display:flex;align-items:center;justify-content:center" title="Remove">&minus;</button></span>';
+      }).join('');
+      container.querySelectorAll('.rg-remove-place').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          rgSelectedPlaces.splice(parseInt(this.getAttribute('data-index')), 1);
+          renderRgPlaces();
+        });
+      });
+    }
+
+    document.getElementById('add-radiogarden-btn').addEventListener('click', function() {
+      resetFormFields('add-radiogarden-form');
+      setFormTitle('add-radiogarden-form', 'New Radio Garden Source');
+      setSubmitBtnText('create-radiogarden-btn', 'Create');
+      rgSelectedPlaces = [];
+      renderRgPlaces();
+      document.getElementById('rg-search-results').innerHTML = '';
+      showSourceFormAsModal('add-radiogarden-form');
+    });
+    document.getElementById('cancel-radiogarden-btn').addEventListener('click', function() { hideAllForms(); });
+
+    var rgSearchTimeout = null;
+    document.getElementById('rg-search').addEventListener('input', function() {
+      var query = this.value.trim().toLowerCase();
+      var resultsDiv = document.getElementById('rg-search-results');
+      if (rgSearchTimeout) clearTimeout(rgSearchTimeout);
+      if (query.length < 2) { resultsDiv.innerHTML = ''; resultsDiv.style.display = 'none'; return; }
+      rgSearchTimeout = setTimeout(async function() {
+        try {
+          var r = await api.get('/api/sources/radiogarden/places?q=' + encodeURIComponent(query));
+          if (!r.ok) { resultsDiv.innerHTML = '<div style="color:var(--danger);padding:4px">Failed to search places</div>'; return; }
+          var matches = await r.json();
+          if (!Array.isArray(matches) || matches.length === 0) { resultsDiv.innerHTML = '<div style="padding:4px;color:var(--text-muted)">No places found</div>'; return; }
+          resultsDiv.innerHTML = matches.map(function(p) {
+            return '<div class="rg-place-option" data-id="' + p.id + '" data-title="' + (p.title || '').replace(/"/g, '&quot;') + '" data-country="' + (p.country || '').replace(/"/g, '&quot;') + '" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg-card);border-radius:4px;margin-bottom:2px">' +
+              '<span>' + (p.title || '') + ', ' + (p.country || '') + ' <span style="font-size:0.8em;color:var(--text-muted)">(' + (p.size || 0) + ' stations)</span></span>' +
+              '<button type="button" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:2px 10px;font-size:12px;cursor:pointer">+ Add</button></div>';
+          }).join('');
+          resultsDiv.style.display = 'block';
+          resultsDiv.querySelectorAll('.rg-place-option').forEach(function(opt) {
+            opt.addEventListener('click', function() {
+              var placeId = this.getAttribute('data-id');
+              var placeTitle = this.getAttribute('data-title');
+              if (rgSelectedPlaces.some(function(p) { return p.id === placeId; })) {
+                toast(placeTitle + ' already added', 'info');
+                return;
+              }
+              rgSelectedPlaces.push({ id: placeId, name: placeTitle });
+              renderRgPlaces();
+              if (!document.getElementById('rg-name').value && rgSelectedPlaces.length === 1) {
+                document.getElementById('rg-name').value = 'Radio Garden';
+              }
+              document.getElementById('rg-search').value = '';
+              resultsDiv.innerHTML = '';
+              resultsDiv.style.display = 'none';
+              toast(placeTitle + ' added', 'success');
+            });
+          });
+        } catch (err) {
+          resultsDiv.innerHTML = '<div style="color:var(--danger);padding:4px">Search failed</div>';
+        }
+      }, 300);
+    });
 
     async function loadSystems(selectedSystem) {
       var sel = document.getElementById('satip-system');
@@ -4336,6 +4435,33 @@
         }
         if (r.ok) {
           toast(editingSourceId ? 'Source updated' : 'SpaceX source created, refreshing...');
+          hideAllForms();
+          editingSourceId = null;
+          editingSourceType = null;
+          renderSources(el);
+        } else {
+          var data = await r.json().catch(function() { return {}; });
+          toast(data.error || 'Failed to save source', 'error');
+        }
+      } catch (err) {
+        toast('Failed to save source', 'error');
+      }
+    });
+
+    document.getElementById('create-radiogarden-btn').addEventListener('click', async function() {
+      var name = document.getElementById('rg-name').value.trim();
+      if (!name) { toast('Name required', 'error'); return; }
+      if (rgSelectedPlaces.length === 0) { toast('Please search and select at least one location', 'error'); return; }
+      try {
+        var payload = { name: name, places: rgSelectedPlaces };
+        var r;
+        if (editingSourceId && editingSourceType === 'radiogarden') {
+          r = await api.put('/api/sources/radiogarden/' + editingSourceId, payload);
+        } else {
+          r = await api.post('/api/sources/radiogarden', payload);
+        }
+        if (r.ok) {
+          toast(editingSourceId ? 'Source updated' : 'Radio Garden source created, refreshing...');
           hideAllForms();
           editingSourceId = null;
           editingSourceType = null;
@@ -4916,10 +5042,26 @@
             showSourceFormAsModal('add-demo-form');
             document.getElementById('demo-name').value = name || '';
           } else if (type === 'spacex') {
-            setFormTitle('add-spacex-form', 'Edit SpaceX Launches Source');
+            setFormTitle('add-spacex-form', 'Edit Space Launches Source');
             setSubmitBtnText('create-spacex-btn', 'Update');
             showSourceFormAsModal('add-spacex-form');
             document.getElementById('spacex-name').value = name || '';
+          } else if (type === 'radiogarden') {
+            setFormTitle('add-radiogarden-form', 'Edit Radio Garden Source');
+            setSubmitBtnText('create-radiogarden-btn', 'Update');
+            showSourceFormAsModal('add-radiogarden-form');
+            document.getElementById('rg-name').value = name || '';
+            // Parse places from config — support new JSON format and old single-place format
+            rgSelectedPlaces = [];
+            if (config.places) {
+              try { rgSelectedPlaces = JSON.parse(config.places); } catch(e) { rgSelectedPlaces = []; }
+            }
+            if (rgSelectedPlaces.length === 0 && config.place_id) {
+              rgSelectedPlaces = [{ id: config.place_id, name: config.place_name || '' }];
+            }
+            renderRgPlaces();
+            document.getElementById('rg-search').value = '';
+            document.getElementById('rg-search-results').innerHTML = '';
           }
         });
       });

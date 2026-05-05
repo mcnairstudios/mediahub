@@ -62,3 +62,11 @@ func ToSlimStreams(streams []Stream) []SlimStream {
 	}
 	return result
 }
+
+// TMDBPendingEntry is a lightweight record for VOD streams awaiting TMDB resolution.
+type TMDBPendingEntry struct {
+	StreamID  string
+	Name      string
+	Year      string
+	MediaType string
+}

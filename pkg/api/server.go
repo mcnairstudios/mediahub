@@ -79,7 +79,7 @@ func NewServer(deps OrchestratorDeps) *Server {
 		mux:        http.NewServeMux(),
 		middleware: middleware.NewAuthMiddleware(deps.AuthService, deps.Activity),
 		deps:       deps,
-		startedAt:  time.Now(),
+		startedAt:  time.Now().Round(0), // Round(0) strips monotonic reading — uptime uses wall clock, survives system sleep
 	}
 	s.registerRoutes()
 	return s

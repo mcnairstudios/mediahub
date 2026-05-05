@@ -258,7 +258,7 @@ func TestPushAudioNoAudioStreamMSE(t *testing.T) {
 	}
 	defer p.Stop()
 
-	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0); err != nil {
 		t.Fatalf("PushAudio on video-only MSE should return nil, got: %v", err)
 	}
 }
@@ -272,7 +272,7 @@ func TestPushVideoAfterStopMSE(t *testing.T) {
 
 	p.Stop()
 
-	if err := p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, true); err != nil {
+	if err := p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true); err != nil {
 		t.Fatalf("PushVideo after stop should return nil, got: %v", err)
 	}
 }
@@ -286,7 +286,7 @@ func TestPushAudioAfterStopMSE(t *testing.T) {
 
 	p.Stop()
 
-	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0); err != nil {
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0); err != nil {
 		t.Fatalf("PushAudio after stop should return nil, got: %v", err)
 	}
 }

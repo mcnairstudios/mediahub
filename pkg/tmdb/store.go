@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	bucketTMDBQueue  = []byte("tmdb_queue")
-	bucketTMDBBlobs  = []byte("tmdb_blobs")
-	bucketImageQueue = []byte("image_queue")
-	bucketTMDBNames  = []byte("tmdb_names")
+	bucketTMDBQueue   = []byte("tmdb_queue")
+	bucketTMDBBlobs   = []byte("tmdb_blobs")
+	bucketImageQueue  = []byte("image_queue")
+	bucketTMDBNames   = []byte("tmdb_names")
+	bucketTMDBPending = []byte("tmdb_pending")
 )
 
 type Store struct {
@@ -23,7 +24,7 @@ type Store struct {
 
 func NewStore(db *bbolt.DB) (*Store, error) {
 	err := db.Update(func(tx *bbolt.Tx) error {
-		for _, name := range [][]byte{bucketTMDBQueue, bucketTMDBBlobs, bucketImageQueue, bucketTMDBNames} {
+		for _, name := range [][]byte{bucketTMDBQueue, bucketTMDBBlobs, bucketImageQueue, bucketTMDBNames, bucketTMDBPending} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}

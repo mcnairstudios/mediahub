@@ -433,6 +433,9 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 				"language":    a.Language,
 			}
 		}
+		if result.ProbeInfo.DurationMs > 0 {
+			probeMap["duration_ms"] = result.ProbeInfo.DurationMs
+		}
 		if len(result.ProbeInfo.SubTracks) > 0 {
 			subs := make([]map[string]any, 0, len(result.ProbeInfo.SubTracks))
 			for _, st := range result.ProbeInfo.SubTracks {

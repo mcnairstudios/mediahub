@@ -34,17 +34,17 @@ Query params on segment requests:
 
 ## Packet Flow
 ```
-PushVideo(data, pts, dts, keyframe)
+PushVideo(data, pts, dts, duration, keyframe)
   → conv.ToAVPacket(packet, videoTimeBase)
   → muxer.WriteVideoPacket(avPkt)
   → segment file written to outputDir/segments/
 
-PushAudio(data, pts, dts) — passthrough (AudioExtradata provided by bridge)
+PushAudio(data, pts, dts, duration) — passthrough (AudioExtradata provided by bridge)
   → conv.ToAVPacket(packet, audioTimeBase)
   → muxer.WriteAudioPacket(avPkt)
   → segment file written to outputDir/segments/
 
-PushAudio(data, pts, dts) — decode chain (no AudioExtradata, copy mode)
+PushAudio(data, pts, dts, duration) — decode chain (no AudioExtradata, copy mode)
   → conv.ToAVPacket(packet, audioTimeBase)
   → audioDec.Decode(avPkt) → frames
   → audioResample.Convert(frame) → resampled frame

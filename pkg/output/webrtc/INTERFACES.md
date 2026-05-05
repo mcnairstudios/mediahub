@@ -4,8 +4,8 @@
 
 ### output.OutputPlugin
 - `Mode() DeliveryMode` — returns `DeliveryWebRTC`
-- `PushVideo(data []byte, pts, dts int64, keyframe bool) error` — packetizes H.264/HEVC NALUs as RTP and writes to video track
-- `PushAudio(data []byte, pts, dts int64) error` — packetizes audio as RTP and writes to audio track
+- `PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error` — packetizes H.264/HEVC NALUs as RTP and writes to video track
+- `PushAudio(data []byte, pts, dts, duration int64) error` — packetizes audio as RTP and writes to audio track
 - `PushSubtitle(data []byte, pts int64, duration int64) error` — no-op (WebRTC does not carry subtitles)
 - `EndOfStream()` — closes the PeerConnection
 - `ResetForSeek()` — resets RTP sequence numbers, timestamps, PTS base; increments generation counter

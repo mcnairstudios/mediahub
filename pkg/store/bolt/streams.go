@@ -29,9 +29,10 @@ func vodTypeKey(vodType string) string {
 }
 
 var (
-	streamSchema = keyenc.NewSchema[streamKeyDef]()
-	prefixStream = streamSchema.Prefix(streamKeyDef{})
-	prefixIdx    = keyenc.ReversePrefix("streamidx")
+	streamSchema       = keyenc.NewSchema[streamKeyDef]()
+	prefixStream       = streamSchema.Prefix(streamKeyDef{})
+	prefixIdx          = keyenc.ReversePrefix("streamidx")
+	prefixTMDBPending  = []byte("tmdb:unresolved:")
 )
 
 type StreamStore struct {
@@ -241,6 +242,7 @@ func (s *StreamStore) BulkUpsert(_ context.Context, streams []media.Stream) erro
 			if err := b.Put(keyenc.Reverse("streamidx", stream.ID), key); err != nil {
 				return err
 			}
+			updateTMDBIndex(b, stream)
 		}
 		return nil
 	})
@@ -266,6 +268,7 @@ func (s *StreamStore) DeleteBySource(_ context.Context, sourceType, sourceID str
 		for _, d := range toDelete {
 			b.Delete(d.key)
 			b.Delete(keyenc.Reverse("streamidx", string(d.id)))
+			deleteTMDBIndex(b, string(d.id))
 		}
 		return nil
 	})
@@ -302,6 +305,7 @@ func (s *StreamStore) DeleteStaleBySource(_ context.Context, sourceType, sourceI
 		for _, d := range toDelete {
 			b.Delete(d.key)
 			b.Delete(keyenc.Reverse("streamidx", string(d.id)))
+			deleteTMDBIndex(b, string(d.id))
 		}
 		return nil
 	})
@@ -311,6 +315,129 @@ func (s *StreamStore) DeleteStaleBySource(_ context.Context, sourceType, sourceI
 
 func (s *StreamStore) Save() error {
 	return nil
+}
+
+// tmdbPendingKey returns the bolt key for a TMDB unresolved index entry.
+func tmdbPendingKey(streamID string) []byte {
+	return append(prefixTMDBPending, []byte(streamID)...)
+}
+
+// updateTMDBIndex maintains the tmdb:unresolved index within an existing transaction.
+// Call this after writing a stream. It adds the entry if the stream is VOD without
+// a TMDB ID, and removes it otherwise.
+func updateTMDBIndex(b *bbolt.Bucket, stream media.Stream) {
+	key := tmdbPendingKey(stream.ID)
+	if stream.VODType != "" && stream.TMDBID == "" {
+		name := stream.SeriesName
+		if name == "" {
+			name = stream.Name
+		}
+		mediaType := "movie"
+		if stream.VODType == "series" || stream.VODType == "episode" {
+			mediaType = "series"
+		}
+		val, _ := json.Marshal(struct {
+			Name      string `json:"n"`
+			Year      string `json:"y,omitempty"`
+			MediaType string `json:"t"`
+		}{Name: name, Year: stream.Year, MediaType: mediaType})
+		b.Put(key, val) //nolint:errcheck
+	} else {
+		b.Delete(key) //nolint:errcheck
+	}
+}
+
+// deleteTMDBIndex removes a TMDB unresolved index entry within an existing transaction.
+func deleteTMDBIndex(b *bbolt.Bucket, streamID string) {
+	b.Delete(tmdbPendingKey(streamID)) //nolint:errcheck
+}
+
+// TMDBPendingBatch returns up to `limit` streams awaiting TMDB resolution.
+func (s *StreamStore) TMDBPendingBatch(_ context.Context, limit int) ([]media.TMDBPendingEntry, error) {
+	var result []media.TMDBPendingEntry
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
+		for k, v := c.Seek(prefixTMDBPending); k != nil && bytes.HasPrefix(k, prefixTMDBPending); k, v = c.Next() {
+			streamID := string(k[len(prefixTMDBPending):])
+			var entry struct {
+				Name      string `json:"n"`
+				Year      string `json:"y,omitempty"`
+				MediaType string `json:"t"`
+			}
+			if json.Unmarshal(v, &entry) != nil {
+				continue
+			}
+			result = append(result, media.TMDBPendingEntry{
+				StreamID:  streamID,
+				Name:      entry.Name,
+				Year:      entry.Year,
+				MediaType: entry.MediaType,
+			})
+			if len(result) >= limit {
+				break
+			}
+		}
+		return nil
+	})
+	return result, err
+}
+
+// TMDBPendingCount returns the number of streams awaiting TMDB resolution.
+func (s *StreamStore) TMDBPendingCount(_ context.Context) (int, error) {
+	count := 0
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketStreams)
+		c := b.Cursor()
+		for k, _ := c.Seek(prefixTMDBPending); k != nil && bytes.HasPrefix(k, prefixTMDBPending); k, _ = c.Next() {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+// TMDBPendingRemove removes a stream from the TMDB pending index.
+func (s *StreamStore) TMDBPendingRemove(_ context.Context, streamID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bucketStreams).Delete(tmdbPendingKey(streamID))
+	})
+}
+
+// TMDBPendingReconcile rebuilds the tmdb:unresolved index from actual stream data.
+// Use this on startup or if the index gets out of sync.
+func (s *StreamStore) TMDBPendingReconcile(_ context.Context) (int, error) {
+	added := 0
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketStreams)
+
+		// Delete all existing pending entries
+		c := b.Cursor()
+		var toDelete [][]byte
+		for k, _ := c.Seek(prefixTMDBPending); k != nil && bytes.HasPrefix(k, prefixTMDBPending); k, _ = c.Next() {
+			toDelete = append(toDelete, append([]byte{}, k...))
+		}
+		for _, k := range toDelete {
+			b.Delete(k)
+		}
+
+		// Rebuild by scanning all streams (one-time operation)
+		for k, v := c.Seek(prefixStream); k != nil && bytes.HasPrefix(k, prefixStream); k, v = c.Next() {
+			if bytes.HasPrefix(k, prefixIdx) || bytes.HasPrefix(k, prefixTMDBPending) {
+				continue
+			}
+			var stream media.Stream
+			if json.Unmarshal(v, &stream) != nil {
+				continue
+			}
+			if stream.VODType != "" && stream.TMDBID == "" {
+				updateTMDBIndex(b, stream)
+				added++
+			}
+		}
+		return nil
+	})
+	return added, err
 }
 
 func (s *StreamStore) MigrateFromFlatKeys() error {

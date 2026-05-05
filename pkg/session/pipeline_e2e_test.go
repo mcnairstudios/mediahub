@@ -120,12 +120,12 @@ func drainDemuxer(t *testing.T, dm *demux.Demuxer, fo *output.FanOut) pipelineSt
 
 		switch pkt.Type {
 		case av.Video:
-			if err := fo.PushVideo(pkt.Data, pkt.PTS, pkt.DTS, pkt.Keyframe); err != nil {
+			if err := fo.PushVideo(pkt.Data, pkt.PTS, pkt.DTS, pkt.Duration, pkt.Keyframe); err != nil {
 				stats.errors++
 			}
 			stats.videoPackets++
 		case av.Audio:
-			if err := fo.PushAudio(pkt.Data, pkt.PTS, pkt.DTS); err != nil {
+			if err := fo.PushAudio(pkt.Data, pkt.PTS, pkt.DTS, pkt.Duration); err != nil {
 				stats.errors++
 			}
 			stats.audioPackets++

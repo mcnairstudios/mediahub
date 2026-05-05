@@ -77,6 +77,14 @@ type StreamToResolve struct {
 	TMDBID    string
 }
 
+// PendingStream is a lightweight record for VOD streams awaiting TMDB resolution.
+// Stored in bolt under tmdb_pending with key=streamID.
+type PendingStream struct {
+	Name      string `json:"name"`
+	Year      string `json:"year,omitempty"`
+	MediaType string `json:"media_type"`
+}
+
 type ResolvedStream struct {
 	StreamID string
 	TMDBID   int

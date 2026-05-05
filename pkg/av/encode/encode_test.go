@@ -184,6 +184,27 @@ func TestNewAudioEncoderMonoAndSurround(t *testing.T) {
 	}
 }
 
+func TestNewAudioEncoderOpus(t *testing.T) {
+	enc, err := NewAudioEncoder(AudioEncodeOpts{
+		Codec:      "libopus",
+		Channels:   2,
+		SampleRate: 48000,
+	})
+	if err != nil {
+		t.Fatalf("Opus encoder must create without error: %v", err)
+	}
+	defer enc.Close()
+
+	if enc.FrameSize() <= 0 {
+		t.Fatal("expected positive frame size from Opus encoder")
+	}
+
+	sf := enc.SampleFormat()
+	if sf == astiav.SampleFormatFltp {
+		t.Fatal("Opus encoder must NOT use fltp — libopus requires flt or s16")
+	}
+}
+
 func TestEncoderCloseIdempotent(t *testing.T) {
 	enc, err := NewAACEncoder(2, 48000)
 	if err != nil {

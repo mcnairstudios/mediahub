@@ -7,8 +7,8 @@ Core interface for all delivery plugins. Receives encoded packets from the pipel
 ```go
 type OutputPlugin interface {
     Mode() DeliveryMode
-    PushVideo(data []byte, pts, dts int64, keyframe bool) error
-    PushAudio(data []byte, pts, dts int64) error
+    PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error
+    PushAudio(data []byte, pts, dts, duration int64) error
     PushSubtitle(data []byte, pts int64, duration int64) error
     EndOfStream()
     ResetForSeek()
@@ -58,8 +58,8 @@ Distributes packets to multiple `OutputPlugin` instances. Not an interface but a
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `NewFanOut` | `(plugins ...OutputPlugin) *FanOut` | Create with initial plugins |
-| `PushVideo` | `(data []byte, pts, dts int64, keyframe bool) error` | Send video to all plugins |
-| `PushAudio` | `(data []byte, pts, dts int64) error` | Send audio to all plugins |
+| `PushVideo` | `(data []byte, pts, dts, duration int64, keyframe bool) error` | Send video to all plugins |
+| `PushAudio` | `(data []byte, pts, dts, duration int64) error` | Send audio to all plugins |
 | `PushSubtitle` | `(data []byte, pts int64, duration int64) error` | Send subtitle to all plugins |
 | `EndOfStream` | `()` | Signal EOS to all plugins |
 | `ResetForSeek` | `()` | Reset all plugins for seek |

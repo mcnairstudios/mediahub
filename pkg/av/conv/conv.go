@@ -32,8 +32,16 @@ func ToAVPacket(p *av.Packet, timeBase astiav.Rational) (*astiav.Packet, error) 
 			return (v / den) * num + (v % den) * num / den
 		}
 		den := 1_000_000_000 * tbNum
-		pkt.SetPts(rescale(p.PTS, tbDen, den))
-		pkt.SetDts(rescale(p.DTS, tbDen, den))
+		if p.PTS == av.NoPtsNanos {
+			pkt.SetPts(astiav.NoPtsValue)
+		} else {
+			pkt.SetPts(rescale(p.PTS, tbDen, den))
+		}
+		if p.DTS == av.NoPtsNanos {
+			pkt.SetDts(astiav.NoPtsValue)
+		} else {
+			pkt.SetDts(rescale(p.DTS, tbDen, den))
+		}
 		pkt.SetDuration(rescale(p.Duration, tbDen, den))
 	}
 
