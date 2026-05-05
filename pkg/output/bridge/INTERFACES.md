@@ -6,24 +6,25 @@
 ## Constructor
 ```go
 type Config struct {
-    Downstream    av.PacketSink  // FanOut or single output plugin
-    Info          *media.ProbeResult
-    AudioIndex    int
-    AudioOnly     bool           // only decode/encode audio; video passes through
-    HWAccel       string
-    DecodeHWAccel string
-    OutputCodec   string         // "h264", "h265", "av1"
-    OutputAudioCodec string      // "aac"
-    Bitrate       int
-    OutputHeight  int
-    MaxBitDepth   int
-    Deinterlace   bool
-    Framerate     int
-    EncoderName   string
-    DecoderName   string
-    VideoCodecParams any  // *astiav.CodecParameters
-    AudioCodecParams any  // *astiav.CodecParameters
-    Log           zerolog.Logger
+    Downstream       av.PacketSink  // FanOut or single output plugin
+    Info             *media.ProbeResult
+    AudioIndex       int
+    AudioOnly        bool           // only decode/encode audio; video passes through
+    HWAccel          string
+    DecodeHWAccel    string
+    OutputCodec      string         // "h264", "h265", "av1"
+    OutputAudioCodec string         // "aac"
+    Bitrate          int
+    OutputHeight     int
+    MaxBitDepth      int
+    Deinterlace      bool
+    Framerate        int
+    EncoderName      string
+    DecoderName      string
+    Preset           string         // encoder preset (default "ultrafast")
+    VideoCodecParams any            // *astiav.CodecParameters
+    AudioCodecParams any            // *astiav.CodecParameters
+    Log              zerolog.Logger
 }
 
 func New(cfg Config) (*Bridge, error)
@@ -47,6 +48,9 @@ func (b *Bridge) AudioEncoderCodecID() astiav.CodecID
 - Video: decoder → [deinterlacer] → [scaler] → encoder → downstream.PushVideo
 - Audio: decoder → resampler → AudioFIFO → encoder → downstream.PushAudio
 - Subtitle: passthrough to downstream.PushSubtitle
+- `videoFrameDurNanos` — fallback duration (1e9/fps) when encoder output has zero duration
+- `scalerCfg` — deferred scaler config; scaler created on first decoded frame to read actual pixel format
+- `tsToNanosSafe()` — converts encoder timestamps to nanos, preserving `NoPtsValue` as `av.NoPtsNanos`
 
 ## Seek Reset Chain
 ```

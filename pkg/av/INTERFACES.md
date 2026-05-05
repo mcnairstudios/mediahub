@@ -34,4 +34,30 @@ Implementations: libavfilter graph wrapper.
 
 The push interface that the demux loop targets. Output plugins implement this to receive compressed packets without knowing about the demuxer implementation. The `DecodeBridge` also implements this to feed packets into the decode/encode pipeline.
 
-Methods use primitive types (byte slices, int64 timestamps) rather than `*Packet` to keep the boundary simple and avoid package coupling at the push site.
+```go
+type PacketSink interface {
+    PushVideo(data []byte, pts, dts, duration int64, keyframe bool) error
+    PushAudio(data []byte, pts, dts, duration int64) error
+    PushSubtitle(data []byte, pts int64, duration int64) error
+    EndOfStream()
+}
+```
+
+Methods use primitive types (byte slices, int64 timestamps) rather than `*Packet` to keep the boundary simple and avoid package coupling at the push site. Duration is in nanoseconds; it may be zero for live streams where the muxer infers duration from framerate.
+
+## Packet
+
+```go
+type Packet struct {
+    Type     StreamType
+    Data     []byte
+    PTS      int64 // nanoseconds (NoPtsNanos = unset)
+    DTS      int64 // nanoseconds (NoPtsNanos = unset)
+    Duration int64 // nanoseconds
+    Keyframe bool
+}
+```
+
+## NoPtsNanos
+
+`NoPtsNanos` (`math.MinInt64`) is the nanosecond-domain sentinel for "PTS not set". Equivalent to ffmpeg's `AV_NOPTS_VALUE` but in nanoseconds. Used by the bridge's `tsToNanosSafe()` to preserve unset PTS from encoders, and checked by `conv.ToAVPacket()` which converts it back to `astiav.NoPtsValue`.

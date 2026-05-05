@@ -277,6 +277,79 @@ func TestPushVideoAfterStopMSE(t *testing.T) {
 	}
 }
 
+func TestConstructionConvertsAnnexBExtradata(t *testing.T) {
+	// Simulate H.264 Annex-B extradata from MPEG-TS demuxer codec params.
+	// This is the scenario that causes "write header: Invalid argument" when
+	// Annex-B data is passed directly to the fMP4 muxer.
+	annexBExtradata := []byte{
+		// SPS: 00 00 00 01 <SPS NAL>
+		0x00, 0x00, 0x00, 0x01,
+		0x67, 0x64, 0x00, 0x1E, 0xAC, 0xD9, 0x40, 0x50,
+		0x05, 0xBB, 0x01, 0x10, 0x00, 0x00, 0x03, 0x00,
+		0x10, 0x00, 0x00, 0x03, 0x03, 0xC0, 0xF1, 0x62,
+		0xE4, 0x80,
+		// PPS: 00 00 00 01 <PPS NAL>
+		0x00, 0x00, 0x00, 0x01,
+		0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0,
+	}
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputDir:      dir,
+		VideoExtradata: annexBExtradata,
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("expected Annex-B extradata to be converted successfully: %v", err)
+	}
+	defer p.Stop()
+
+	// The muxer should be created immediately (not deferred) since we converted
+	// the extradata to AVCC format.
+	if p.muxer == nil {
+		t.Fatal("expected muxer to be created (not deferred) after Annex-B conversion")
+	}
+	if p.deferredMuxOpts != nil {
+		t.Fatal("expected no deferred mux opts after successful Annex-B conversion")
+	}
+}
+
+func TestConstructionDefersOnBadAnnexBExtradata(t *testing.T) {
+	// Annex-B data with no SPS/PPS should cause conversion to fail,
+	// falling back to deferred muxer creation.
+	badAnnexB := []byte{
+		0x00, 0x00, 0x00, 0x01,
+		0x65, 0x88, 0x84, 0x00, // IDR NAL (not SPS or PPS)
+	}
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputDir:      dir,
+		VideoExtradata: badAnnexB,
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("expected construction to succeed with deferred muxer: %v", err)
+	}
+	defer p.Stop()
+
+	// Extradata conversion failed, so it should defer muxer creation.
+	if p.deferredMuxOpts == nil {
+		t.Fatal("expected deferred mux opts when Annex-B conversion fails")
+	}
+	if p.muxer != nil {
+		t.Fatal("expected muxer to be nil when deferring")
+	}
+}
+
 func TestPushAudioAfterStopMSE(t *testing.T) {
 	dir := t.TempDir()
 	p, err := New(output.PluginConfig{OutputDir: dir})

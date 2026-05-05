@@ -5,7 +5,8 @@ Records media to disk as mp4/aac. This is the "always recording" plugin that run
 
 ## Responsibilities
 - Receive encoded video/audio packets via OutputPlugin interface
-- Write to mp4 file with AAC audio (recording format from settings)
+- Write to file (default mpegts, configurable to mp4) with AAC audio
+- Support audio-only recording (video stream is optional)
 - Track recording state (active, preserved)
 - Support being added mid-stream (short-press record)
 - Graceful stop (finalize mp4 container)
@@ -25,4 +26,4 @@ Records media to disk as mp4/aac. This is the "always recording" plugin that run
 - Completed recording: moved to `<recorddir>/recordings/`
 
 ## Reference Implementation
-New — no direct equivalent in tvproxy (tvproxy's recording was broken). Uses StreamMuxer("mp4") from pkg/av/mux.
+New — no direct equivalent in tvproxy (tvproxy's recording was broken). Uses astiav FormatContext directly (not StreamMuxer).

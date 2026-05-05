@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -499,7 +500,13 @@ func main() {
 		imageWorker.Run(ctx)
 	}()
 
+	var tmdbRunning atomic.Bool
 	enqueueTMDBStreams := func() {
+		if !tmdbRunning.CompareAndSwap(false, true) {
+			return
+		}
+		defer tmdbRunning.Store(false)
+
 		// Reconcile the pending index on first run to catch any streams
 		// that were added before the index existed.
 		if count, err := streamStore.TMDBPendingCount(ctx); err == nil && count == 0 {
@@ -517,59 +524,54 @@ func main() {
 		}
 		log.Printf("tmdb resolver: %d streams pending TMDB resolution", total)
 
-		// Process in batches of 100 — never load all streams at once.
-		for {
-			batch, err := streamStore.TMDBPendingBatch(ctx, 100)
-			if err != nil || len(batch) == 0 {
-				break
-			}
+		// Process one batch of 100 per invocation. The scheduler will
+		// call us again in 1 minute for the next batch.
+		batch, err := streamStore.TMDBPendingBatch(ctx, 100)
+		if err != nil || len(batch) == 0 {
+			return
+		}
 
-			var toResolve []tmdb.StreamToResolve
-			for _, p := range batch {
-				toResolve = append(toResolve, tmdb.StreamToResolve{
-					StreamID:  p.StreamID,
-					Name:      p.Name,
-					Year:      p.Year,
-					MediaType: p.MediaType,
-				})
-			}
+		var toResolve []tmdb.StreamToResolve
+		for _, p := range batch {
+			toResolve = append(toResolve, tmdb.StreamToResolve{
+				StreamID:  p.StreamID,
+				Name:      p.Name,
+				Year:      p.Year,
+				MediaType: p.MediaType,
+			})
+		}
 
-			resolved := metadataWorker.ResolveStreams(ctx, toResolve)
-			if len(resolved) > 0 {
-				var updated []media.Stream
-				for _, r := range resolved {
-					st, err := streamStore.Get(ctx, r.StreamID)
-					if err != nil || st == nil {
-						streamStore.TMDBPendingRemove(ctx, r.StreamID)
-						continue
-					}
-					st.TMDBID = strconv.Itoa(r.TMDBID)
-					updated = append(updated, *st)
+		resolved := metadataWorker.ResolveStreams(ctx, toResolve)
+		if len(resolved) > 0 {
+			var updated []media.Stream
+			for _, r := range resolved {
+				st, err := streamStore.Get(ctx, r.StreamID)
+				if err != nil || st == nil {
+					streamStore.TMDBPendingRemove(ctx, r.StreamID)
+					continue
 				}
-				if len(updated) > 0 {
-					if err := streamStore.BulkUpsert(ctx, updated); err != nil {
-						log.Printf("tmdb resolver: update streams: %v", err)
-					}
-				}
+				st.TMDBID = strconv.Itoa(r.TMDBID)
+				updated = append(updated, *st)
 			}
-
-			// Remove resolved and failed entries from the pending index
-			for _, p := range batch {
-				found := false
-				for _, r := range resolved {
-					if r.StreamID == p.StreamID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					// Unresolvable — remove from pending to avoid infinite retries
-					streamStore.TMDBPendingRemove(ctx, p.StreamID)
+			if len(updated) > 0 {
+				if err := streamStore.BulkUpsert(ctx, updated); err != nil {
+					log.Printf("tmdb resolver: update streams: %v", err)
 				}
 			}
+		}
 
-			if ctx.Err() != nil {
-				break
+		// Remove resolved and failed entries from the pending index
+		for _, p := range batch {
+			found := false
+			for _, r := range resolved {
+				if r.StreamID == p.StreamID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Unresolvable — remove from pending to avoid infinite retries
+				streamStore.TMDBPendingRemove(ctx, p.StreamID)
 			}
 		}
 	}

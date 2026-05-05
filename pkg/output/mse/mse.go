@@ -95,8 +95,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 			muxOpts.VideoHeight = vcp.Height()
 		}
 	}
-	if len(muxOpts.VideoExtradata) > 0 {
-	}
 	if muxOpts.VideoCodecID == 0 && cfg.Video != nil {
 		codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
 		if err != nil {
@@ -110,6 +108,26 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		muxOpts.VideoHeight = cfg.Video.Height
 		if cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
 			muxOpts.VideoFrameRate = cfg.Video.FramerateN / cfg.Video.FramerateD
+		}
+	}
+
+	// Convert Annex-B extradata to AVCC/HvcC format required by fMP4 container.
+	// MPEG-TS demuxers often provide extradata in Annex-B format which causes
+	// "write header: Invalid argument" when passed directly to the MP4 muxer.
+	if len(muxOpts.VideoExtradata) > 0 &&
+		(muxOpts.VideoCodecID == astiav.CodecIDH264 || muxOpts.VideoCodecID == astiav.CodecIDHevc) {
+		codecName := "h264"
+		if muxOpts.VideoCodecID == astiav.CodecIDHevc {
+			codecName = "hevc"
+		}
+		converted, convErr := extradata.ToCodecData(codecName, muxOpts.VideoExtradata)
+		if convErr != nil || len(converted) == 0 {
+			// Conversion failed (e.g., no SPS/PPS in extradata) — clear it so
+			// the deferred path extracts extradata from the first keyframe.
+			log.Info().Err(convErr).Msg("mse: video extradata conversion failed, deferring to keyframe")
+			muxOpts.VideoExtradata = nil
+		} else {
+			muxOpts.VideoExtradata = converted
 		}
 	}
 

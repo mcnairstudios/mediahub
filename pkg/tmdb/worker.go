@@ -75,12 +75,19 @@ func (w *MetadataWorker) ResolveStreams(ctx context.Context, streams []StreamToR
 
 	var resolved []ResolvedStream
 	seen := make(map[string]int)
+	apiErrors := 0
+	const maxAPIErrors = 10
 
 	for _, st := range streams {
 		select {
 		case <-ctx.Done():
 			return resolved
 		default:
+		}
+
+		if apiErrors >= maxAPIErrors {
+			log.Printf("tmdb resolver: stopping batch early after %d API errors", apiErrors)
+			break
 		}
 
 		tmdbID := 0
@@ -125,6 +132,10 @@ func (w *MetadataWorker) ResolveStreams(ctx context.Context, streams []StreamToR
 		if indexID, indexType, found := w.store.LookupName(normalized); found {
 			seen[normalized] = indexID
 			_ = indexType
+			if indexID == 0 {
+				// Negative cache entry — previously searched with no result.
+				continue
+			}
 			if has, _ := w.store.HasBlob(indexID); !has {
 				w.store.EnqueueMetadata(QueueEntry{
 					TMDBID:    indexID,
@@ -137,9 +148,17 @@ func (w *MetadataWorker) ResolveStreams(ctx context.Context, streams []StreamToR
 			continue
 		}
 
-		searchID := w.searchTMDB(ctx, key, st.Name, st.Year, mediaType)
-		if searchID <= 0 {
+		searchID, searchErr := w.searchTMDB(ctx, key, st.Name, st.Year, mediaType)
+		if searchErr != nil {
+			apiErrors++
+			log.Printf("tmdb resolver: search error (%d/%d): %v", apiErrors, maxAPIErrors, searchErr)
 			seen[normalized] = 0
+			continue
+		}
+		if searchID <= 0 {
+			// No results — store negative cache entry so we never search again.
+			seen[normalized] = 0
+			w.store.SetName(normalized, 0, mediaType)
 			continue
 		}
 
@@ -162,7 +181,7 @@ func (w *MetadataWorker) ResolveStreams(ctx context.Context, streams []StreamToR
 	return resolved
 }
 
-func (w *MetadataWorker) searchTMDB(ctx context.Context, apiKey, name, year, mediaType string) int {
+func (w *MetadataWorker) searchTMDB(ctx context.Context, apiKey, name, year, mediaType string) (int, error) {
 	clean, extractedYear := cleanVODName(name)
 	if year == "" {
 		year = extractedYear
@@ -183,8 +202,7 @@ func (w *MetadataWorker) searchTMDB(ctx context.Context, apiKey, name, year, med
 
 	raw, err := w.apiGet(ctx, u)
 	if err != nil {
-		log.Printf("tmdb resolver: search %q: %v", clean, err)
-		return 0
+		return 0, fmt.Errorf("search %q: %w", clean, err)
 	}
 
 	var result struct {
@@ -193,15 +211,14 @@ func (w *MetadataWorker) searchTMDB(ctx context.Context, apiKey, name, year, med
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		log.Printf("tmdb resolver: decode search %q: %v", clean, err)
-		return 0
+		return 0, fmt.Errorf("decode search %q: %w", clean, err)
 	}
 
 	if len(result.Results) == 0 {
-		return 0
+		return 0, nil
 	}
 
-	return result.Results[0].ID
+	return result.Results[0].ID, nil
 }
 
 func (w *MetadataWorker) processMovie(ctx context.Context, apiKey string, entry *QueueEntry) {

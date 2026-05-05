@@ -11,8 +11,9 @@ func New(cfg output.PluginConfig) (*Plugin, error)
 ```
 
 PluginConfig fields used:
-- RecordingPath — file to write to (e.g. `<recorddir>/stream/<id>/active/source.mp4`)
-- Video/Audio codec params
+- OutputFilePath — file to write to (e.g. `<recorddir>/stream/<id>/active/source.mp4`)
+- OutputFormat — container format ("mpegts" default, "mp4")
+- Video/Audio codec params (video is optional — supports audio-only recording)
 
 ## Public Methods (beyond OutputPlugin)
 ```go
@@ -24,8 +25,9 @@ func (p *Plugin) IsPreserved() bool
 
 ## Behaviour
 - ResetForSeek: no-op — recording is continuous, seek is a playback concept
-- Stop: finalizes the mp4 container (writes moov atom)
+- Stop: finalizes the container (writes trailer)
 - EndOfStream: same as Stop
+- `ensureMonotonicDTS`: clamps DTS to be strictly increasing per stream, fixing non-monotonic DTS from encoders (e.g. VT H.265)
 
 ## Packet Flow
 ```

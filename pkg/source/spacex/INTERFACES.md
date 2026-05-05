@@ -3,11 +3,12 @@
 ## Constructor
 ```go
 type Config struct {
-    ID          string
-    Name        string
-    IsEnabled   bool
-    StreamStore store.StreamStore
-    HTTPClient  *http.Client    // defaults to 30s timeout if nil
+    ID            string
+    Name          string
+    IsEnabled     bool
+    StreamStore   store.StreamStore
+    HTTPClient    *http.Client    // defaults to 30s timeout if nil
+    OnRefreshDone func(sourceID, etag string, streamCount int)
 }
 
 func New(cfg Config) *Source
@@ -23,9 +24,10 @@ func (s *Source) Type() source.SourceType  // returns "spacex"
 ```
 
 ## Refresh Flow
-1. Fetch all launches from SpaceX API `/v4/launches`
-2. Filter to launches with a `youtube_id` in links
-3. Build media.Stream with deterministic ID, YouTube URL, mission patch as logo, year from launch date
-4. BulkUpsert to StreamStore
-5. DeleteStaleBySource to remove entries no longer in API results
-6. Update status (stream count, last refreshed)
+1. Fetch past launches (paginated, up to 10 pages of 50) from Launch Library 2 API (`/launch/previous/`)
+2. Fetch upcoming launches (paginated, up to 5 pages of 50) from Launch Library 2 API (`/launch/upcoming/`)
+3. Rate-limit-respectful pagination (100ms between pages)
+4. Build media.Stream with deterministic ID, video URL, launch image as logo, provider name as Group
+5. BulkUpsert to StreamStore
+6. DeleteStaleBySource to remove entries no longer in API results
+7. Call OnRefreshDone callback if set

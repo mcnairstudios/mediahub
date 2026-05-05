@@ -580,8 +580,11 @@ var (
 	yearParen  = regexp.MustCompile(`\((\d{4})\)`)
 )
 
+var langPrefix = regexp.MustCompile(`^[A-Z]{2,6}[-:]?\s+`)
+
 func cleanVODName(name string) (clean string, year string) {
-	cleaned := editionTag.ReplaceAllString(name, "")
+	cleaned := langPrefix.ReplaceAllString(name, "")
+	cleaned = editionTag.ReplaceAllString(cleaned, "")
 	if m := yearParen.FindStringSubmatch(cleaned); len(m) > 1 {
 		year = m[1]
 		cleaned = yearParen.ReplaceAllString(cleaned, "")

@@ -1,6 +1,6 @@
 # MediaHub
 
-Clean-architecture media hub written in Go. Connects stream sources (M3U, Xtream, SAT>IP, HDHomeRun, tvproxy-streams, SpaceX, Trailers, Demo) to playback sinks (Browser MSE/HLS/DASH/WebRTC, Jellyfin emulation, Plex/HDHR emulation, DLNA, VLC/direct stream) with intelligent format negotiation.
+Clean-architecture media hub written in Go. Connects stream sources (M3U, Xtream, SAT>IP, HDHomeRun, tvproxy-streams, SpaceX/Space Launches, Radio Garden, Trailers, Demo) to playback sinks (Browser MSE/HLS/DASH/WebRTC, Jellyfin emulation, Plex/HDHR emulation, DLNA, VLC/direct stream) with intelligent format negotiation.
 
 ## Build & Test
 
@@ -81,6 +81,7 @@ pkg/
   strategy/                   — copy vs transcode resolution
   tmdb/                       — TMDB metadata client
   xmltv/                      — XMLTV EPG parser
+  youtube/                    — YouTube URL resolver (watch URL → direct stream URL)
 web/dist/app.js               — vanilla JS SPA (single file, embedded)
 ```
 
@@ -181,6 +182,11 @@ type PacketSink interface {
 - **Strategy unknown input**: Even with unknown source codec, explicit output codec means transcode
 - **Session stop race**: If `waitFinished` times out before `av_read_frame` returns, freeing the demuxer causes SEGV
 - **First keyframe race (WebRTC)**: Pipeline may encode keyframe before WebRTC peer connects — keyframe dropped, browser only sees P-frames. Known issue, needs keyframe buffering.
+- **Audio-only streams**: Record, MSE, and other plugins support audio-only (no video stream). MSE `WaitReady` checks for either video or audio init segment.
+- **TMDB pending index**: Bolt StreamStore maintains a `tmdb:unresolved:` prefix index for streams awaiting TMDB metadata. Methods: `TMDBPendingBatch`, `TMDBPendingCount`, `TMDBPendingRemove`, `TMDBPendingReconcile`. These are bolt-specific, not on the StreamStore interface.
+- **YouTube resolver**: `pkg/youtube` resolves YouTube watch URLs to direct streamable URLs at pipeline open time. Source plugins store canonical YouTube URLs; resolution is deferred.
+- **Radio Garden multi-place**: Config accepts `[]Place` (not single PlaceID). Fetches channels for all configured places, deduplicates across cities.
+- **Space source uses Launch Library 2**: Fetches from thespacedevs.com (all providers), not the old SpaceX v4 API. Paginated with rate limiting.
 
 ## Service Management
 

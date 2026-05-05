@@ -29,10 +29,20 @@ Opens a bbolt database file. Creates all required buckets on open. Returns typed
 Get(ctx, id) (*media.Stream, error)
 List(ctx) ([]media.Stream, error)
 ListBySource(ctx, sourceType, sourceID) ([]media.Stream, error)
+ListBySourceAndType(ctx, sourceType, sourceID, vodType) ([]media.Stream, error)
+ListByVODType(ctx, vodType) ([]media.Stream, error)
+CountBySource(ctx, sourceType, sourceID) (int, error)
+CountBySourceAndType(ctx, sourceType, sourceID, vodType) (int, error)
 BulkUpsert(ctx, streams) error
 DeleteBySource(ctx, sourceType, sourceID) error
 DeleteStaleBySource(ctx, sourceType, sourceID, keepIDs) ([]string, error)
 Save() error  // no-op
+
+// TMDB pending index — tracks streams awaiting TMDB metadata resolution
+TMDBPendingBatch(ctx, limit) ([]media.TMDBPendingEntry, error)
+TMDBPendingCount(ctx) (int, error)
+TMDBPendingRemove(ctx, streamID) error
+TMDBPendingReconcile(ctx) (int, error)
 ```
 
 ## SettingsStore

@@ -222,6 +222,12 @@ func TestCleanVODName(t *testing.T) {
 		{"The Matrix (1999) {4K}", "The Matrix", "1999"},
 		{"Inception", "Inception", ""},
 		{"Movie {Director's Cut} (2020)", "Movie", "2020"},
+		{"FR: Les Babysitters", "Les Babysitters", ""},
+		{"EN: The Matrix (1999)", "The Matrix", "1999"},
+		{"PT: Broad Peak (2022)", "Broad Peak", "2022"},
+		{"DE: Der Untergang (2004)", "Der Untergang", "2004"},
+		{"EXYU: Some Movie (2020)", "Some Movie", "2020"},
+		{"AR: Film Name", "Film Name", ""},
 	}
 	for _, tt := range tests {
 		clean, year := cleanVODName(tt.input)

@@ -11,7 +11,10 @@ Provides a set of hardcoded public test streams for demonstration and testing. I
 ## Implements
 - `source.Source` (Info, Refresh, Streams, DeleteStreams, Type)
 
+## Config
+- ID, Name, IsEnabled, StreamStore
+- `OnRefreshDone func(sourceID, etag string, streamCount int)` — callback after refresh completes
+
 ## Does NOT
 - Fetch anything from external APIs — all URLs are hardcoded
-- Require any configuration beyond ID, Name, and IsEnabled
 - Own the stream store — uses the provided StreamStore interface

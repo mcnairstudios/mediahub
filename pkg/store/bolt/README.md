@@ -22,7 +22,7 @@ All stores use `pkg/store/bolt/keyenc/` for structured key encoding. Keys are co
 
 | Store | Key Pattern | Index |
 |-------|------------|-------|
-| Streams | `streams:{sourceType}:{sourceID}:{vodType}:{streamID}` | `streamidx:{streamID}` -> full key |
+| Streams | `streams:{sourceType}:{sourceID}:{vodType}:{streamID}` | `streamidx:{streamID}` -> full key, `tmdb:unresolved:{streamID}` -> source key |
 | Channels | `channels:{groupID}:{channelID}` | `channelidx:{channelID}` -> full key |
 | Groups | `groups:{groupID}` | |
 | EPG Programs | `programs:{channelID}:{startUnix}` | |

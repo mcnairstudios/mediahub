@@ -19,6 +19,10 @@ Two paths depending on whether the bridge provides AudioExtradata:
 
 Video packets always pass through to the muxer unchanged.
 
+## Audio-Only Support
+
+When no video info is provided (e.g. radio streams), the MSE plugin operates in audio-only mode. `WaitReady` returns as soon as either a video init segment or audio init segment is available, so audio-only streams don't block waiting for a video segment that will never arrive.
+
 ## Does NOT
 - Know about HLS, stream copy, or recording — it's one delivery plugin
 - Manage sessions — the session manager handles lifecycle

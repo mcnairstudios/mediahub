@@ -14,6 +14,10 @@ Provides streams from TMDB movie trailers. Fetches upcoming and now-playing movi
 ## Implements
 - `source.Source` (Info, Refresh, Streams, DeleteStreams, Type)
 
+## Config
+- ID, Name, IsEnabled, TMDBKey, StreamStore, HTTPClient
+- `OnRefreshDone func(sourceID, etag string, streamCount int)` — callback after refresh completes
+
 ## Does NOT
 - Cache TMDB responses across refreshes
 - Own the stream store — uses the provided StreamStore interface
