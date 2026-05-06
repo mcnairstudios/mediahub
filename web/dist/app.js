@@ -7,6 +7,8 @@
   var bwTotalBytes = 0;
   var bwTotalSec = 0;
   var bwEstimate = 0;
+  var _sourceTypes = [];
+  var _sourceTypesLoaded = false;
   try {
     var bwStored = JSON.parse(sessionStorage.getItem('mediahub_bw') || '{}');
     if (bwStored.ts && Date.now() - bwStored.ts < 300000) {
@@ -186,6 +188,149 @@
     async put(path, body) { return this.request('PUT', path, body); },
     async del(path) { return this.request('DELETE', path); }
   };
+
+  async function _loadSourceTypes() {
+    if (_sourceTypesLoaded) return _sourceTypes;
+    try {
+      var resp = await api.get('/api/source-types');
+      var data = await resp.json();
+      if (Array.isArray(data)) _sourceTypes = data;
+      _sourceTypesLoaded = true;
+    } catch (e) {
+      console.error('Failed to load source types:', e);
+    }
+    return _sourceTypes;
+  }
+
+  function _sourceTypeColor(type) {
+    for (var i = 0; i < _sourceTypes.length; i++) {
+      if (_sourceTypes[i].type === type) return _sourceTypes[i].color || 'var(--text-muted)';
+    }
+    return 'var(--text-muted)';
+  }
+
+  function _sourceTypeShortLabel(type) {
+    for (var i = 0; i < _sourceTypes.length; i++) {
+      if (_sourceTypes[i].type === type) return _sourceTypes[i].short_label || type.toUpperCase();
+    }
+    return type.toUpperCase();
+  }
+
+  function _sourceTypeLabel(type) {
+    for (var i = 0; i < _sourceTypes.length; i++) {
+      if (_sourceTypes[i].type === type) return _sourceTypes[i].label || type;
+    }
+    return type;
+  }
+
+  function _showGenericAddSourceModal(sourceType) {
+    var st = null;
+    for (var i = 0; i < _sourceTypes.length; i++) {
+      if (_sourceTypes[i].type === sourceType) { st = _sourceTypes[i]; break; }
+    }
+    if (!st) return;
+
+    var existingOverlay = document.getElementById('generic-source-overlay');
+    if (existingOverlay) existingOverlay.remove();
+
+    var fields = st.config_fields || [];
+    var fieldsHtml = '';
+    for (var f = 0; f < fields.length; f++) {
+      var field = fields[f];
+      if (field.type === 'hidden') continue;
+      if (field.type === 'custom') continue;
+      var inputHtml = '';
+      var fieldId = 'gen-src-' + field.key;
+      var req = field.required ? ' required' : '';
+      if (field.type === 'bool') {
+        inputHtml = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+          '<input type="checkbox" id="' + fieldId + '"' + (field.default === 'true' ? ' checked' : '') + ' style="width:18px;height:18px">' +
+          ' ' + esc(field.label) + '</label>';
+      } else if (field.type === 'select') {
+        var opts = '';
+        var options = field.options || [];
+        for (var o = 0; o < options.length; o++) {
+          opts += '<option value="' + esc(options[o].value) + '"' + (options[o].value === field.default ? ' selected' : '') + '>' + esc(options[o].label) + '</option>';
+        }
+        inputHtml = '<label style="display:block;margin-bottom:4px;font-weight:500">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
+          '<select id="' + fieldId + '" class="form-input" style="width:100%">' + opts + '</select>';
+      } else {
+        var inputType = field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : field.type === 'url' ? 'url' : 'text';
+        inputHtml = '<label style="display:block;margin-bottom:4px;font-weight:500">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
+          '<input type="' + inputType + '" id="' + fieldId + '" class="form-input" style="width:100%"' +
+          (field.placeholder ? ' placeholder="' + esc(field.placeholder) + '"' : '') +
+          (field.default ? ' value="' + esc(field.default) + '"' : '') +
+          req + '>';
+      }
+      if (field.help_text) {
+        inputHtml += '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">' + esc(field.help_text) + '</div>';
+      }
+      fieldsHtml += '<div style="margin-bottom:12px">' + inputHtml + '</div>';
+    }
+
+    var overlay = document.createElement('div');
+    overlay.id = 'generic-source-overlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML =
+      '<div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;position:relative" class="source-modal-form">' +
+      '<h2 style="margin:0 0 16px">Add ' + esc(st.label) + ' Source</h2>' +
+      '<div style="margin-bottom:12px">' +
+        '<label style="display:block;margin-bottom:4px;font-weight:500">Name *</label>' +
+        '<input type="text" id="gen-src-name" class="form-input" style="width:100%" placeholder="My ' + esc(st.label) + '" required>' +
+      '</div>' +
+      fieldsHtml +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">' +
+        '<button class="btn btn-ghost" id="gen-src-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="gen-src-create">Create</button>' +
+      '</div>' +
+      '</div>';
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+
+    document.getElementById('gen-src-cancel').addEventListener('click', function() { overlay.remove(); });
+    document.getElementById('gen-src-create').addEventListener('click', async function() {
+      var nameEl = document.getElementById('gen-src-name');
+      var name = nameEl ? nameEl.value.trim() : '';
+      if (!name) { toast('Name is required', 'error'); return; }
+
+      var body = { name: name };
+      for (var f = 0; f < fields.length; f++) {
+        var field = fields[f];
+        if (field.type === 'hidden' || field.type === 'custom') continue;
+        var el = document.getElementById('gen-src-' + field.key);
+        if (!el) continue;
+        if (field.type === 'bool') {
+          body[field.key] = el.checked ? 'true' : 'false';
+        } else {
+          var val = el.value.trim();
+          if (field.required && !val) {
+            toast(field.label + ' is required', 'error');
+            return;
+          }
+          if (val) body[field.key] = val;
+        }
+      }
+
+      try {
+        var resp = await api.post('/api/source-plugins/' + encodeURIComponent(sourceType), body);
+        if (!resp.ok) {
+          var err = await resp.json().catch(function() { return {}; });
+          toast(err.error || 'Failed to create source', 'error');
+          return;
+        }
+        toast(st.label + ' source created', 'success');
+        overlay.remove();
+        _sourceTypesLoaded = false;
+        sessionStorage.removeItem('mediahub_sources');
+        router.navigate('streams');
+      } catch (e) {
+        toast('Failed to create source: ' + e.message, 'error');
+      }
+    });
+  }
 
   var PlayerRegistry = {
     _players: {},
@@ -638,6 +783,7 @@
     });
 
     try {
+      await _loadSourceTypes();
       var resp = await api.get('/api/dashboard/stats');
       var stats = await resp.json();
 
@@ -655,13 +801,11 @@
 
       var sourcesEl = document.getElementById('dash-sources');
       if (sourcesEl && stats.sources) {
-        var srcTypeColors = { m3u: 'var(--accent)', tvpstreams: 'var(--success)', xtream: 'var(--warning)', hdhr: '#4fc3f7', satip: '#ce93d8', trailers: '#ff9800', demo: '#66bb6a', spacex: '#1e88e5', radiogarden: '#43a047' };
-        var srcTypeLabels = { m3u: 'M3U', tvpstreams: 'TVP', xtream: 'XT', hdhr: 'HDHR', satip: 'SAT', trailers: 'TRL', demo: 'DEMO', spacex: 'SPACE', radiogarden: 'RG' };
         var sHtml = '';
         for (var si = 0; si < stats.sources.length; si++) {
           var src = stats.sources[si];
-          var color = srcTypeColors[src.type] || 'var(--text-muted)';
-          var label = srcTypeLabels[src.type] || src.type.toUpperCase();
+          var color = _sourceTypeColor(src.type);
+          var label = _sourceTypeShortLabel(src.type);
           var statusDot = src.is_enabled
             ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success)"></span>'
             : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>';
@@ -781,6 +925,7 @@
       '<div id="stream-list"></div>';
 
     try {
+      await _loadSourceTypes();
       var resp = await api.get('/api/sources');
       var sources = await resp.json();
       if (!Array.isArray(sources)) sources = [];
@@ -795,21 +940,8 @@
     }
   }
 
-  var _addSourceTypes = {
-    m3u: { label: 'M3U', form: 'add-m3u-form' },
-    tvpstreams: { label: 'TVP Streams', form: 'add-tvp-form' },
-    xtream: { label: 'Xtream Codes', form: 'add-xtream-form' },
-    hdhr: { label: 'HDHomeRun', form: 'add-hdhr-form' },
-    satip: { label: 'SAT>IP', form: 'add-satip-form' },
-    radiogarden: { label: 'Radio Garden', form: 'add-radiogarden-form' },
-    spacex: { label: 'Space Launches', form: 'add-spacex-form' },
-    trailers: { label: 'TMDB Trailers', form: 'add-trailers-form' },
-    demo: { label: 'Demo Streams', form: 'add-demo-form' }
-  };
-
-  function _navigateToAddSource(formId) {
-    window._autoOpenSourceForm = formId;
-    router.navigate('sources');
+  function _navigateToAddSource(sourceType) {
+    _showGenericAddSourceModal(sourceType);
   }
 
   function buildSourcePicker(el, sources) {
@@ -826,9 +958,8 @@
       var firstDd = document.getElementById('stream-add-first-dropdown');
       if (firstBtn && firstDd) {
         var ddHtml = '';
-        var keys = Object.keys(_addSourceTypes);
-        for (var k = 0; k < keys.length; k++) {
-          ddHtml += '<div class="stream-add-source-item" data-form="' + _addSourceTypes[keys[k]].form + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + _addSourceTypes[keys[k]].label + '</div>';
+        for (var k = 0; k < _sourceTypes.length; k++) {
+          ddHtml += '<div class="stream-add-source-item" data-source-type="' + esc(_sourceTypes[k].type) + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + esc(_sourceTypes[k].label) + '</div>';
         }
         firstDd.innerHTML = ddHtml;
         firstBtn.addEventListener('click', function(e) {
@@ -839,7 +970,7 @@
           var item = e.target.closest('.stream-add-source-item');
           if (!item) return;
           firstDd.style.display = 'none';
-          _navigateToAddSource(item.getAttribute('data-form'));
+          _navigateToAddSource(item.getAttribute('data-source-type'));
         });
         firstDd.querySelectorAll('.stream-add-source-item').forEach(function(item) {
           item.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
@@ -858,7 +989,7 @@
     var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     for (var i = 0; i < sources.length; i++) {
       var src = sources[i];
-      var typeBadge = src.type === 'tvpstreams' ? 'TVP' : src.type === 'xtream' ? 'Xtream' : src.type === 'hdhr' ? 'HDHR' : src.type === 'satip' ? 'SAT>IP' : src.type === 'trailers' ? 'TMDB' : src.type === 'demo' ? 'Demo' : src.type === 'spacex' ? 'Space' : src.type === 'radiogarden' ? 'Radio' : 'M3U';
+      var typeBadge = _sourceTypeShortLabel(src.type);
       html += '<button class="btn btn-ghost stream-source-tab" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '" data-source-name="' + esc(src.name) + '">' +
         esc(src.name) + ' <span class="stream-badge" style="font-size:10px">' + typeBadge + '</span>' +
         '<span class="stream-group-count">' + (src.stream_count || 0) + '</span></button>';
@@ -874,9 +1005,8 @@
     var addDd = document.getElementById('stream-add-source-dropdown');
     if (addBtn && addDd) {
       var ddHtml = '';
-      var keys = Object.keys(_addSourceTypes);
-      for (var k = 0; k < keys.length; k++) {
-        ddHtml += '<div class="stream-add-source-item" data-form="' + _addSourceTypes[keys[k]].form + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + _addSourceTypes[keys[k]].label + '</div>';
+      for (var k = 0; k < _sourceTypes.length; k++) {
+        ddHtml += '<div class="stream-add-source-item" data-source-type="' + esc(_sourceTypes[k].type) + '" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">' + esc(_sourceTypes[k].label) + '</div>';
       }
       ddHtml += '<div style="border-top:1px solid var(--border);margin:4px 0"></div>';
       ddHtml += '<div class="stream-add-source-item" data-action="discover-hdhr" style="padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background 0.15s">Discover HDHomeRun</div>';
@@ -894,7 +1024,7 @@
           router.navigate('sources');
           return;
         }
-        _navigateToAddSource(item.getAttribute('data-form'));
+        _navigateToAddSource(item.getAttribute('data-source-type'));
       });
       addDd.querySelectorAll('.stream-add-source-item').forEach(function(item) {
         item.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
