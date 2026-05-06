@@ -26,6 +26,7 @@ type Plugin struct {
 	segDir     string
 	videoTB    astiav.Rational
 	audioTB    astiav.Rational
+	hasVideo   bool
 	hasAudio   bool
 	generation atomic.Int64
 	stopped    bool
@@ -37,8 +38,10 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	if cfg.OutputDir == "" {
 		return nil, errors.New("hls: OutputDir is required")
 	}
-	if cfg.Video == nil && cfg.VideoCodecParams == nil {
-		return nil, errors.New("hls: Video info or VideoCodecParams is required")
+	hasVideo := cfg.Video != nil || cfg.VideoCodecParams != nil
+	hasAudio := cfg.Audio != nil || cfg.AudioCodecParams != nil
+	if !hasVideo && !hasAudio {
+		return nil, errors.New("hls: at least one of Video or Audio must be configured")
 	}
 
 	segDir := filepath.Join(cfg.OutputDir, "segments")
@@ -76,7 +79,10 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		OutputDir:          segDir,
 		SegmentDurationSec: segDur,
 		SegmentType:        segType,
-		VideoTimeBase:      astiav.NewRational(1, 90000),
+	}
+
+	if hasVideo {
+		hlsOpts.VideoTimeBase = astiav.NewRational(1, 90000)
 	}
 
 	if cfg.VideoCodecParams != nil {
@@ -151,7 +157,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		segDir:   segDir,
 		videoTB:  videoTB,
 		audioTB:  audioTB,
-		hasAudio: cfg.Audio != nil,
+		hasVideo: hasVideo,
+		hasAudio: hasAudio,
 	}
 	p.generation.Store(1)
 
@@ -172,7 +179,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped || p.muxer == nil {
+	if p.stopped || p.muxer == nil || !p.hasVideo {
 		return nil
 	}
 

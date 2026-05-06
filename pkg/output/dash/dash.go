@@ -49,6 +49,7 @@ type Plugin struct {
 	videoTB            astiav.Rational
 	audioTB            astiav.Rational
 	needsAnnexBConvert bool
+	hasVideo           bool
 	hasAudio           bool
 	deferredMuxOpts    *mux.MuxOpts
 
@@ -97,41 +98,47 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		VideoTimeBase: p.videoTB,
 	}
 
-	if len(cfg.VideoExtradata) > 0 {
-		muxOpts.VideoExtradata = cfg.VideoExtradata
-	}
-	if cfg.VideoCodecParams != nil {
-		vcp, _ := cfg.VideoCodecParams.(*astiav.CodecParameters)
-		if vcp != nil {
-			muxOpts.VideoCodecID = vcp.CodecID()
-			if len(muxOpts.VideoExtradata) == 0 {
-				muxOpts.VideoExtradata = vcp.ExtraData()
+	// Determine if we have video configuration.
+	hasVideoConfig := cfg.Video != nil || cfg.VideoCodecParams != nil
+
+	if hasVideoConfig {
+		if len(cfg.VideoExtradata) > 0 {
+			muxOpts.VideoExtradata = cfg.VideoExtradata
+		}
+		if cfg.VideoCodecParams != nil {
+			vcp, _ := cfg.VideoCodecParams.(*astiav.CodecParameters)
+			if vcp != nil {
+				muxOpts.VideoCodecID = vcp.CodecID()
+				if len(muxOpts.VideoExtradata) == 0 {
+					muxOpts.VideoExtradata = vcp.ExtraData()
+				}
+				if len(muxOpts.VideoExtradata) == 0 && cfg.Video != nil {
+					muxOpts.VideoExtradata = cfg.Video.Extradata
+				}
+				muxOpts.VideoWidth = vcp.Width()
+				muxOpts.VideoHeight = vcp.Height()
 			}
-			if len(muxOpts.VideoExtradata) == 0 && cfg.Video != nil {
+		}
+		if muxOpts.VideoCodecID == 0 && cfg.Video != nil {
+			codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
+			if err != nil {
+				return nil, fmt.Errorf("dash: video codec: %w", err)
+			}
+			muxOpts.VideoCodecID = codecID
+			if len(muxOpts.VideoExtradata) == 0 {
 				muxOpts.VideoExtradata = cfg.Video.Extradata
 			}
-			muxOpts.VideoWidth = vcp.Width()
-			muxOpts.VideoHeight = vcp.Height()
+			muxOpts.VideoWidth = cfg.Video.Width
+			muxOpts.VideoHeight = cfg.Video.Height
 		}
-	}
-	if muxOpts.VideoCodecID == 0 && cfg.Video != nil {
-		codecID, err := conv.CodecIDFromString(cfg.Video.Codec)
-		if err != nil {
-			return nil, fmt.Errorf("dash: video codec: %w", err)
-		}
-		muxOpts.VideoCodecID = codecID
-		if len(muxOpts.VideoExtradata) == 0 {
-			muxOpts.VideoExtradata = cfg.Video.Extradata
-		}
-		muxOpts.VideoWidth = cfg.Video.Width
-		muxOpts.VideoHeight = cfg.Video.Height
-	}
 
-	p.videoWidth = muxOpts.VideoWidth
-	p.videoHeight = muxOpts.VideoHeight
-	p.videoBandwidth = 2000000
-	if cfg.Video != nil {
-		p.videoCodecStr = cfg.Video.Codec
+		p.hasVideo = true
+		p.videoWidth = muxOpts.VideoWidth
+		p.videoHeight = muxOpts.VideoHeight
+		p.videoBandwidth = 2000000
+		if cfg.Video != nil {
+			p.videoCodecStr = cfg.Video.Codec
+		}
 	}
 
 	if len(cfg.AudioExtradata) > 0 {
@@ -329,7 +336,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool)
 		}
 	}()
 
-	if p.stopped.Load() {
+	if p.stopped.Load() || !p.hasVideo {
 		return nil
 	}
 
@@ -535,8 +542,14 @@ func (p *Plugin) WaitReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if p.watcher.VideoInit() != nil {
-				return nil
+			if p.hasVideo {
+				if p.watcher.VideoInit() != nil {
+					return nil
+				}
+			} else if p.hasAudio {
+				if p.watcher.AudioInit() != nil {
+					return nil
+				}
 			}
 		}
 	}
@@ -578,13 +591,16 @@ func (p *Plugin) serveManifest(w http.ResponseWriter) {
 	audioDuration := segDur * audioTimescale
 
 	videoCount := p.watcher.videoSegs.Count()
+	audioCount := p.watcher.audioSegs.Count()
 
 	var videoCodec string
-	if p.muxer != nil {
-		videoCodec = p.muxer.VideoCodecString()
-	}
-	if videoCodec == "" {
-		videoCodec = "avc1.640028"
+	if p.hasVideo {
+		if p.muxer != nil {
+			videoCodec = p.muxer.VideoCodecString()
+		}
+		if videoCodec == "" {
+			videoCodec = "avc1.640028"
+		}
 	}
 
 	isLive := p.cfg.IsLive || !p.eos.Load()
@@ -602,7 +618,12 @@ func (p *Plugin) serveManifest(w http.ResponseWriter) {
 			mpdType, p.startTime.Format(time.RFC3339), segDur,
 		))
 	} else {
-		totalDur := time.Duration(videoCount*segDur) * time.Second
+		// Use video segment count for duration when available, otherwise audio.
+		segCount := videoCount
+		if segCount == 0 {
+			segCount = audioCount
+		}
+		totalDur := time.Duration(segCount*segDur) * time.Second
 		b.WriteString(fmt.Sprintf(
 			`<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="%s" mediaPresentationDuration="%s" minBufferTime="PT%dS" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">`,
 			mpdType, formatDuration(totalDur), segDur,
@@ -610,15 +631,17 @@ func (p *Plugin) serveManifest(w http.ResponseWriter) {
 	}
 	b.WriteString("\n<Period>\n")
 
-	b.WriteString(fmt.Sprintf(
-		`<AdaptationSet mimeType="video/mp4" contentType="video" segmentAlignment="true" startWithSAP="1">`+"\n"+
-			`<Representation id="video" bandwidth="%d" width="%d" height="%d" codecs="%s">`+"\n"+
-			`<SegmentTemplate media="video/$Number$.m4s" initialization="init-video.mp4" startNumber="1" timescale="%d" duration="%d"/>`+"\n"+
-			`</Representation>`+"\n"+
-			`</AdaptationSet>`+"\n",
-		p.videoBandwidth, p.videoWidth, p.videoHeight, videoCodec,
-		videoTimescale, videoDuration,
-	))
+	if p.hasVideo {
+		b.WriteString(fmt.Sprintf(
+			`<AdaptationSet mimeType="video/mp4" contentType="video" segmentAlignment="true" startWithSAP="1">`+"\n"+
+				`<Representation id="video" bandwidth="%d" width="%d" height="%d" codecs="%s">`+"\n"+
+				`<SegmentTemplate media="video/$Number$.m4s" initialization="init-video.mp4" startNumber="1" timescale="%d" duration="%d"/>`+"\n"+
+				`</Representation>`+"\n"+
+				`</AdaptationSet>`+"\n",
+			p.videoBandwidth, p.videoWidth, p.videoHeight, videoCodec,
+			videoTimescale, videoDuration,
+		))
+	}
 
 	if p.hasAudio {
 		b.WriteString(fmt.Sprintf(

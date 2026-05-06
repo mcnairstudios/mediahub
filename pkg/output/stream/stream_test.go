@@ -211,7 +211,7 @@ func TestConstructionVideoOnly(t *testing.T) {
 	}
 }
 
-func TestPushAudioNoAudioStream(t *testing.T) {
+func TestVideoOnlyPushAudioIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	cfg := output.PluginConfig{
 		OutputFilePath: filepath.Join(dir, "video_only.ts"),
@@ -226,6 +226,39 @@ func TestPushAudioNoAudioStream(t *testing.T) {
 
 	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0); err != nil {
 		t.Fatalf("PushAudio with no audio stream should return nil, got: %v", err)
+	}
+}
+
+func TestVideoOnlyPushVideoWritesToFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video:          testVideo(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		pts := int64(i) * 33_333_333
+		if err := p.PushVideo(makeNALU(4096), pts, pts, 0, i == 0); err != nil {
+			t.Fatalf("PushVideo[%d]: %v", i, err)
+		}
+	}
+
+	p.Stop()
+
+	info, err := os.Stat(p.FilePath())
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("expected file to have data after video-only PushVideo + Stop")
+	}
+	if p.FileSize() == 0 {
+		t.Fatal("expected non-zero FileSize after video-only PushVideo + Stop")
 	}
 }
 
@@ -255,6 +288,93 @@ func TestFilePathReturnsOutputPath(t *testing.T) {
 
 	if p.FilePath() != filePath {
 		t.Fatalf("expected %q, got %q", filePath, p.FilePath())
+	}
+}
+
+func TestConstructionAudioOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "audio_only.ts"),
+		OutputFormat:   "mpegts",
+		Audio:          testAudio(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New with audio-only should work: %v", err)
+	}
+	defer p.Stop()
+
+	if p.videoIdx != -1 {
+		t.Fatal("expected videoIdx to be -1 for audio-only")
+	}
+	if p.audioIdx < 0 {
+		t.Fatal("expected valid audioIdx for audio-only")
+	}
+	if p.Mode() != output.DeliveryStream {
+		t.Fatalf("expected mode %s, got %s", output.DeliveryStream, p.Mode())
+	}
+}
+
+func TestAudioOnlyPushVideoIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "audio_only.ts"),
+		OutputFormat:   "mpegts",
+		Audio:          testAudio(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+
+	if err := p.PushVideo(makeNALU(128), 0, 0, 0, true); err != nil {
+		t.Fatalf("PushVideo on audio-only should return nil, got: %v", err)
+	}
+}
+
+func TestAudioOnlyPushAudioWritesToFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "audio_only.ts"),
+		OutputFormat:   "mpegts",
+		Audio:          testAudio(),
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		pts := int64(i) * 21_333_333
+		if err := p.PushAudio(make([]byte, 1024), pts, pts, 0); err != nil {
+			t.Fatalf("PushAudio[%d]: %v", i, err)
+		}
+	}
+
+	p.Stop()
+
+	info, err := os.Stat(p.FilePath())
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("expected file to have data after audio-only PushAudio + Stop")
+	}
+	if p.FileSize() == 0 {
+		t.Fatal("expected non-zero FileSize after audio-only PushAudio + Stop")
+	}
+}
+
+func TestConstructionNoStreamsReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "empty.ts"),
+		OutputFormat:   "mpegts",
+	}
+	_, err := New(cfg)
+	if err == nil {
+		t.Fatal("expected error when no audio or video streams configured")
 	}
 }
 

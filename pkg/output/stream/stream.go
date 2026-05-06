@@ -126,6 +126,12 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		p.audioIdx = audioStream.Index()
 	}
 
+	if videoStream == nil && audioStream == nil {
+		muxer.Close()
+		f.Close()
+		return nil, errors.New("stream: at least one audio or video stream is required")
+	}
+
 	if err := muxer.WriteHeader(); err != nil {
 		muxer.Close()
 		f.Close()

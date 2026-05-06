@@ -48,6 +48,8 @@ type Plugin struct {
 	videoTS  uint32
 	audioTS  uint32
 
+	hasVideo    bool
+	hasAudio    bool
 	videoCodec  string
 	videoFPS    float64
 	lastVideoPTS int64
@@ -65,6 +67,9 @@ type Plugin struct {
 func New(cfg output.PluginConfig) (output.OutputPlugin, error) {
 	log := zerolog.New(os.Stderr).With().Str("plugin", "webrtc").Logger()
 
+	hasVideo := cfg.Video != nil || cfg.VideoCodecParams != nil
+	hasAudio := cfg.Audio != nil || cfg.AudioCodecParams != nil
+
 	codec := "h264"
 	fps := 30.0
 	if cfg.Video != nil {
@@ -81,10 +86,12 @@ func New(cfg output.PluginConfig) (output.OutputPlugin, error) {
 		log:        log,
 		videoCodec: codec,
 		videoFPS:   fps,
+		hasVideo:   hasVideo,
+		hasAudio:   hasAudio,
 	}
 	p.generation.Store(1)
 
-	log.Info().Str("video_codec", codec).Float64("fps", fps).Msg("webrtc plugin created")
+	log.Info().Str("video_codec", codec).Float64("fps", fps).Bool("has_video", hasVideo).Bool("has_audio", hasAudio).Msg("webrtc plugin created")
 
 	return p, nil
 }
@@ -306,36 +313,42 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: p.videoMimeType(), ClockRate: videoClockRate},
-		"video", "mediahub",
-	)
-	if err != nil {
-		pc.Close()
-		http.Error(w, fmt.Sprintf("create video track: %v", err), http.StatusInternalServerError)
-		return
+	var videoTrack *webrtc.TrackLocalStaticRTP
+	if p.hasVideo {
+		videoTrack, err = webrtc.NewTrackLocalStaticRTP(
+			webrtc.RTPCodecCapability{MimeType: p.videoMimeType(), ClockRate: videoClockRate},
+			"video", "mediahub",
+		)
+		if err != nil {
+			pc.Close()
+			http.Error(w, fmt.Sprintf("create video track: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		if _, err = pc.AddTrack(videoTrack); err != nil {
+			pc.Close()
+			http.Error(w, fmt.Sprintf("add video track: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	if _, err = pc.AddTrack(videoTrack); err != nil {
-		pc.Close()
-		http.Error(w, fmt.Sprintf("add video track: %v", err), http.StatusInternalServerError)
-		return
-	}
+	var audioTrack *webrtc.TrackLocalStaticRTP
+	if p.hasAudio {
+		audioTrack, err = webrtc.NewTrackLocalStaticRTP(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: audioClockRate, Channels: 2},
+			"audio", "mediahub",
+		)
+		if err != nil {
+			pc.Close()
+			http.Error(w, fmt.Sprintf("create audio track: %v", err), http.StatusInternalServerError)
+			return
+		}
 
-	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: audioClockRate, Channels: 2},
-		"audio", "mediahub",
-	)
-	if err != nil {
-		pc.Close()
-		http.Error(w, fmt.Sprintf("create audio track: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	if _, err = pc.AddTrack(audioTrack); err != nil {
-		pc.Close()
-		http.Error(w, fmt.Sprintf("add audio track: %v", err), http.StatusInternalServerError)
-		return
+		if _, err = pc.AddTrack(audioTrack); err != nil {
+			pc.Close()
+			http.Error(w, fmt.Sprintf("add audio track: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	offer := webrtc.SessionDescription{

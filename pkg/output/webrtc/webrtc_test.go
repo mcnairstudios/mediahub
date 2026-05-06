@@ -527,6 +527,67 @@ func TestPacketizeHEVCSequenceNumbers(t *testing.T) {
 	}
 }
 
+func TestNewAudioOnly(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Audio: &media.AudioTrack{Codec: "aac"},
+	})
+	require.NoError(t, err)
+	plugin := p.(*Plugin)
+	assert.False(t, plugin.hasVideo)
+}
+
+func TestNewWithVideoHasVideo(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Video: &media.VideoInfo{Codec: "h264", FramerateN: 25, FramerateD: 1},
+	})
+	require.NoError(t, err)
+	plugin := p.(*Plugin)
+	assert.True(t, plugin.hasVideo)
+}
+
+func TestAudioOnlyPushVideoNoop(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Audio: &media.AudioTrack{Codec: "aac"},
+	})
+	require.NoError(t, err)
+
+	// PushVideo should return nil immediately for audio-only
+	err = p.PushVideo([]byte{0, 0, 0, 1, 0x65, 0xFF}, 0, 0, 0, true)
+	assert.NoError(t, err)
+}
+
+func TestAudioOnlyPushAudioNoTrack(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Audio: &media.AudioTrack{Codec: "aac"},
+	})
+	require.NoError(t, err)
+
+	// PushAudio should return nil when no peer connection yet
+	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0)
+	assert.NoError(t, err)
+}
+
+func TestNewVideoOnly(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Video: &media.VideoInfo{Codec: "h264", FramerateN: 30, FramerateD: 1},
+	})
+	require.NoError(t, err)
+	plugin := p.(*Plugin)
+	assert.True(t, plugin.hasVideo)
+	assert.False(t, plugin.hasAudio)
+}
+
+func TestVideoOnlyPushAudioNoop(t *testing.T) {
+	p, err := New(output.PluginConfig{
+		Video: &media.VideoInfo{Codec: "h264", FramerateN: 25, FramerateD: 1},
+	})
+	require.NoError(t, err)
+
+	// PushAudio should return nil immediately for video-only (no audio track)
+	err = p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0)
+	assert.NoError(t, err)
+}
+
 func TestSplitAVCCMultiple(t *testing.T) {
 	data := []byte{
 		0, 0, 0, 1, 0x67,

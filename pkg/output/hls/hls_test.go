@@ -161,13 +161,85 @@ func TestConstructionMissingOutputDir(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestConstructionMissingVideo(t *testing.T) {
+func TestConstructionMissingVideoAndAudio(t *testing.T) {
 	cfg := output.PluginConfig{
 		OutputDir: t.TempDir(),
-		Audio:     &media.AudioTrack{Codec: "aac", SampleRate: 48000, Channels: 2},
 	}
 	_, err := New(cfg)
 	assert.Error(t, err)
+}
+
+func TestConstructionAudioOnly(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Audio: &media.AudioTrack{
+			Codec:      "aac",
+			SampleRate: 48000,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Equal(t, output.DeliveryHLS, p.Mode())
+	assert.True(t, p.Status().Healthy)
+}
+
+func TestAudioOnlyPushVideoIsNoop(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Audio: &media.AudioTrack{
+			Codec:      "aac",
+			SampleRate: 48000,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65}, 0, 0, 0, true)
+	assert.NoError(t, err)
+}
+
+func TestAudioOnlyResetForSeek(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Audio: &media.AudioTrack{
+			Codec:      "aac",
+			SampleRate: 48000,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Equal(t, int64(1), p.Generation())
+	p.ResetForSeek()
+	assert.Equal(t, int64(2), p.Generation())
+}
+
+func TestAudioOnlyMP3(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Audio: &media.AudioTrack{
+			Codec:      "mp3",
+			SampleRate: 44100,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Equal(t, output.DeliveryHLS, p.Mode())
+	assert.True(t, p.Status().Healthy)
 }
 
 func TestServePlaylistNotReady(t *testing.T) {
@@ -297,6 +369,54 @@ func TestPushAudioNoAudioStreamHLS(t *testing.T) {
 
 	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0, 0)
 	assert.NoError(t, err)
+}
+
+func TestConstructionVideoOnly(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Video: &media.VideoInfo{
+			Codec:      "h264",
+			Width:      1920,
+			Height:     1080,
+			FramerateN: 25,
+			FramerateD: 1,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Equal(t, output.DeliveryHLS, p.Mode())
+	assert.True(t, p.Status().Healthy)
+	assert.False(t, p.hasAudio)
+	assert.True(t, p.hasVideo)
+}
+
+func TestVideoOnlyPushAudioIsNoop(t *testing.T) {
+	cfg := output.PluginConfig{
+		OutputDir:          t.TempDir(),
+		SegmentDurationSec: 6,
+		Video: &media.VideoInfo{
+			Codec:      "h264",
+			Width:      1920,
+			Height:     1080,
+			FramerateN: 25,
+			FramerateD: 1,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0, 0)
+	assert.NoError(t, err)
+
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 48000, 48000, 0)
+	assert.NoError(t, err)
+
+	// Status should still be healthy after pushing audio to video-only plugin
+	assert.True(t, p.Status().Healthy)
 }
 
 func TestPushVideoAfterStopReturnsNil(t *testing.T) {

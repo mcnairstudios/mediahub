@@ -155,6 +155,39 @@ func TestEndOfStreamStops(t *testing.T) {
 	assert.False(t, st.Healthy)
 }
 
+func TestConstructionVideoOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "video_only.ts"),
+		OutputFormat:   "mpegts",
+		Video: &media.VideoInfo{
+			Codec:  "h264",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Nil(t, p.audioStream, "expected no audio stream for video-only config")
+	assert.NotNil(t, p.videoStream, "expected video stream to be created")
+
+	// PushAudio should be a no-op
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0, 0)
+	assert.NoError(t, err)
+
+	// PushVideo should work
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB, 0xCC}, 0, 0, 0, true)
+	assert.NoError(t, err)
+
+	p.Stop()
+
+	st := p.Status()
+	assert.False(t, st.Healthy)
+	assert.True(t, st.BytesWritten > 0)
+}
+
 func TestConstructionWithNilAudio(t *testing.T) {
 	dir := t.TempDir()
 	cfg := output.PluginConfig{

@@ -277,25 +277,10 @@ func TestPushVideoAfterStopMSE(t *testing.T) {
 	}
 }
 
-func TestConstructionConvertsAnnexBExtradata(t *testing.T) {
-	// Simulate H.264 Annex-B extradata from MPEG-TS demuxer codec params.
-	// This is the scenario that causes "write header: Invalid argument" when
-	// Annex-B data is passed directly to the fMP4 muxer.
-	annexBExtradata := []byte{
-		// SPS: 00 00 00 01 <SPS NAL>
-		0x00, 0x00, 0x00, 0x01,
-		0x67, 0x64, 0x00, 0x1E, 0xAC, 0xD9, 0x40, 0x50,
-		0x05, 0xBB, 0x01, 0x10, 0x00, 0x00, 0x03, 0x00,
-		0x10, 0x00, 0x00, 0x03, 0x03, 0xC0, 0xF1, 0x62,
-		0xE4, 0x80,
-		// PPS: 00 00 00 01 <PPS NAL>
-		0x00, 0x00, 0x00, 0x01,
-		0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0,
-	}
+func TestConstructionVideoOnly(t *testing.T) {
 	dir := t.TempDir()
 	cfg := output.PluginConfig{
-		OutputDir:      dir,
-		VideoExtradata: annexBExtradata,
+		OutputDir: dir,
 		Video: &media.VideoInfo{
 			Codec:  "h264",
 			Width:  1920,
@@ -304,97 +289,26 @@ func TestConstructionConvertsAnnexBExtradata(t *testing.T) {
 	}
 	p, err := New(cfg)
 	if err != nil {
-		t.Fatalf("expected Annex-B extradata to be converted successfully: %v", err)
+		t.Fatalf("video-only construction failed: %v", err)
 	}
 	defer p.Stop()
 
-	// The muxer should be created immediately (not deferred) since we converted
-	// the extradata to AVCC format.
-	if p.muxer == nil {
-		t.Fatal("expected muxer to be created (not deferred) after Annex-B conversion")
+	if p.hasAudio {
+		t.Fatal("expected hasAudio=false for video-only config")
 	}
-	if p.deferredMuxOpts != nil {
-		t.Fatal("expected no deferred mux opts after successful Annex-B conversion")
-	}
-}
 
-func TestConstructionDefersOnBadAnnexBExtradata(t *testing.T) {
-	// Annex-B data with no SPS/PPS should cause conversion to fail,
-	// falling back to deferred muxer creation.
-	badAnnexB := []byte{
-		0x00, 0x00, 0x00, 0x01,
-		0x65, 0x88, 0x84, 0x00, // IDR NAL (not SPS or PPS)
+	// PushAudio should be a no-op
+	if err := p.PushAudio([]byte{0xFF, 0xF1}, 0, 0, 0); err != nil {
+		t.Fatalf("PushAudio on video-only should return nil: %v", err)
 	}
-	dir := t.TempDir()
-	cfg := output.PluginConfig{
-		OutputDir:      dir,
-		VideoExtradata: badAnnexB,
-		Video: &media.VideoInfo{
-			Codec:  "h264",
-			Width:  1920,
-			Height: 1080,
-		},
-	}
-	p, err := New(cfg)
-	if err != nil {
-		t.Fatalf("expected construction to succeed with deferred muxer: %v", err)
-	}
-	defer p.Stop()
 
-	// Extradata conversion failed, so it should defer muxer creation.
-	if p.deferredMuxOpts == nil {
-		t.Fatal("expected deferred mux opts when Annex-B conversion fails")
+	// Status should be healthy
+	st := p.Status()
+	if !st.Healthy {
+		t.Fatal("expected healthy status for video-only plugin")
 	}
-	if p.muxer != nil {
-		t.Fatal("expected muxer to be nil when deferring")
-	}
-}
-
-func TestConstructionConvertsHEVCAnnexBWithH264CodecParams(t *testing.T) {
-	// Simulate transcoding H.264→H.265: VideoCodecParams has H.264 codec ID
-	// from the demuxer, but VideoExtradata has HEVC Annex-B from the encoder.
-	// Without the codec ID override, the conversion would try to parse HEVC
-	// NALs as H.264, fail, and fall back to deferred muxer creation.
-	hevcAnnexBExtradata := []byte{
-		// VPS: 00 00 00 01 <VPS NAL>
-		0x00, 0x00, 0x00, 0x01,
-		0x40, 0x01, 0x0C, 0x01, 0xFF, 0xFF, 0x01, 0x60,
-		0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
-		0x03, 0x00, 0x00, 0x03, 0x00, 0x7B, 0xAC, 0x09,
-		// SPS: 00 00 00 01 <SPS NAL>
-		0x00, 0x00, 0x00, 0x01,
-		0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03,
-		0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
-		0x03, 0x00, 0x7B, 0xA0, 0x03, 0xC0, 0x80, 0x10,
-		0xE4, 0xD9, 0x66, 0x62, 0x94, 0x92, 0x4C, 0xAF,
-		0xF2, 0xE7, 0x57, 0xBB, 0x22, 0x52, 0x48,
-		// PPS: 00 00 00 01 <PPS NAL>
-		0x00, 0x00, 0x00, 0x01,
-		0x44, 0x01, 0xC1, 0x72, 0xB4, 0x62, 0x40,
-	}
-	dir := t.TempDir()
-	cfg := output.PluginConfig{
-		OutputDir:      dir,
-		VideoExtradata: hevcAnnexBExtradata,
-		Video: &media.VideoInfo{
-			Codec:  "hevc",
-			Width:  1920,
-			Height: 1080,
-		},
-	}
-	p, err := New(cfg)
-	if err != nil {
-		t.Fatalf("expected HEVC Annex-B extradata to be converted successfully: %v", err)
-	}
-	defer p.Stop()
-
-	// The muxer should be created immediately (not deferred) since we converted
-	// the extradata to hvcC format.
-	if p.muxer == nil {
-		t.Fatal("expected muxer to be created (not deferred) after HEVC Annex-B conversion")
-	}
-	if p.deferredMuxOpts != nil {
-		t.Fatal("expected no deferred mux opts after successful HEVC Annex-B conversion")
+	if st.Mode != output.DeliveryMSE {
+		t.Fatalf("expected mode %q, got %q", output.DeliveryMSE, st.Mode)
 	}
 }
 
