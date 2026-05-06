@@ -2726,10 +2726,6 @@
           '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
         '</div>' +
         '<div class="stats-overlay" id="stats-overlay"></div>' +
-        '<div id="signal-bars" class="signal-bars" style="display:none">' +
-          '<div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>' +
-          '<div class="lock-dot"></div>' +
-        '</div>' +
         '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
           '<div class="player-seek-row" id="player-seek-row">' +
             '<div class="player-seek-track">' +
@@ -2797,10 +2793,6 @@
           '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
         '</div>' +
         '<div class="stats-overlay" id="stats-overlay"></div>' +
-        '<div id="signal-bars" class="signal-bars" style="display:none">' +
-          '<div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>' +
-          '<div class="lock-dot"></div>' +
-        '</div>' +
         '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
           '<div class="player-seek-row" id="player-seek-row">' +
             '<div class="player-seek-track">' +
@@ -2895,16 +2887,11 @@
     bindPlayerControls(videoEl, streamID, seekPath);
     startBufferWatch(videoEl);
     startStatsWatch(videoEl);
-    // Initial signal poll for SAT>IP sources
+    // Pre-fetch signal for SAT>IP sources so it's ready when stats panel opens
     if (playerState.sourceType === 'satip' && playerState.currentStreamID) {
       api.get('/api/play/' + playerState.currentStreamID + '/signal')
         .then(function(resp) { return resp.ok ? resp.json() : null; })
-        .then(function(data) {
-          if (data) {
-            playerState.signalInfo = data;
-            updateSignalBars(data);
-          }
-        })
+        .then(function(data) { if (data) playerState.signalInfo = data; })
         .catch(function() {});
     }
   }
@@ -3615,37 +3602,6 @@
     }, 250);
   }
 
-  function updateSignalBars(sig) {
-    var el = document.getElementById('signal-bars');
-    if (!el) return;
-    if (!sig || !sig.available) {
-      el.style.display = 'none';
-      return;
-    }
-    el.style.display = 'flex';
-    var pct = sig.level_pct || 0;
-    var activeBars;
-    if (pct <= 20) activeBars = 1;
-    else if (pct <= 40) activeBars = 2;
-    else if (pct <= 60) activeBars = 3;
-    else if (pct <= 80) activeBars = 4;
-    else activeBars = 5;
-    var barColor = pct <= 40 ? '#ff6b6b' : pct <= 60 ? '#ffa726' : '#4caf50';
-    el.style.color = barColor;
-    var bars = el.querySelectorAll('.bar');
-    for (var i = 0; i < bars.length; i++) {
-      if (i < activeBars) {
-        bars[i].classList.add('active');
-      } else {
-        bars[i].classList.remove('active');
-      }
-    }
-    var lockDot = el.querySelector('.lock-dot');
-    if (lockDot) {
-      lockDot.style.background = sig.lock ? '#4caf50' : '#ff6b6b';
-    }
-  }
-
   function startStatsWatch(videoEl) {
     if (playerState.statsInterval) clearInterval(playerState.statsInterval);
     if (playerState.signalInterval) clearInterval(playerState.signalInterval);
@@ -3654,20 +3610,18 @@
       if (!overlay || !overlay.classList.contains('visible')) return;
       updateStats(videoEl, overlay);
     }, 500);
-    // Poll signal info every 5 seconds for satip sources (always, not just when stats visible)
-    playerState.signalInterval = setInterval(function() {
-      if (playerState.sourceType !== 'satip') return;
-      if (!playerState.currentStreamID) return;
-      api.get('/api/play/' + playerState.currentStreamID + '/signal')
-        .then(function(resp) { return resp.ok ? resp.json() : null; })
-        .then(function(data) {
-          if (data) {
-            playerState.signalInfo = data;
-            updateSignalBars(data);
-          }
-        })
-        .catch(function() {});
-    }, 5000);
+    // Poll signal info every 5 seconds for satip sources when stats visible
+    if (playerState.sourceType === 'satip') {
+      playerState.signalInterval = setInterval(function() {
+        var overlay = document.getElementById('stats-overlay');
+        if (!overlay || !overlay.classList.contains('visible')) return;
+        if (!playerState.currentStreamID) return;
+        api.get('/api/play/' + playerState.currentStreamID + '/signal')
+          .then(function(resp) { return resp.ok ? resp.json() : null; })
+          .then(function(data) { if (data) playerState.signalInfo = data; })
+          .catch(function() {});
+      }, 5000);
+    }
   }
 
   function updateStats(videoEl, overlay) {
@@ -3740,29 +3694,34 @@
       if (mseInfo.length) lines.push(mseInfo.join(' | '));
     }
 
-    // DVB signal info (SAT>IP)
+    // Two-column layout: left = playback info, right = DVB signal (matching tvproxy)
+    var right = [];
     var sig = playerState.signalInfo;
     if (sig && sig.available) {
       var lockColor = sig.lock ? '#4caf50' : '#ff6b6b';
-      var lockText = sig.lock ? 'Locked' : 'No Lock';
-      var lvlPct = sig.level_pct || 0;
-      var lvlColor = lvlPct > 60 ? '#4caf50' : lvlPct > 30 ? '#ffb300' : '#ff6b6b';
-      var qualPct = sig.quality_pct || 0;
-      var qualColor = qualPct > 60 ? '#4caf50' : qualPct > 30 ? '#ffb300' : '#ff6b6b';
-      var sigParts = [
-        '<span style="color:' + lockColor + '">' + lockText + '</span>',
-        'Lvl <span style="color:' + lvlColor + '">' + lvlPct + '%</span>',
-        'Qual <span style="color:' + qualColor + '">' + qualPct + '%</span>'
-      ];
-      if (sig.freq_mhz) sigParts.push(sig.freq_mhz + ' MHz');
-      if (sig.msys) sigParts.push(esc(sig.msys.toUpperCase()));
-      lines.push('DVB: ' + sigParts.join(' | '));
-      if (sig.bitrate_kbps) lines.push('Mux bitrate: ' + sig.bitrate_kbps + ' kbps');
+      var lvl = sig.level_pct || 0;
+      var qlt = sig.quality_pct || 0;
+      var lvlColor = lvl > 60 ? '#4caf50' : lvl > 30 ? '#ffb300' : '#ff6b6b';
+      var qltColor = qlt > 60 ? '#4caf50' : qlt > 30 ? '#ffb300' : '#ff6b6b';
+      function sigBar(pct, color) {
+        return '<span style="display:inline-block;width:50px;height:5px;background:#333;vertical-align:middle;border-radius:2px">'
+          + '<span style="display:block;width:' + pct + '%;height:100%;background:' + color + ';border-radius:2px"></span></span>';
+      }
+      right.push('<span style="color:' + lockColor + '">' + (sig.lock ? 'Locked' : 'No Lock') + '</span>');
+      right.push('Lvl ' + sigBar(lvl, lvlColor) + ' <span style="color:' + lvlColor + '">' + lvl + '%</span>');
+      right.push('Qlt ' + sigBar(qlt, qltColor) + ' <span style="color:' + qltColor + '">' + qlt + '%</span>');
+      if (sig.ber != null) right.push('BER ' + sig.ber);
+      if (sig.freq_mhz) right.push(sig.freq_mhz + ' MHz ' + esc((sig.msys || '').toUpperCase()));
+      if (sig.bitrate_kbps) right.push((sig.bitrate_kbps / 1000).toFixed(1) + ' Mbps');
     } else if (playerState.sourceType === 'satip') {
-      lines.push('DVB: <span style="color:#999">querying...</span>');
+      right.push('<span style="color:#999">querying...</span>');
     }
 
-    overlay.innerHTML = lines.join('<br>');
+    var html = '<div style="display:flex;gap:24px;">';
+    html += '<div>' + lines.join('<br>') + '</div>';
+    if (right.length) html += '<div>' + right.join('<br>') + '</div>';
+    html += '</div>';
+    overlay.innerHTML = html;
   }
 
   function bindPlayerControls(videoEl, streamID, seekPath) {
