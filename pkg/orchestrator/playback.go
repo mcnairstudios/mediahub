@@ -184,6 +184,17 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	encoderName := resolveEncoderName(ctx, deps, string(decision.VideoCodec))
 	decoderName := resolveDecoderName(ctx, deps, stream.VideoCodec)
 
+	// WebRTC mandates Opus audio
+	audioCodec := string(decision.AudioCodec)
+	earlyDelivery := output.DeliveryMode(deps.DeliveryOverride)
+	if earlyDelivery == "" && detectedClient != nil && detectedClient.Profile.Delivery != "" && detectedClient.Profile.Delivery != "user" {
+		earlyDelivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+	}
+	if earlyDelivery == output.DeliveryWebRTC && audioCodec != "opus" {
+		audioCodec = "opus"
+		decision.NeedsAudioTranscode = true
+	}
+
 	pipeCfg := session.PipelineConfig{
 		StreamURL:           pipelineURL,
 		StreamID:            stream.ID,
@@ -192,7 +203,7 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		NeedsTranscode:      decision.NeedsTranscode,
 		NeedsAudioTranscode: decision.NeedsAudioTranscode,
 		OutputCodec:         string(decision.VideoCodec),
-		OutputAudioCodec:    string(decision.AudioCodec),
+		OutputAudioCodec:    audioCodec,
 		HWAccel:             decision.HWAccel,
 		DecodeHWAccel:       decodeHWAccel,
 		Deinterlace:         decision.Deinterlace,
