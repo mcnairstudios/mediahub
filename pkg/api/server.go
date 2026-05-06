@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"time"
@@ -65,6 +66,12 @@ type OrchestratorDeps struct {
 	BypassHeader      string
 	BypassSecret      string
 	DBClearer         any
+	PluginInteractor  PluginInteractor
+}
+
+// PluginInteractor dispatches interact calls to WASM plugins.
+type PluginInteractor interface {
+	Interact(ctx context.Context, pluginType string, actionJSON []byte) ([]byte, error)
 }
 
 type Server struct {

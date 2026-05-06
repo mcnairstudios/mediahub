@@ -19,6 +19,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"encoding/json"
+
 	"github.com/mcnairstudios/mediahub/pkg/activity"
 	"github.com/mcnairstudios/mediahub/pkg/api"
 	"github.com/mcnairstudios/mediahub/pkg/auth"
@@ -47,6 +49,8 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/tmdb"
 	boltstore "github.com/mcnairstudios/mediahub/pkg/store/bolt"
 	"github.com/mcnairstudios/mediahub/pkg/strategy"
+	"github.com/mcnairstudios/mediahub/pkg/wasm"
+	"github.com/mcnairstudios/mediahub/pkg/source/wasmsource"
 	"github.com/mcnairstudios/mediahub/web"
 )
 
@@ -180,6 +184,51 @@ func main() {
 		TMDBCache:         tmdbCache,
 		OnRefreshDone:     onRefreshDone,
 	})
+
+	// Load WASM plugins.
+	pluginsDir := cfg.PluginsDir
+	if pluginsDir == "" {
+		pluginsDir = filepath.Join(cfg.DataDir, "plugins")
+	}
+	os.MkdirAll(pluginsDir, 0755)
+
+	wasmKVStore, err := wasm.NewBoltKVStore(db.BoltDB())
+	if err != nil {
+		log.Printf("wasm: failed to create KV store: %v", err)
+	}
+	wasmHost := wasm.NewHost(nil, wasmKVStore)
+	wasmPlugins, err := wasmHost.LoadDir(ctx, pluginsDir)
+	if err != nil {
+		log.Printf("wasm: failed to load plugins dir: %v", err)
+	}
+	for _, wp := range wasmPlugins {
+		wpCopy := wp
+		sourceReg.RegisterPlugin(source.PluginRegistration{
+			Descriptor: wpCopy.Descriptor,
+			Factory: func(fCtx context.Context, sourceID string) (source.Source, error) {
+				sc, fErr := sourceConfigStore.Get(fCtx, sourceID)
+				if fErr != nil {
+					return nil, fmt.Errorf("get source config: %w", fErr)
+				}
+				if sc == nil {
+					return nil, fmt.Errorf("source config not found")
+				}
+				configJSON, _ := json.Marshal(sc.Config)
+				return wasmsource.New(wasmsource.Config{
+					ID:            sc.ID,
+					Name:          sc.Name,
+					IsEnabled:     sc.IsEnabled,
+					Plugin:        wpCopy,
+					ConfigJSON:    configJSON,
+					StreamStore:   streamStore,
+					OnRefreshDone: onRefreshDone,
+				}), nil
+			},
+		})
+	}
+	if len(wasmPlugins) > 0 {
+		log.Printf("wasm: loaded %d plugin(s)", len(wasmPlugins))
+	}
 
 	outputReg := output.NewRegistry()
 	registerOutputs(outputReg)
@@ -347,6 +396,7 @@ func main() {
 		BypassHeader:      cfg.BypassHeader,
 		BypassSecret:      cfg.BypassSecret,
 		DBClearer:         db,
+		PluginInteractor:  &wasmInteractorAdapter{host: wasmHost},
 	})
 
 	epgRefreshFn = apiServer.RefreshEPGSource
@@ -594,6 +644,7 @@ func main() {
 	cancel()
 	sched.Stop()
 	sessionMgr.StopAll()
+	wasmHost.Close(context.Background())
 	wgService.Close()
 
 	fmt.Println("mediahub stopped")
@@ -780,5 +831,17 @@ func autoNumberChannels(ctx context.Context, store channel.Store) {
 	if numbered > 0 {
 		log.Printf("auto-numbered %d channels (starting at %d)", numbered, maxNumber+1)
 	}
+}
+
+type wasmInteractorAdapter struct {
+	host *wasm.WASMHost
+}
+
+func (a *wasmInteractorAdapter) Interact(ctx context.Context, pluginType string, actionJSON []byte) ([]byte, error) {
+	p := a.host.Plugin(pluginType)
+	if p == nil {
+		return nil, fmt.Errorf("no WASM plugin loaded for type %q", pluginType)
+	}
+	return p.CallInteract(ctx, actionJSON)
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 
@@ -195,6 +196,38 @@ func (s *Server) handleGenericDeleteSource(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePluginInteract dispatches an interact call to a WASM plugin.
+// POST /api/source-plugins/{type}/interact
+func (s *Server) handlePluginInteract(w http.ResponseWriter, r *http.Request) {
+	st := source.SourceType(r.PathValue("type"))
+	plugin := s.deps.SourceReg.Plugin(st)
+	if plugin == nil {
+		httputil.RespondError(w, http.StatusBadRequest, "unknown source type")
+		return
+	}
+
+	if s.deps.PluginInteractor == nil {
+		httputil.RespondError(w, http.StatusNotImplemented, "plugin interactions not available")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024))
+	if err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	result, err := s.deps.PluginInteractor.Interact(r.Context(), string(st), body)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, fmt.Sprintf("interact failed: %v", err))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(result)
 }
 
 // extractConfigValue reads a value from the request body for a given config
