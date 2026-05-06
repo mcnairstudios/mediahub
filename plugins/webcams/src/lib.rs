@@ -211,15 +211,9 @@ struct Webcam {
 #[derive(Deserialize)]
 struct PlayerInfo {
     #[serde(default)]
-    live: Option<PlayerEmbed>,
-}
-
-#[derive(Deserialize)]
-struct PlayerEmbed {
+    day: Option<String>,
     #[serde(default)]
-    available: bool,
-    #[serde(default)]
-    embed: String,
+    lifetime: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -316,10 +310,9 @@ fn fetch_continent(api_key: &str, continent: &str, max_pages: u32) -> Vec<Webcam
 
 /// Convert a Webcam into a Stream, if it has a live player URL.
 fn webcam_to_stream(cam: &Webcam) -> Option<Stream> {
-    // Only include active webcams with live player available.
+    // Only include active webcams with a player URL.
     let player = cam.player.as_ref()?;
-    let live = player.live.as_ref()?;
-    if !live.available || live.embed.is_empty() {
+    if player.day.is_none() && player.lifetime.is_none() {
         return None;
     }
 

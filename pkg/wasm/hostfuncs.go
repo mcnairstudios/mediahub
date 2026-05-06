@@ -183,11 +183,13 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 
 	ptr, length, err := writeToWASM(ctx, mod, respBody)
 	if err != nil {
-		log.Printf("wasm[%s]: writing response to wasm memory: %v", env.pluginType, err)
+		log.Printf("wasm[%s]: writeToWASM failed: %v", env.pluginType, err)
 		return 0
 	}
 
-	return packPtrLen(ptr, length)
+	packed := packPtrLen(ptr, length)
+	log.Printf("wasm[%s]: http response written to wasm memory ptr=%d len=%d packed=%d", env.pluginType, ptr, length, packed)
+	return packed
 }
 
 // hostKVGet implements host_kv_get(key_ptr, key_len) -> (val_ptr_len i64).
