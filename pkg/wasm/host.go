@@ -69,10 +69,18 @@ func (h *WASMHost) LoadPlugin(ctx context.Context, wasmBytes []byte) (*WASMPlugi
 	}
 
 	// Instantiate the module without running _start (TinyGo's main() would exit).
+	// Rust WASI modules need _initialize called separately.
 	mod, err := rt.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().
 		WithStartFunctions().
 		WithStdout(os.Stdout).
 		WithStderr(os.Stderr))
+	if err == nil {
+		if initFn := mod.ExportedFunction("_initialize"); initFn != nil {
+			if _, initErr := initFn.Call(ctx); initErr != nil {
+				log.Printf("wasm: _initialize failed: %v", initErr)
+			}
+		}
+	}
 	if err != nil {
 		closeIgnoreErr(hostMod, ctx)
 		rt.Close(ctx)

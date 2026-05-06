@@ -179,8 +179,6 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 		return 0
 	}
 
-	log.Printf("wasm[%s]: http %d %d bytes for %s", env.pluginType, resp.StatusCode, len(respBody), string(urlBytes)[:80])
-
 	ptr, length, err := writeToWASM(ctx, mod, respBody)
 	if err != nil {
 		log.Printf("wasm[%s]: writeToWASM failed: %v", env.pluginType, err)
