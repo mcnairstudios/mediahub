@@ -24,14 +24,16 @@ extern "C" {
 
 #[no_mangle]
 pub extern "C" fn alloc(size: u32) -> u32 {
-    let layout = std::alloc::Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { std::alloc::alloc(layout) as u32 }
+    let mut buf: Vec<u8> = Vec::with_capacity(size as usize);
+    buf.resize(size as usize, 0);
+    let ptr = buf.as_ptr() as u32;
+    std::mem::forget(buf);
+    ptr
 }
 
 #[no_mangle]
-pub extern "C" fn dealloc(ptr: u32, size: u32) {
-    let layout = std::alloc::Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { std::alloc::dealloc(ptr as *mut u8, layout) }
+pub extern "C" fn dealloc(_ptr: u32, _size: u32) {
+    // No-op in WASM — memory reclaimed on module close.
 }
 
 // ============================================================
@@ -89,11 +91,15 @@ fn http_get_with_headers(url: &str, headers_json: &str) -> Option<Vec<u8>> {
         )
     };
 
+    log_info(&format!("http result raw: {}", result));
+
     if result == 0 {
+        log_info("http result is 0");
         return None;
     }
 
     let (ptr, len) = unpack_ptr_len(result);
+    log_info(&format!("http unpacked ptr={} len={}", ptr, len));
     if len == 0 {
         return None;
     }

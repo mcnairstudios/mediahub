@@ -110,10 +110,14 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 
 	urlBytes, ok := mod.Memory().Read(urlPtr, urlLen)
 	if !ok {
+		log.Printf("wasm[%s]: host_http_request: failed to read URL from memory (ptr=%d, len=%d, memSize=%d)",
+			env.pluginType, urlPtr, urlLen, mod.Memory().Size())
 		return 0
 	}
 	methodBytes, ok := mod.Memory().Read(methodPtr, methodLen)
 	if !ok {
+		log.Printf("wasm[%s]: host_http_request: failed to read method from memory (ptr=%d, len=%d, memSize=%d)",
+			env.pluginType, methodPtr, methodLen, mod.Memory().Size())
 		return 0
 	}
 

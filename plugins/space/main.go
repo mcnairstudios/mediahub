@@ -79,13 +79,12 @@ func httpGet(url string) ([]byte, error) {
 	urlBytes := []byte(url)
 	methodBytes := []byte("GET")
 	headersBytes := []byte("{}")
-	bodyBytes := []byte("")
 
 	result := hostHTTPRequest(
 		uint32(uintptr(unsafe.Pointer(&urlBytes[0]))), uint32(len(urlBytes)),
 		uint32(uintptr(unsafe.Pointer(&methodBytes[0]))), uint32(len(methodBytes)),
 		uint32(uintptr(unsafe.Pointer(&headersBytes[0]))), uint32(len(headersBytes)),
-		uint32(uintptr(unsafe.Pointer(&bodyBytes[0]))), uint32(len(bodyBytes)),
+		0, 0,
 	)
 
 	if result == 0 {
