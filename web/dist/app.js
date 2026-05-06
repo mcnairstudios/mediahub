@@ -2726,6 +2726,10 @@
           '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
         '</div>' +
         '<div class="stats-overlay" id="stats-overlay"></div>' +
+        '<div id="signal-bars" class="signal-bars" style="display:none">' +
+          '<div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>' +
+          '<div class="lock-dot"></div>' +
+        '</div>' +
         '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
           '<div class="player-seek-row" id="player-seek-row">' +
             '<div class="player-seek-track">' +
@@ -2793,6 +2797,10 @@
           '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
         '</div>' +
         '<div class="stats-overlay" id="stats-overlay"></div>' +
+        '<div id="signal-bars" class="signal-bars" style="display:none">' +
+          '<div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>' +
+          '<div class="lock-dot"></div>' +
+        '</div>' +
         '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
           '<div class="player-seek-row" id="player-seek-row">' +
             '<div class="player-seek-track">' +
@@ -2887,6 +2895,18 @@
     bindPlayerControls(videoEl, streamID, seekPath);
     startBufferWatch(videoEl);
     startStatsWatch(videoEl);
+    // Initial signal poll for SAT>IP sources
+    if (playerState.sourceType === 'satip' && playerState.currentStreamID) {
+      api.get('/api/play/' + playerState.currentStreamID + '/signal')
+        .then(function(resp) { return resp.ok ? resp.json() : null; })
+        .then(function(data) {
+          if (data) {
+            playerState.signalInfo = data;
+            updateSignalBars(data);
+          }
+        })
+        .catch(function() {});
+    }
   }
 
   function showDeliverySwitcher(currentDelivery, streamID) {
@@ -3595,6 +3615,37 @@
     }, 250);
   }
 
+  function updateSignalBars(sig) {
+    var el = document.getElementById('signal-bars');
+    if (!el) return;
+    if (!sig || !sig.available) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = 'flex';
+    var pct = sig.level_pct || 0;
+    var activeBars;
+    if (pct <= 20) activeBars = 1;
+    else if (pct <= 40) activeBars = 2;
+    else if (pct <= 60) activeBars = 3;
+    else if (pct <= 80) activeBars = 4;
+    else activeBars = 5;
+    var barColor = pct <= 40 ? '#ff6b6b' : pct <= 60 ? '#ffa726' : '#4caf50';
+    el.style.color = barColor;
+    var bars = el.querySelectorAll('.bar');
+    for (var i = 0; i < bars.length; i++) {
+      if (i < activeBars) {
+        bars[i].classList.add('active');
+      } else {
+        bars[i].classList.remove('active');
+      }
+    }
+    var lockDot = el.querySelector('.lock-dot');
+    if (lockDot) {
+      lockDot.style.background = sig.lock ? '#4caf50' : '#ff6b6b';
+    }
+  }
+
   function startStatsWatch(videoEl) {
     if (playerState.statsInterval) clearInterval(playerState.statsInterval);
     if (playerState.signalInterval) clearInterval(playerState.signalInterval);
@@ -3603,17 +3654,20 @@
       if (!overlay || !overlay.classList.contains('visible')) return;
       updateStats(videoEl, overlay);
     }, 500);
-    // Poll signal info every 3 seconds when stats overlay is visible and source is satip
+    // Poll signal info every 5 seconds for satip sources (always, not just when stats visible)
     playerState.signalInterval = setInterval(function() {
-      var overlay = document.getElementById('stats-overlay');
-      if (!overlay || !overlay.classList.contains('visible')) return;
       if (playerState.sourceType !== 'satip') return;
       if (!playerState.currentStreamID) return;
       api.get('/api/play/' + playerState.currentStreamID + '/signal')
         .then(function(resp) { return resp.ok ? resp.json() : null; })
-        .then(function(data) { if (data) playerState.signalInfo = data; })
+        .then(function(data) {
+          if (data) {
+            playerState.signalInfo = data;
+            updateSignalBars(data);
+          }
+        })
         .catch(function() {});
-    }, 3000);
+    }, 5000);
   }
 
   function updateStats(videoEl, overlay) {
