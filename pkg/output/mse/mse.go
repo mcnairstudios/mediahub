@@ -111,25 +111,9 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		}
 	}
 
-	// Convert Annex-B extradata to AVCC/HvcC format required by fMP4 container.
-	// MPEG-TS demuxers often provide extradata in Annex-B format which causes
-	// "write header: Invalid argument" when passed directly to the MP4 muxer.
-	if len(muxOpts.VideoExtradata) > 0 &&
-		(muxOpts.VideoCodecID == astiav.CodecIDH264 || muxOpts.VideoCodecID == astiav.CodecIDHevc) {
-		codecName := "h264"
-		if muxOpts.VideoCodecID == astiav.CodecIDHevc {
-			codecName = "hevc"
-		}
-		converted, convErr := extradata.ToCodecData(codecName, muxOpts.VideoExtradata)
-		if convErr != nil || len(converted) == 0 {
-			// Conversion failed (e.g., no SPS/PPS in extradata) — clear it so
-			// the deferred path extracts extradata from the first keyframe.
-			log.Info().Err(convErr).Msg("mse: video extradata conversion failed, deferring to keyframe")
-			muxOpts.VideoExtradata = nil
-		} else {
-			muxOpts.VideoExtradata = converted
-		}
-	}
+	// Note: Annex-B extradata is passed through to ffmpeg's fMP4 muxer which
+	// handles the conversion to AVCC/hvcC internally. Do NOT convert here —
+	// our ToCodecData() produces output that Chrome MSE can't parse for HEVC.
 
 	if len(cfg.AudioExtradata) > 0 {
 		acp, _ := cfg.AudioCodecParams.(*astiav.CodecParameters)

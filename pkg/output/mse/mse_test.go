@@ -350,6 +350,54 @@ func TestConstructionDefersOnBadAnnexBExtradata(t *testing.T) {
 	}
 }
 
+func TestConstructionConvertsHEVCAnnexBWithH264CodecParams(t *testing.T) {
+	// Simulate transcoding H.264→H.265: VideoCodecParams has H.264 codec ID
+	// from the demuxer, but VideoExtradata has HEVC Annex-B from the encoder.
+	// Without the codec ID override, the conversion would try to parse HEVC
+	// NALs as H.264, fail, and fall back to deferred muxer creation.
+	hevcAnnexBExtradata := []byte{
+		// VPS: 00 00 00 01 <VPS NAL>
+		0x00, 0x00, 0x00, 0x01,
+		0x40, 0x01, 0x0C, 0x01, 0xFF, 0xFF, 0x01, 0x60,
+		0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
+		0x03, 0x00, 0x00, 0x03, 0x00, 0x7B, 0xAC, 0x09,
+		// SPS: 00 00 00 01 <SPS NAL>
+		0x00, 0x00, 0x00, 0x01,
+		0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03,
+		0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
+		0x03, 0x00, 0x7B, 0xA0, 0x03, 0xC0, 0x80, 0x10,
+		0xE4, 0xD9, 0x66, 0x62, 0x94, 0x92, 0x4C, 0xAF,
+		0xF2, 0xE7, 0x57, 0xBB, 0x22, 0x52, 0x48,
+		// PPS: 00 00 00 01 <PPS NAL>
+		0x00, 0x00, 0x00, 0x01,
+		0x44, 0x01, 0xC1, 0x72, 0xB4, 0x62, 0x40,
+	}
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputDir:      dir,
+		VideoExtradata: hevcAnnexBExtradata,
+		Video: &media.VideoInfo{
+			Codec:  "hevc",
+			Width:  1920,
+			Height: 1080,
+		},
+	}
+	p, err := New(cfg)
+	if err != nil {
+		t.Fatalf("expected HEVC Annex-B extradata to be converted successfully: %v", err)
+	}
+	defer p.Stop()
+
+	// The muxer should be created immediately (not deferred) since we converted
+	// the extradata to hvcC format.
+	if p.muxer == nil {
+		t.Fatal("expected muxer to be created (not deferred) after HEVC Annex-B conversion")
+	}
+	if p.deferredMuxOpts != nil {
+		t.Fatal("expected no deferred mux opts after successful HEVC Annex-B conversion")
+	}
+}
+
 func TestPushAudioAfterStopMSE(t *testing.T) {
 	dir := t.TempDir()
 	p, err := New(output.PluginConfig{OutputDir: dir})

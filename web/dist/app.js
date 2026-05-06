@@ -3037,7 +3037,13 @@
         var tierFlag = (d[i+5] >> 5) & 1;
         var levelIdc = d[i+16];
         var tier = tierFlag ? 'H' : 'L';
-        return 'hvc1.' + profileIdc + '.4.' + tier + String(levelIdc);
+        // Detect whether the sample entry uses hev1 or hvc1 tag
+        var hevcTag = 'hvc1';
+        for (var h = 0; h < i && h < d.length - 4; h++) {
+          if (d[h] === 0x68 && d[h+1] === 0x65 && d[h+2] === 0x76 && d[h+3] === 0x31) { hevcTag = 'hev1'; break; }
+          if (d[h] === 0x68 && d[h+1] === 0x76 && d[h+2] === 0x63 && d[h+3] === 0x31) { hevcTag = 'hvc1'; break; }
+        }
+        return hevcTag + '.' + profileIdc + '.4.' + tier + String(levelIdc);
       }
       if (d[i] === 0x61 && d[i+1] === 0x76 && d[i+2] === 0x63 && d[i+3] === 0x43) {
         var hex = function(n) { return n.toString(16).padStart(2, '0'); };
@@ -3226,7 +3232,7 @@
                 if (track === 'video' && seq === 2 && !mseState.playStarted) {
                   mseState.playStarted = true;
                   var tryPlay = function() {
-                    if (mseState.stopped) return;
+                    if (!mseState || mseState.stopped) return;
                     try {
                       if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
                         var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
