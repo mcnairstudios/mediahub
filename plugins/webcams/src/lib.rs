@@ -254,8 +254,8 @@ struct ImageUrls {
 pub extern "C" fn describe() -> u64 {
     let desc = Descriptor {
         r#type: "webcams",
-        label: "Webcams",
-        short_label: "CAM",
+        label: "WindyCams",
+        short_label: "WINDY",
         color: "#00bcd4",
         version: "1.0.0",
         description: "Live webcams from around the world via Windy.com",

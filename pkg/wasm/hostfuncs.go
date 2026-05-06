@@ -3,6 +3,7 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -131,13 +132,24 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 		return 0
 	}
 
-	// Parse headers as newline-separated "Key: Value" pairs.
+	// Parse headers — supports both JSON object {"Key": "Value"} and
+	// newline-separated "Key: Value" pairs.
 	if headersLen > 0 {
 		headerBytes, ok := mod.Memory().Read(headersPtr, headersLen)
 		if ok {
-			for _, line := range strings.Split(string(headerBytes), "\n") {
-				if idx := strings.IndexByte(line, ':'); idx > 0 {
-					req.Header.Set(strings.TrimSpace(line[:idx]), strings.TrimSpace(line[idx+1:]))
+			headerStr := strings.TrimSpace(string(headerBytes))
+			if strings.HasPrefix(headerStr, "{") {
+				var headerMap map[string]string
+				if json.Unmarshal(headerBytes, &headerMap) == nil {
+					for k, v := range headerMap {
+						req.Header.Set(k, v)
+					}
+				}
+			} else {
+				for _, line := range strings.Split(headerStr, "\n") {
+					if idx := strings.IndexByte(line, ':'); idx > 0 {
+						req.Header.Set(strings.TrimSpace(line[:idx]), strings.TrimSpace(line[idx+1:]))
+					}
 				}
 			}
 		}
@@ -163,8 +175,11 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 	}
 
 	if len(respBody) == 0 {
+		log.Printf("wasm[%s]: http %d empty response for %s", env.pluginType, resp.StatusCode, string(urlBytes))
 		return 0
 	}
+
+	log.Printf("wasm[%s]: http %d %d bytes for %s", env.pluginType, resp.StatusCode, len(respBody), string(urlBytes)[:80])
 
 	ptr, length, err := writeToWASM(ctx, mod, respBody)
 	if err != nil {

@@ -1125,6 +1125,9 @@
       if (!confirm('Delete source "' + name + '"? All its streams will be removed.')) return;
       try {
         var r = await api.del('/api/sources/' + type + '/' + id);
+        if (!r.ok && r.status !== 204) {
+          r = await api.del('/api/source-plugins/' + type + '/' + id);
+        }
         if (r.ok || r.status === 204) {
           toast('Source deleted');
           activeTab.remove();
