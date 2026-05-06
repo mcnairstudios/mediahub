@@ -211,6 +211,8 @@ struct Webcam {
 #[derive(Deserialize)]
 struct PlayerInfo {
     #[serde(default)]
+    live: Option<String>,
+    #[serde(default)]
     day: Option<String>,
     #[serde(default)]
     lifetime: Option<String>,
@@ -273,7 +275,7 @@ pub extern "C" fn describe() -> u64 {
 /// Fetches one page of webcams for a given continent.
 fn fetch_webcams_page(api_key: &str, continent: &str, offset: u32) -> Option<WindyResponse> {
     let url = format!(
-        "https://api.windy.com/webcams/api/v3/webcams?limit=50&offset={}&include=player,location,images&continent={}",
+        "https://api.windy.com/webcams/api/v3/webcams?limit=50&offset={}&include=player,location,images&continents={}",
         offset, continent
     );
     let headers = format!("{{\"x-windy-api-key\":\"{}\"}}", api_key);
@@ -310,9 +312,9 @@ fn fetch_continent(api_key: &str, continent: &str, max_pages: u32) -> Vec<Webcam
 
 /// Convert a Webcam into a Stream, if it has a live player URL.
 fn webcam_to_stream(cam: &Webcam) -> Option<Stream> {
-    // Only include active webcams with a player URL.
+    // Only include active webcams with a player URL (prefer live).
     let player = cam.player.as_ref()?;
-    if player.day.is_none() && player.lifetime.is_none() {
+    if player.live.is_none() && player.day.is_none() {
         return None;
     }
 
@@ -327,11 +329,13 @@ fn webcam_to_stream(cam: &Webcam) -> Option<Stream> {
         country
     };
 
-    // Use the embed player URL as the stream URL.
-    let url = format!(
-        "https://webcams.windy.com/webcams/public/embed/player/{}/live",
-        cam.webcam_id
-    );
+    // Use the live embed URL if available, fall back to day.
+    let url = player.live.clone()
+        .or_else(|| player.day.clone())
+        .unwrap_or_else(|| format!(
+            "https://webcams.windy.com/webcams/public/embed/player/{}/day",
+            cam.webcam_id
+        ));
 
     let logo = cam.images.as_ref().and_then(|imgs| {
         imgs.current.as_ref().map(|c| {
