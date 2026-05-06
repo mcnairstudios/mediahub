@@ -275,18 +275,25 @@ func (p *Plugin) Stop() {
 	}
 	p.stopped = true
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC: record Stop: %v\n%s", r, debug.Stack())
+		}
+		// Always free resources even if WriteTrailer panics.
+		if p.fc != nil {
+			p.fc.Free()
+			p.fc = nil
+		}
+		if p.ioCtx != nil {
+			p.ioCtx.Close() //nolint:errcheck
+			p.ioCtx = nil
+		}
+		p.updateBytesWritten()
+	}()
+
 	if p.fc != nil && p.headerWritten {
 		p.fc.WriteTrailer() //nolint:errcheck
 	}
-	if p.fc != nil {
-		p.fc.Free()
-		p.fc = nil
-	}
-	if p.ioCtx != nil {
-		p.ioCtx.Close() //nolint:errcheck
-		p.ioCtx = nil
-	}
-	p.updateBytesWritten()
 }
 
 func (p *Plugin) Status() output.PluginStatus {

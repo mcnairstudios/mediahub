@@ -68,6 +68,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/play/{streamID}/seek", s.authenticated(s.handleSeek))
 	s.mux.Handle("POST /api/play/{streamID}/record", s.authenticated(s.handleStartRecording))
 	s.mux.Handle("DELETE /api/play/{streamID}/record", s.authenticated(s.handleStopRecording))
+	s.mux.Handle("GET /api/play/{streamID}/signal", s.authenticated(s.handleSignalInfo))
 	s.mux.Handle("GET /api/play/{streamID}/subtitles", s.authenticated(s.handleSubtitles))
 	s.mux.Handle("GET /api/play/{streamID}/hls/{path...}", s.authenticated(s.handlePlaybackServe))
 	s.mux.Handle("GET /api/play/{streamID}/mse/{path...}", s.authenticated(s.handlePlaybackServe))

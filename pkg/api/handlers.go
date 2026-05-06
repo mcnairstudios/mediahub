@@ -24,6 +24,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	"github.com/mcnairstudios/mediahub/pkg/source/satip/scan"
 )
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -413,6 +414,14 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 			"container":             result.Decision.Container,
 		},
 	}
+
+	// Include source_type so frontend knows when signal info is available
+	if s.deps.StreamStore != nil {
+		if stream, err := s.deps.StreamStore.Get(r.Context(), streamID); err == nil && stream != nil {
+			resp["source_type"] = stream.SourceType
+		}
+	}
+
 	if result.ProbeInfo != nil {
 		probeMap := map[string]any{}
 		if result.ProbeInfo.Video != nil {
@@ -1123,6 +1132,71 @@ func stripPort(addr string) string {
 		return addr[:i]
 	}
 	return addr
+}
+
+func (s *Server) handleSignalInfo(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "stream ID required")
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		httputil.RespondError(w, http.StatusNotFound, "no active session")
+		return
+	}
+
+	// Only SAT>IP streams have RTSP signal info
+	if s.deps.StreamStore == nil {
+		httputil.RespondError(w, http.StatusNotFound, "signal info not available")
+		return
+	}
+	stream, err := s.deps.StreamStore.Get(r.Context(), streamID)
+	if err != nil || stream == nil {
+		httputil.RespondError(w, http.StatusNotFound, "stream not found")
+		return
+	}
+	if stream.SourceType != "satip" {
+		httputil.RespondError(w, http.StatusNotFound, "signal info only available for SAT>IP streams")
+		return
+	}
+
+	// The session StreamURL is the RTSP URL for SAT>IP
+	rtspURL := sess.StreamURL
+	if rtspURL == "" {
+		httputil.RespondError(w, http.StatusNotFound, "no stream URL available")
+		return
+	}
+
+	info, err := scan.QuerySignal(rtspURL, 5*time.Second)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "signal query failed: "+err.Error())
+		return
+	}
+	if info == nil {
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{
+			"available": false,
+		})
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"available":    true,
+		"lock":         info.Lock,
+		"level":        info.Level,
+		"level_pct":    info.LevelPct(),
+		"quality":      info.Quality,
+		"quality_pct":  info.QualityPct(),
+		"ber":          info.BER,
+		"freq_mhz":     info.FreqMHz,
+		"bw_mhz":       info.BwMHz,
+		"msys":         info.Msys,
+		"mtype":        info.Mtype,
+		"bitrate_kbps": info.BitratKbps,
+		"active":       info.Active,
+		"server":       info.Server,
+	})
 }
 
 func clientNameFromUA(ua string) string {

@@ -268,3 +268,57 @@ func TestPushAudioAfterStop(t *testing.T) {
 	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80}, 0, 0, 0)
 	assert.NoError(t, err)
 }
+
+func TestConstructionAudioOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "audio_only.ts"),
+		OutputFormat:   "mpegts",
+		Audio: &media.AudioTrack{
+			Codec:      "aac",
+			SampleRate: 48000,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+	defer p.Stop()
+
+	assert.Nil(t, p.videoStream, "expected no video stream for audio-only config")
+	assert.NotNil(t, p.audioStream, "expected audio stream to be created")
+
+	// PushVideo should be a no-op when there is no video stream.
+	err = p.PushVideo([]byte{0x00, 0x00, 0x00, 0x01, 0x65, 0xAA}, 0, 0, 0, true)
+	assert.NoError(t, err)
+
+	// PushAudio should work.
+	err = p.PushAudio([]byte{0xFF, 0xF1, 0x50, 0x80, 0x02, 0x00, 0xFC, 0xDE}, 0, 0, 0)
+	assert.NoError(t, err)
+
+	p.Stop()
+
+	st := p.Status()
+	assert.False(t, st.Healthy)
+	assert.True(t, st.BytesWritten > 0)
+}
+
+func TestAudioOnlyStopWithoutPush(t *testing.T) {
+	dir := t.TempDir()
+	cfg := output.PluginConfig{
+		OutputFilePath: filepath.Join(dir, "audio_only_empty.ts"),
+		OutputFormat:   "mpegts",
+		Audio: &media.AudioTrack{
+			Codec:      "aac",
+			SampleRate: 48000,
+			Channels:   2,
+		},
+	}
+	p, err := New(cfg)
+	require.NoError(t, err)
+
+	// Stop immediately without pushing any data — should not panic.
+	p.Stop()
+
+	st := p.Status()
+	assert.False(t, st.Healthy)
+}

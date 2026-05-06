@@ -489,10 +489,16 @@
     activePlayer: null,
     deliveryOverride: null,
     deliverySwitchable: false,
+    sourceType: null,
+    signalInfo: null,
+    signalInterval: null,
 
     cleanup: function() {
       if (this.bufferWatchInterval) { clearInterval(this.bufferWatchInterval); this.bufferWatchInterval = null; }
       if (this.statsInterval) { clearInterval(this.statsInterval); this.statsInterval = null; }
+      if (this.signalInterval) { clearInterval(this.signalInterval); this.signalInterval = null; }
+      this.signalInfo = null;
+      this.sourceType = null;
       if (this.retryTimeout) { clearTimeout(this.retryTimeout); this.retryTimeout = null; }
       if (this.activePlayer) { this.activePlayer.stop(); this.activePlayer = null; }
       if (this.recordingID) {
@@ -2849,6 +2855,7 @@
       playerState.decision = data.decision || {};
       playerState.probeInfo = data.probe_info || {};
       playerState.deliverySwitchable = !!data.delivery_switchable;
+      playerState.sourceType = data.source_type || null;
 
       showDeliverySwitcher(delivery, streamID);
 
@@ -3231,19 +3238,24 @@
                 seq++;
                 if (track === 'video' && seq === 2 && !mseState.playStarted) {
                   mseState.playStarted = true;
+                  var playTimer = null;
                   var tryPlay = function() {
-                    if (!mseState || mseState.stopped) return;
+                    playTimer = null;
+                    if (!mseState || mseState.stopped || !vidEl.parentNode) return;
                     try {
                       if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
                         var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
                         vidEl.currentTime = Math.max(end - 1, mseState.videoSB.buffered.start(0));
-                        vidEl.play().catch(function() { if (!mseState.stopped) setTimeout(tryPlay, 300); });
+                        vidEl.play().catch(function() {
+                          if (!mseState || mseState.stopped || !vidEl.parentNode) return;
+                          playTimer = setTimeout(tryPlay, 300);
+                        });
                       } else {
-                        setTimeout(tryPlay, 100);
+                        playTimer = setTimeout(tryPlay, 100);
                       }
                     } catch(e) {}
                   };
-                  setTimeout(tryPlay, 100);
+                  playTimer = setTimeout(tryPlay, 100);
                 }
                 setTimeout(poll, 50);
               })
@@ -3486,8 +3498,9 @@
           pc.ontrack = function(e) {
             if (e.streams && e.streams[0]) {
               videoEl.srcObject = e.streams[0];
-              e.streams[0].onremovetrack = function() {
-                if (!stopped) scheduleRetry();
+              e.streams[0].onremovetrack = function(evt) {
+                var stream = evt.target;
+                if (!stopped && stream.getTracks().length === 0) scheduleRetry();
               };
             }
           };
@@ -3510,7 +3523,7 @@
 
           pc.onconnectionstatechange = function() {
             if (!pc) return;
-            if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+            if (pc.connectionState === 'failed') {
               if (!stopped) scheduleRetry();
             }
           };
@@ -3557,36 +3570,50 @@
   function startBufferWatch(videoEl) {
     if (playerState.bufferWatchInterval) clearInterval(playerState.bufferWatchInterval);
     playerState.bufferWatchInterval = setInterval(function() {
-      if (!videoEl || videoEl.paused || !videoEl.buffered.length) return;
-      var buffered = videoEl.buffered;
-      var ahead = 0;
-      for (var i = 0; i < buffered.length; i++) {
-        if (buffered.start(i) <= videoEl.currentTime && videoEl.currentTime <= buffered.end(i)) {
-          ahead = buffered.end(i) - videoEl.currentTime;
-          break;
+      try {
+        if (!videoEl || !videoEl.parentNode || videoEl.paused || !videoEl.buffered.length) return;
+        var buffered = videoEl.buffered;
+        var ahead = 0;
+        for (var i = 0; i < buffered.length; i++) {
+          if (buffered.start(i) <= videoEl.currentTime && videoEl.currentTime <= buffered.end(i)) {
+            ahead = buffered.end(i) - videoEl.currentTime;
+            break;
+          }
         }
-      }
-      var rate;
-      if (ahead < 6) {
-        rate = 0.9;
-      } else if (ahead < 8) {
-        rate = 0.95;
-      } else if (ahead < 9) {
-        rate = 0.99;
-      } else {
-        rate = 1.0;
-      }
-      if (videoEl.playbackRate !== rate) videoEl.playbackRate = rate;
+        var rate;
+        if (ahead < 6) {
+          rate = 0.9;
+        } else if (ahead < 8) {
+          rate = 0.95;
+        } else if (ahead < 9) {
+          rate = 0.99;
+        } else {
+          rate = 1.0;
+        }
+        if (videoEl.playbackRate !== rate) videoEl.playbackRate = rate;
+      } catch(e) {}
     }, 250);
   }
 
   function startStatsWatch(videoEl) {
     if (playerState.statsInterval) clearInterval(playerState.statsInterval);
+    if (playerState.signalInterval) clearInterval(playerState.signalInterval);
     playerState.statsInterval = setInterval(function() {
       var overlay = document.getElementById('stats-overlay');
       if (!overlay || !overlay.classList.contains('visible')) return;
       updateStats(videoEl, overlay);
     }, 500);
+    // Poll signal info every 3 seconds when stats overlay is visible and source is satip
+    playerState.signalInterval = setInterval(function() {
+      var overlay = document.getElementById('stats-overlay');
+      if (!overlay || !overlay.classList.contains('visible')) return;
+      if (playerState.sourceType !== 'satip') return;
+      if (!playerState.currentStreamID) return;
+      api.get('/api/play/' + playerState.currentStreamID + '/signal')
+        .then(function(resp) { return resp.ok ? resp.json() : null; })
+        .then(function(data) { if (data) playerState.signalInfo = data; })
+        .catch(function() {});
+    }, 3000);
   }
 
   function updateStats(videoEl, overlay) {
@@ -3657,6 +3684,28 @@
       if (debugInfo.audio_segments != null) mseInfo.push('aseg=' + debugInfo.audio_segments);
       if (debugInfo.generation) mseInfo.push('gen=' + debugInfo.generation);
       if (mseInfo.length) lines.push(mseInfo.join(' | '));
+    }
+
+    // DVB signal info (SAT>IP)
+    var sig = playerState.signalInfo;
+    if (sig && sig.available) {
+      var lockColor = sig.lock ? '#4caf50' : '#ff6b6b';
+      var lockText = sig.lock ? 'Locked' : 'No Lock';
+      var lvlPct = sig.level_pct || 0;
+      var lvlColor = lvlPct > 60 ? '#4caf50' : lvlPct > 30 ? '#ffb300' : '#ff6b6b';
+      var qualPct = sig.quality_pct || 0;
+      var qualColor = qualPct > 60 ? '#4caf50' : qualPct > 30 ? '#ffb300' : '#ff6b6b';
+      var sigParts = [
+        '<span style="color:' + lockColor + '">' + lockText + '</span>',
+        'Lvl <span style="color:' + lvlColor + '">' + lvlPct + '%</span>',
+        'Qual <span style="color:' + qualColor + '">' + qualPct + '%</span>'
+      ];
+      if (sig.freq_mhz) sigParts.push(sig.freq_mhz + ' MHz');
+      if (sig.msys) sigParts.push(esc(sig.msys.toUpperCase()));
+      lines.push('DVB: ' + sigParts.join(' | '));
+      if (sig.bitrate_kbps) lines.push('Mux bitrate: ' + sig.bitrate_kbps + ' kbps');
+    } else if (playerState.sourceType === 'satip') {
+      lines.push('DVB: <span style="color:#999">querying...</span>');
     }
 
     overlay.innerHTML = lines.join('<br>');
