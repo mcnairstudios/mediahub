@@ -3613,13 +3613,17 @@
     var inVideo = (probe.video && probe.video.codec) || decision.video_codec || '';
     var inAudio = (probe.audio && probe.audio.codec) || '';
     var inRes = (probe.video && probe.video.width) ? probe.video.width + 'x' + probe.video.height : '';
-    if (inVideo) {
-      lines.push('In: ' + esc(inVideo) + (inRes ? ' ' + inRes : '') + (inAudio ? ' / ' + esc(inAudio) : ''));
+    var inParts = [];
+    if (inVideo) inParts.push(esc(inVideo) + (inRes ? ' ' + inRes : ''));
+    if (inAudio) inParts.push(esc(inAudio));
+    if (inParts.length > 0) {
+      lines.push('In: ' + inParts.join(' / '));
     }
 
-    var outVideo = decision.needs_transcode ? esc(String(decision.video_codec)) : 'copy';
-    var outAudio = decision.needs_audio_transcode ? esc(String(decision.audio_codec)) : 'copy';
-    lines.push('Out: ' + esc(delivery.toUpperCase()) + ' ' + outVideo + ' / ' + outAudio + (w > 0 ? ' ' + w + 'x' + h : ''));
+    var outParts = [];
+    if (inVideo) outParts.push(decision.needs_transcode ? esc(String(decision.video_codec)) : 'copy');
+    if (inAudio || decision.needs_audio_transcode) outParts.push(decision.needs_audio_transcode ? esc(String(decision.audio_codec)) : 'copy');
+    lines.push('Out: ' + esc(delivery.toUpperCase()) + ' ' + outParts.join(' / ') + (w > 0 ? ' ' + w + 'x' + h : ''));
 
     var bufColor = buf > 8 ? '#4caf50' : buf > 4 ? '#ffb300' : '#ff6b6b';
     var playbackParts = ['<span style="color:' + bufColor + '">buf ' + buf.toFixed(1) + 's</span>'];
