@@ -48,9 +48,10 @@ type Plugin struct {
 	videoTS  uint32
 	audioTS  uint32
 
-	hasVideo    bool
-	hasAudio    bool
-	videoCodec  string
+	hasVideo       bool
+	hasAudio       bool
+	gotKeyframe    bool
+	videoCodec     string
 	videoFPS    float64
 	lastVideoPTS int64
 	lastAudioPTS int64
@@ -112,11 +113,20 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error 
 		return nil
 	}
 
+	// Wait for first keyframe before sending video — browser can't decode without one
+	if !p.gotKeyframe {
+		if !keyframe {
+			p.mu.Unlock()
+			return nil
+		}
+		p.gotKeyframe = true
+		p.log.Info().Int("data_len", len(data)).Msg("webrtc: got first keyframe")
+	}
+
 	if !p.ptsBaseSet {
 		p.ptsBaseVideo = pts
 		p.ptsBaseAudio = pts
 		p.ptsBaseSet = true
-		p.log.Info().Int("data_len", len(data)).Bool("keyframe", keyframe).Msg("webrtc: first video to track")
 	}
 	p.lastVideoPTS = pts
 
