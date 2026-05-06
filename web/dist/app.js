@@ -3479,7 +3479,8 @@
             iceServers: [{urls: 'stun:stun.l.google.com:19302'}],
             iceCandidatePoolSize: 1
           });
-          pc.addTransceiver('video', {direction: 'recvonly'});
+          var probe = playerState.probeInfo || {};
+          if (probe.video) pc.addTransceiver('video', {direction: 'recvonly'});
           pc.addTransceiver('audio', {direction: 'recvonly'});
 
           pc.ontrack = function(e) {
