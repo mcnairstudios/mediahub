@@ -17,6 +17,7 @@ type Config struct {
 	DLNAPort     int
 	BypassHeader string
 	BypassSecret string
+	PluginsDir   string
 }
 
 func Load() *Config {
@@ -68,6 +69,9 @@ func Load() *Config {
 	}
 	if v := os.Getenv("MEDIAHUB_BYPASS_SECRET"); v != "" {
 		c.BypassSecret = v
+	}
+	if v := os.Getenv("MEDIAHUB_PLUGINS_DIR"); v != "" {
+		c.PluginsDir = v
 	}
 
 	return c

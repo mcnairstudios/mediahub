@@ -129,6 +129,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/source-plugins/{type}", s.adminOnly(s.handleGenericCreateSource))
 	s.mux.Handle("PUT /api/source-plugins/{type}/{id}", s.adminOnly(s.handleGenericUpdateSource))
 	s.mux.Handle("DELETE /api/source-plugins/{type}/{id}", s.adminOnly(s.handleGenericDeleteSource))
+	s.mux.Handle("POST /api/source-plugins/{type}/interact", s.adminOnly(s.handlePluginInteract))
 
 	// Register custom routes from plugins.
 	for _, plugin := range s.deps.SourceReg.Plugins() {

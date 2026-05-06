@@ -33,6 +33,29 @@ type Option struct {
 	Label string `json:"label"`
 }
 
+// ViewHint provides UI hints for how a plugin's data should be displayed.
+type ViewHint struct {
+	Layout     string       `json:"layout,omitempty"`
+	GroupBy    string       `json:"group_by,omitempty"`
+	Searchable bool         `json:"searchable,omitempty"`
+	Sortable   bool         `json:"sortable,omitempty"`
+	Columns    []ViewColumn `json:"columns,omitempty"`
+}
+
+// ViewColumn describes a single column in a tabular plugin view.
+type ViewColumn struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// Interaction describes a user-triggerable action that a plugin supports.
+type Interaction struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Type        string `json:"type"`
+	TargetField string `json:"target_field,omitempty"`
+}
+
 // PluginDescriptor declares metadata about a source plugin.
 type PluginDescriptor struct {
 	Type         SourceType    `json:"type"`
@@ -43,6 +66,8 @@ type PluginDescriptor struct {
 	Version      string        `json:"version"`
 	Description  string        `json:"description,omitempty"`
 	ConfigFields []ConfigField `json:"config_fields"`
+	View         *ViewHint     `json:"view,omitempty"`
+	Interactions []Interaction `json:"interactions,omitempty"`
 }
 
 // PluginRegistration bundles everything needed to register a source plugin.
