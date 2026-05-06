@@ -15,10 +15,6 @@ import (
 	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	m3usource "github.com/mcnairstudios/mediahub/pkg/source/m3u"
 	satipsource "github.com/mcnairstudios/mediahub/pkg/source/satip"
-	demosource "github.com/mcnairstudios/mediahub/pkg/source/demo"
-	radiogardensource "github.com/mcnairstudios/mediahub/pkg/source/radiogarden"
-	spacexsource "github.com/mcnairstudios/mediahub/pkg/source/spacex"
-	trailerssource "github.com/mcnairstudios/mediahub/pkg/source/trailers"
 	tvpstreamssource "github.com/mcnairstudios/mediahub/pkg/source/tvpstreams"
 	xstreamsource "github.com/mcnairstudios/mediahub/pkg/source/xtream"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
@@ -197,98 +193,11 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		return satipsource.New(satipCfg), nil
 	})
 
-	reg.Register(source.TypeTrailers, func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		tmdbKey, _ := deps.SettingsStore.Get(ctx, "tmdb_api_key")
-		tCfg := trailerssource.Config{
-			ID:            sc.ID,
-			Name:          sc.Name,
-			IsEnabled:     sc.IsEnabled,
-			TMDBKey:       tmdbKey,
-			StreamStore:   deps.StreamStore,
-			OnRefreshDone: deps.OnRefreshDone,
-		}
-		return trailerssource.New(tCfg), nil
-	})
+	// Demo, Space Launches, Radio Garden, and Trailers are WASM plugins
+	// loaded from MEDIAHUB_PLUGINS_DIR — not compiled-in.
 
-	reg.Register(source.TypeDemo, func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		demoCfg := demosource.Config{
-			ID:            sc.ID,
-			Name:          sc.Name,
-			IsEnabled:     sc.IsEnabled,
-			StreamStore:   deps.StreamStore,
-			OnRefreshDone: deps.OnRefreshDone,
-		}
-		return demosource.New(demoCfg), nil
-	})
-
-	reg.Register(source.TypeRadioGarden, func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		var places []radiogardensource.Place
-		if placesJSON := sc.Config["places"]; placesJSON != "" {
-			parsed, err := radiogardensource.ParsePlaces(placesJSON)
-			if err != nil {
-				log.Printf("radiogarden: failed to parse places for %s: %v", sc.Name, err)
-			} else {
-				places = parsed
-			}
-		}
-		// Backward compat: fall back to single place_id/place_name
-		if len(places) == 0 {
-			if pid := sc.Config["place_id"]; pid != "" {
-				places = []radiogardensource.Place{{ID: pid, Name: sc.Config["place_name"]}}
-			}
-		}
-		rgCfg := radiogardensource.Config{
-			ID:            sc.ID,
-			Name:          sc.Name,
-			IsEnabled:     sc.IsEnabled,
-			Places:        places,
-			StreamStore:   deps.StreamStore,
-			OnRefreshDone: deps.OnRefreshDone,
-		}
-		return radiogardensource.New(rgCfg), nil
-	})
-
-	reg.Register(source.TypeSpaceX, func(ctx context.Context, sourceID string) (source.Source, error) {
-		sc, err := deps.SourceConfigStore.Get(ctx, sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("get source config: %w", err)
-		}
-		if sc == nil {
-			return nil, errors.New("source config not found")
-		}
-		sxCfg := spacexsource.Config{
-			ID:            sc.ID,
-			Name:          sc.Name,
-			IsEnabled:     sc.IsEnabled,
-			StreamStore:   deps.StreamStore,
-			OnRefreshDone: deps.OnRefreshDone,
-		}
-		return spacexsource.New(sxCfg), nil
-	})
-
-	// Register plugin descriptors for all built-in source types so
-	// /api/source-types returns the full list of available sources.
+	// Register plugin descriptors for the compiled-in source types so
+	// /api/source-types returns them. WASM plugins register themselves.
 	registerBuiltinDescriptors(reg)
 }
 
@@ -386,41 +295,8 @@ func registerBuiltinDescriptors(reg *source.Registry) {
 				{Key: "diseqc_source", Label: "DiSEqC Source", Type: source.FieldNumber, Default: "0"},
 			},
 		},
-		{
-			Type:        source.TypeDemo,
-			Label:       "Demo Streams",
-			ShortLabel:  "DEMO",
-			Color:       "#607d8b",
-			Version:     "1.0.0",
-			Description: "Built-in demo streams for testing",
-		},
-		{
-			Type:        source.TypeTrailers,
-			Label:       "Movie Trailers",
-			ShortLabel:  "TRAILERS",
-			Color:       "#e91e63",
-			Version:     "1.0.0",
-			Description: "Latest movie trailers from TMDB",
-		},
-		{
-			Type:        source.TypeSpaceX,
-			Label:       "Space Launches",
-			ShortLabel:  "SPACE",
-			Color:       "#1e88e5",
-			Version:     "1.0.0",
-			Description: "Launches from all space agencies via Launch Library 2",
-		},
-		{
-			Type:        source.TypeRadioGarden,
-			Label:       "Radio Garden",
-			ShortLabel:  "RADIO",
-			Color:       "#43a047",
-			Version:     "1.0.0",
-			Description: "Internet radio stations from Radio Garden",
-			ConfigFields: []source.ConfigField{
-				{Key: "places", Label: "Places", Type: source.FieldCustom, Component: "radiogarden-places", Required: true, HelpText: "Search and select places to import stations from"},
-			},
-		},
+		// Demo, Trailers, Space Launches, and Radio Garden are WASM plugins.
+		// Their descriptors are loaded from .wasm files in MEDIAHUB_PLUGINS_DIR.
 	}
 
 	for _, desc := range descriptors {

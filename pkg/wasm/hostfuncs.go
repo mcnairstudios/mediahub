@@ -100,27 +100,27 @@ func hostLog(ctx context.Context, mod api.Module, level uint32, msgPtr, msgLen u
 // The response body is written back to WASM memory; resp_ptr_len is packed as high32=ptr, low32=len.
 func hostHTTPRequest(ctx context.Context, mod api.Module,
 	urlPtr, urlLen, methodPtr, methodLen, headersPtr, headersLen, bodyPtr, bodyLen uint32,
-) (int32, uint64) {
+) uint64 {
 	env := getHostEnv(ctx)
 	if env == nil {
 		log.Printf("wasm: host_http_request called without host environment")
-		return -1, 0
+		return 0
 	}
 
 	urlBytes, ok := mod.Memory().Read(urlPtr, urlLen)
 	if !ok {
-		return -1, 0
+		return 0
 	}
 	methodBytes, ok := mod.Memory().Read(methodPtr, methodLen)
 	if !ok {
-		return -1, 0
+		return 0
 	}
 
 	var reqBody io.Reader
 	if bodyLen > 0 {
 		bodyBytes, ok := mod.Memory().Read(bodyPtr, bodyLen)
 		if !ok {
-			return -1, 0
+			return 0
 		}
 		reqBody = bytes.NewReader(bodyBytes)
 	}
@@ -128,7 +128,7 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 	req, err := http.NewRequestWithContext(ctx, string(methodBytes), string(urlBytes), reqBody)
 	if err != nil {
 		log.Printf("wasm[%s]: http request creation failed: %v", env.pluginType, err)
-		return -1, 0
+		return 0
 	}
 
 	// Parse headers as newline-separated "Key: Value" pairs.
@@ -151,7 +151,7 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("wasm[%s]: http request failed: %v", env.pluginType, err)
-		return -1, 0
+		return 0
 	}
 	defer resp.Body.Close()
 
@@ -159,20 +159,20 @@ func hostHTTPRequest(ctx context.Context, mod api.Module,
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		log.Printf("wasm[%s]: reading http response: %v", env.pluginType, err)
-		return int32(resp.StatusCode), 0
+		return 0
 	}
 
 	if len(respBody) == 0 {
-		return int32(resp.StatusCode), 0
+		return 0
 	}
 
 	ptr, length, err := writeToWASM(ctx, mod, respBody)
 	if err != nil {
 		log.Printf("wasm[%s]: writing response to wasm memory: %v", env.pluginType, err)
-		return int32(resp.StatusCode), 0
+		return 0
 	}
 
-	return int32(resp.StatusCode), packPtrLen(ptr, length)
+	return packPtrLen(ptr, length)
 }
 
 // hostKVGet implements host_kv_get(key_ptr, key_len) -> (val_ptr_len i64).

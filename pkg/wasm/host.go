@@ -11,6 +11,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 // WASMHost manages the lifecycle of WASM plugins.
@@ -40,6 +41,12 @@ func (h *WASMHost) LoadPlugin(ctx context.Context, wasmBytes []byte) (*WASMPlugi
 	// Each plugin gets its own runtime for isolation.
 	rt := wazero.NewRuntime(ctx)
 
+	// WASI is required for TinyGo-compiled plugins.
+	if _, err := wasi_snapshot_preview1.Instantiate(ctx, rt); err != nil {
+		rt.Close(ctx)
+		return nil, fmt.Errorf("instantiating WASI: %w", err)
+	}
+
 	env := &hostEnv{
 		httpClient: h.httpClient,
 		kvStore:    h.kvStore,
@@ -61,8 +68,9 @@ func (h *WASMHost) LoadPlugin(ctx context.Context, wasmBytes []byte) (*WASMPlugi
 		return nil, fmt.Errorf("compiling wasm module: %w", err)
 	}
 
-	// Instantiate the module.
+	// Instantiate the module without running _start (TinyGo's main() would exit).
 	mod, err := rt.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().
+		WithStartFunctions().
 		WithStdout(os.Stdout).
 		WithStderr(os.Stderr))
 	if err != nil {
