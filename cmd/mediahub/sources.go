@@ -286,4 +286,153 @@ func registerSources(reg *source.Registry, deps sourceDeps) {
 		}
 		return spacexsource.New(sxCfg), nil
 	})
+
+	// Register plugin descriptors for all built-in source types so
+	// /api/source-types returns the full list of available sources.
+	registerBuiltinDescriptors(reg)
+}
+
+// registerBuiltinDescriptors adds PluginDescriptor metadata for every
+// built-in source type. Factories remain set via Register() above; the
+// descriptors provide UI metadata for the generic plugin infrastructure.
+func registerBuiltinDescriptors(reg *source.Registry) {
+	descriptors := []source.PluginDescriptor{
+		{
+			Type:        source.TypeM3U,
+			Label:       "M3U Playlist",
+			ShortLabel:  "M3U",
+			Color:       "#4caf50",
+			Version:     "1.0.0",
+			Description: "Import channels from an M3U playlist URL",
+			ConfigFields: []source.ConfigField{
+				{Key: "url", Label: "Playlist URL", Type: source.FieldURL, Required: true, Placeholder: "https://example.com/playlist.m3u"},
+				{Key: "username", Label: "Username", Type: source.FieldText, HelpText: "Optional credentials for protected playlists"},
+				{Key: "password", Label: "Password", Type: source.FieldPassword},
+				{Key: "use_wireguard", Label: "Use WireGuard", Type: source.FieldBool},
+				{Key: "wg_profile_id", Label: "WireGuard Profile", Type: source.FieldSelect},
+				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: "24h", Options: []source.Option{
+					{Value: "1h", Label: "Every hour"},
+					{Value: "6h", Label: "Every 6 hours"},
+					{Value: "12h", Label: "Every 12 hours"},
+					{Value: "24h", Label: "Every 24 hours"},
+				}},
+				{Key: "source_profile_id", Label: "Source Profile", Type: source.FieldSelect},
+				{Key: "epg_source_id", Label: "EPG Source", Type: source.FieldSelect},
+			},
+		},
+		{
+			Type:        source.TypeXtream,
+			Label:       "Xtream Codes",
+			ShortLabel:  "XTREAM",
+			Color:       "#ff9800",
+			Version:     "1.0.0",
+			Description: "Connect to an Xtream Codes compatible server",
+			ConfigFields: []source.ConfigField{
+				{Key: "server", Label: "Server URL", Type: source.FieldURL, Required: true, Placeholder: "http://example.com:8080"},
+				{Key: "username", Label: "Username", Type: source.FieldText, Required: true},
+				{Key: "password", Label: "Password", Type: source.FieldPassword, Required: true},
+				{Key: "use_wireguard", Label: "Use WireGuard", Type: source.FieldBool},
+				{Key: "wg_profile_id", Label: "WireGuard Profile", Type: source.FieldSelect},
+				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: "0", HelpText: "0 = unlimited"},
+				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: "24h", Options: []source.Option{
+					{Value: "1h", Label: "Every hour"},
+					{Value: "6h", Label: "Every 6 hours"},
+					{Value: "12h", Label: "Every 12 hours"},
+					{Value: "24h", Label: "Every 24 hours"},
+				}},
+				{Key: "source_profile_id", Label: "Source Profile", Type: source.FieldSelect},
+				{Key: "epg_source_id", Label: "EPG Source", Type: source.FieldSelect},
+			},
+		},
+		{
+			Type:        source.TypeTVPStreams,
+			Label:       "TVProxy Streams",
+			ShortLabel:  "TVPROXY",
+			Color:       "#9c27b0",
+			Version:     "1.0.0",
+			Description: "Connect to a tvproxy-streams instance via mTLS",
+			ConfigFields: []source.ConfigField{
+				{Key: "url", Label: "Server URL", Type: source.FieldURL, Required: true, Placeholder: "https://tvproxy.example.com"},
+				{Key: "enrollment_token", Label: "Enrollment Token", Type: source.FieldPassword, HelpText: "One-time token for mTLS enrollment"},
+				{Key: "use_wireguard", Label: "Use WireGuard", Type: source.FieldBool},
+				{Key: "wg_profile_id", Label: "WireGuard Profile", Type: source.FieldSelect},
+				{Key: "source_profile_id", Label: "Source Profile", Type: source.FieldSelect},
+				{Key: "epg_source_id", Label: "EPG Source", Type: source.FieldSelect},
+			},
+		},
+		{
+			Type:        source.TypeHDHR,
+			Label:       "HDHomeRun",
+			ShortLabel:  "HDHR",
+			Color:       "#00bcd4",
+			Version:     "1.0.0",
+			Description: "Discover and use HDHomeRun network tuners",
+			ConfigFields: []source.ConfigField{
+				{Key: "devices", Label: "Devices", Type: source.FieldCustom, Component: "hdhr-devices", HelpText: "Manage devices via the HDHomeRun discovery UI"},
+			},
+		},
+		{
+			Type:        source.TypeSATIP,
+			Label:       "SAT>IP",
+			ShortLabel:  "SATIP",
+			Color:       "#795548",
+			Version:     "1.0.0",
+			Description: "Connect to a SAT>IP DVB tuner for satellite, cable, or terrestrial TV",
+			ConfigFields: []source.ConfigField{
+				{Key: "host", Label: "Host", Type: source.FieldText, Required: true, Placeholder: "192.168.1.100"},
+				{Key: "http_port", Label: "HTTP Port", Type: source.FieldNumber, Default: "8875"},
+				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: "0", HelpText: "0 = unlimited"},
+				{Key: "transmitter_file", Label: "Transmitter File", Type: source.FieldText, HelpText: "Path to transmitter definition file"},
+				{Key: "diseqc_source", Label: "DiSEqC Source", Type: source.FieldNumber, Default: "0"},
+			},
+		},
+		{
+			Type:        source.TypeDemo,
+			Label:       "Demo Streams",
+			ShortLabel:  "DEMO",
+			Color:       "#607d8b",
+			Version:     "1.0.0",
+			Description: "Built-in demo streams for testing",
+		},
+		{
+			Type:        source.TypeTrailers,
+			Label:       "Movie Trailers",
+			ShortLabel:  "TRAILERS",
+			Color:       "#e91e63",
+			Version:     "1.0.0",
+			Description: "Latest movie trailers from TMDB",
+		},
+		{
+			Type:        source.TypeSpaceX,
+			Label:       "Space Launches",
+			ShortLabel:  "SPACE",
+			Color:       "#1e88e5",
+			Version:     "1.0.0",
+			Description: "Launches from all space agencies via Launch Library 2",
+		},
+		{
+			Type:        source.TypeRadioGarden,
+			Label:       "Radio Garden",
+			ShortLabel:  "RADIO",
+			Color:       "#43a047",
+			Version:     "1.0.0",
+			Description: "Internet radio stations from Radio Garden",
+			ConfigFields: []source.ConfigField{
+				{Key: "places", Label: "Places", Type: source.FieldCustom, Component: "radiogarden-places", Required: true, HelpText: "Search and select places to import stations from"},
+			},
+		},
+	}
+
+	for _, desc := range descriptors {
+		// Only register the descriptor — factories are already set via
+		// Register() calls above. If a plugin entry already exists
+		// (e.g. from an init() self-registration), update its descriptor.
+		if existing := reg.Plugin(desc.Type); existing != nil {
+			existing.Descriptor = desc
+			continue
+		}
+		reg.RegisterPlugin(source.PluginRegistration{
+			Descriptor: desc,
+		})
+	}
 }

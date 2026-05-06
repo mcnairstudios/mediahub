@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -120,6 +121,27 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("PUT /api/sources/radiogarden/{id}", s.adminOnly(s.handleUpdateRadioGardenSource))
 	s.mux.Handle("DELETE /api/sources/radiogarden/{id}", s.adminOnly(s.handleDeleteRadioGardenSource))
 	s.mux.Handle("GET /api/sources/radiogarden/places", s.adminOnly(s.handleRadioGardenPlaces))
+	// Generic plugin routes
+	s.mux.Handle("GET /api/source-types", s.authenticated(s.handleListSourceTypes))
+	s.mux.Handle("GET /api/source-types/{type}/frontend.js", s.authenticated(s.handlePluginFrontendJS))
+
+	// Generic source CRUD (coexists with per-type routes during migration)
+	s.mux.Handle("POST /api/source-plugins/{type}", s.adminOnly(s.handleGenericCreateSource))
+	s.mux.Handle("PUT /api/source-plugins/{type}/{id}", s.adminOnly(s.handleGenericUpdateSource))
+	s.mux.Handle("DELETE /api/source-plugins/{type}/{id}", s.adminOnly(s.handleGenericDeleteSource))
+
+	// Register custom routes from plugins.
+	for _, plugin := range s.deps.SourceReg.Plugins() {
+		for _, route := range plugin.CustomRoutes {
+			handler, ok := route.Handler.(http.HandlerFunc)
+			if !ok {
+				continue
+			}
+			pattern := fmt.Sprintf("%s /api/sources/%s/%s", route.Method, plugin.Descriptor.Type, route.Pattern)
+			s.mux.Handle(pattern, s.adminOnly(handler))
+		}
+	}
+
 	s.mux.Handle("POST /api/sources/{sourceID}/refresh", s.adminOnly(s.handleRefreshSource))
 	s.mux.Handle("GET /api/sources/{sourceID}/status", s.authenticated(s.handleSourceStatus))
 	s.mux.Handle("GET /api/users", s.adminOnly(s.handleListUsers))

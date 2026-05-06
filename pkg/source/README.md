@@ -12,6 +12,15 @@ Defines the contract for input plugins that provide streams into the media cloud
 - Define `SourceInfo` for unified source listing across all types
 - Define `RefreshStatus` for progress reporting during scans/refreshes
 
+## Plugin System
+
+The source package includes a plugin registration system that allows source types to declare their metadata, configuration fields, custom API routes, and frontend JavaScript.
+
+- **[PLUGIN_GUIDE.md](PLUGIN_GUIDE.md)** — Full development guide with copy-paste examples for creating new source plugins
+- **[INTERFACES.md](INTERFACES.md)** — Reference for all interfaces and structs including `PluginDescriptor`, `ConfigField`, `PluginRegistration`, `CustomRoute`, and `Registry` methods
+
+Plugins self-register via `DefaultRegistry.RegisterPlugin()` in an `init()` function. The registry provides the `/api/source-types` endpoint with all available source types and their config fields, so the frontend can render add/edit forms dynamically.
+
 ## Does NOT
 - Implement any specific source (M3U, HDHR, SAT>IP) — those are separate packages
 - Persist anything — sources own their own storage

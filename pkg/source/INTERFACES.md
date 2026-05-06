@@ -171,7 +171,134 @@ Factory registry for creating sources by type.
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `Register` | `(st SourceType, factory Factory)` | Register a factory for a source type |
+| `RegisterPlugin` | `(reg PluginRegistration)` | Register a full plugin (descriptor + optional factory/routes/JS) |
+| `Plugin` | `(st SourceType) *PluginRegistration` | Return the registration for a source type, or nil |
+| `Plugins` | `() []*PluginRegistration` | Return all registered plugins, sorted by type |
 | `Create` | `(ctx context.Context, st SourceType, sourceID string) (Source, error)` | Create a source from its factory |
 | `Types` | `() []SourceType` | List all registered source types |
 
 `Factory` signature: `func(ctx context.Context, sourceID string) (Source, error)`
+
+### DefaultRegistry
+
+```go
+var DefaultRegistry = NewRegistry()
+```
+
+Package-level registry for self-registering plugins. Plugins call `DefaultRegistry.RegisterPlugin()` in their `init()` function to register themselves at import time.
+
+---
+
+## PluginDescriptor
+
+Declares metadata about a source plugin. Serialized to JSON for the frontend.
+
+```go
+type PluginDescriptor struct {
+    Type         SourceType    `json:"type"`
+    Label        string        `json:"label"`
+    ShortLabel   string        `json:"short_label"`
+    Color        string        `json:"color"`
+    Icon         string        `json:"icon,omitempty"`
+    Version      string        `json:"version"`
+    Description  string        `json:"description,omitempty"`
+    ConfigFields []ConfigField `json:"config_fields"`
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `Type` | Unique source type identifier (e.g. `"m3u"`, `"hdhr"`) |
+| `Label` | Human-readable name shown in UI (e.g. `"M3U Playlist"`) |
+| `ShortLabel` | Abbreviated label for compact views (e.g. `"M3U"`) |
+| `Color` | CSS hex color for UI badges (e.g. `"#4caf50"`) |
+| `Icon` | Optional icon identifier |
+| `Version` | Plugin version string (e.g. `"1.0.0"`) |
+| `Description` | Short description shown when adding a source |
+| `ConfigFields` | Ordered list of configuration fields for the add/edit form |
+
+---
+
+## ConfigField
+
+Describes a single configuration field rendered in the source add/edit form.
+
+```go
+type ConfigField struct {
+    Key         string    `json:"key"`
+    Label       string    `json:"label"`
+    Type        FieldType `json:"type"`
+    Required    bool      `json:"required,omitempty"`
+    Default     string    `json:"default,omitempty"`
+    Placeholder string    `json:"placeholder,omitempty"`
+    HelpText    string    `json:"help_text,omitempty"`
+    Options     []Option  `json:"options,omitempty"`
+    Component   string    `json:"component,omitempty"`
+}
+```
+
+### FieldType values
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `FieldText` | `"text"` | Single-line text input |
+| `FieldPassword` | `"password"` | Masked password input |
+| `FieldURL` | `"url"` | URL input with validation |
+| `FieldNumber` | `"number"` | Numeric input |
+| `FieldBool` | `"bool"` | Toggle/checkbox |
+| `FieldSelect` | `"select"` | Dropdown, uses `Options` |
+| `FieldHidden` | `"hidden"` | Hidden field, not shown in UI |
+| `FieldCustom` | `"custom"` | Custom UI component, uses `Component` |
+
+### Option
+
+```go
+type Option struct {
+    Value string `json:"value"`
+    Label string `json:"label"`
+}
+```
+
+Value/label pair for `FieldSelect` dropdowns.
+
+---
+
+## PluginRegistration
+
+Bundles everything needed to register a source plugin with the registry.
+
+```go
+type PluginRegistration struct {
+    Descriptor   PluginDescriptor
+    Factory      Factory
+    CustomRoutes []CustomRoute
+    FrontendJS   []byte
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `Descriptor` | Plugin metadata and config field definitions |
+| `Factory` | Optional factory function to create source instances |
+| `CustomRoutes` | Optional additional API endpoints provided by the plugin |
+| `FrontendJS` | Optional JavaScript bytes served to the browser for custom UI components |
+
+---
+
+## CustomRoute
+
+Defines an additional API endpoint provided by a plugin.
+
+```go
+type CustomRoute struct {
+    Method  string
+    Pattern string // relative path, e.g. "places" -> /api/sources/{type}/places
+    Handler any
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `Method` | HTTP method (e.g. `"GET"`, `"POST"`) |
+| `Pattern` | Relative path appended to `/api/sources/{type}/` |
+| `Handler` | `http.HandlerFunc` stored as `any` to avoid importing `net/http` in this package |
