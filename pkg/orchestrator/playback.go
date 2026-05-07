@@ -329,6 +329,9 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		if len(pipelineResult.AudioExtradata) > 0 {
 			pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
 		}
+		// Pass encoder's ToCodecParameters functions for correct muxer setup
+		pluginCfg.CopyVideoParams = pipelineResult.CopyVideoParams
+		pluginCfg.CopyAudioParams = pipelineResult.CopyAudioParams
 		if info != nil && info.Video != nil {
 			v := *info.Video
 			if decision.NeedsTranscode && string(decision.VideoCodec) != "" {

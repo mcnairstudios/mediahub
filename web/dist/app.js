@@ -354,7 +354,7 @@
       mse_h264: !!window.MediaSource && MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028"'),
       mse_h265: !!window.MediaSource && MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L120"'),
       hls_native: v.canPlayType('application/vnd.apple.mpegurl') !== '',
-      hls_js: typeof Hls !== 'undefined' && Hls.isSupported(),
+      hls_js: typeof videojs !== 'undefined',
       webrtc: !!window.RTCPeerConnection
     };
     return _capabilities;
@@ -3025,10 +3025,10 @@
 
   var HLSPlayer = {
     label: 'HLS',
-    isSupported: function() { return (typeof Hls !== 'undefined' && Hls.isSupported()) || document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''; },
+    isSupported: function() { return typeof videojs !== 'undefined' || document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''; },
     serverParams: function() { return {delivery: 'hls'}; },
     create: function(videoEl) {
-      var hlsInstance = null;
+      var vjsPlayer = null;
       var lastUrl = null;
       var lastStreamID = null;
       return {
@@ -3036,44 +3036,53 @@
           lastStreamID = streamID;
           var url = endpoints.playlist || ('/api/play/' + streamID + '/hls/playlist.m3u8');
           lastUrl = url;
-          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+          if (vjsPlayer) { vjsPlayer.dispose(); vjsPlayer = null; }
           playerState.hlsInstance = null;
 
-          console.log('[HLS] Hls available:', typeof Hls !== 'undefined', 'supported:', typeof Hls !== 'undefined' && Hls.isSupported());
-          if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            var hls = new Hls({
-              debug: true,
-              liveSyncDurationCount: 3,
-              liveMaxLatencyDurationCount: 6,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60,
-              startLevel: -1,
-              xhrSetup: function(xhr) {
-                if (api.token) xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
-              }
-            });
-            hls.loadSource(url);
-            hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
-              console.log('[HLS] manifest parsed, levels:', data.levels.length);
-              videoEl.play().catch(function() {});
-            });
-            hls.on(Hls.Events.ERROR, function(event, data) {
-              console.error('[HLS] error:', data.type, data.details, data.fatal, data.reason || '', data.response ? data.response.code : '');
-              if (data.fatal) {
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                  hls.startLoad();
-                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                  hls.recoverMediaError();
-                } else {
-                  handleRetry();
+          console.log('[HLS] videojs available:', typeof videojs !== 'undefined');
+          if (typeof videojs !== 'undefined') {
+            // Ensure the video element has an id for video.js
+            if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
+
+            // Configure VHS xhr to inject auth token
+            if (typeof videojs.Vhs !== 'undefined' && videojs.Vhs.xhr) {
+              videojs.Vhs.xhr.beforeRequest = function(options) {
+                if (api.token) {
+                  if (!options.headers) options.headers = {};
+                  options.headers['Authorization'] = 'Bearer ' + api.token;
+                }
+                return options;
+              };
+            }
+
+            vjsPlayer = videojs(videoEl, {
+              controls: false,
+              autoplay: true,
+              preload: 'auto',
+              html5: {
+                vhs: {
+                  overrideNative: true,
+                  enableLowInitialPlaylist: false
                 }
               }
             });
-            hlsInstance = hls;
-            playerState.hlsInstance = hls;
+
+            vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
+
+            vjsPlayer.ready(function() {
+              console.log('[HLS] video.js player ready');
+              vjsPlayer.play().catch(function() {});
+            });
+
+            vjsPlayer.on('error', function() {
+              var err = vjsPlayer.error();
+              console.error('[HLS] video.js error:', err && err.message);
+              handleRetry();
+            });
+
+            playerState.hlsInstance = vjsPlayer;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('[HLS] using native HLS (not hls.js)');
+            console.log('[HLS] using native HLS (no video.js)');
             videoEl.src = url;
             videoEl.play().catch(function() {});
           } else {
@@ -3081,7 +3090,10 @@
           }
         },
         stop: function() {
-          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+          if (vjsPlayer) {
+            try { vjsPlayer.dispose(); } catch(e) { console.warn('[HLS] dispose error:', e); }
+            vjsPlayer = null;
+          }
           playerState.hlsInstance = null;
         },
         retry: function() {
@@ -3492,10 +3504,10 @@
 
   var DASHPlayer = {
     label: 'DASH',
-    isSupported: function() { return !!window.MediaSource && typeof dashjs !== 'undefined'; },
+    isSupported: function() { return !!window.MediaSource && typeof videojs !== 'undefined'; },
     serverParams: function() { return {delivery: 'dash'}; },
     create: function(videoEl) {
-      var player = null;
+      var vjsPlayer = null;
       var lastStreamID = null;
       var lastEndpoints = null;
       return {
@@ -3503,35 +3515,59 @@
           lastStreamID = streamID;
           lastEndpoints = endpoints;
           var url = (endpoints && endpoints.manifest) || ('/api/play/' + streamID + '/dash/manifest.mpd');
-          player = dashjs.MediaPlayer().create();
-          player.updateSettings({
-            streaming: {
-              delay: { liveDelay: 4 },
-              buffer: { fastSwitchEnabled: true },
-              abr: { autoSwitchBitrate: { video: false, audio: false } }
-            }
-          });
-          if (api.token) {
-            player.extend('RequestModifier', function() {
-              return {
-                modifyRequestHeader: function(xhr) {
-                  xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
-                  return xhr;
-                },
-                modifyRequestURL: function(url) { return url; }
+          if (vjsPlayer) { vjsPlayer.dispose(); vjsPlayer = null; }
+
+          console.log('[DASH] videojs available:', typeof videojs !== 'undefined');
+          if (typeof videojs !== 'undefined') {
+            if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
+
+            // Configure VHS xhr to inject auth token
+            if (typeof videojs.Vhs !== 'undefined' && videojs.Vhs.xhr) {
+              videojs.Vhs.xhr.beforeRequest = function(options) {
+                if (api.token) {
+                  if (!options.headers) options.headers = {};
+                  options.headers['Authorization'] = 'Bearer ' + api.token;
+                }
+                return options;
               };
-            }, true);
+            }
+
+            vjsPlayer = videojs(videoEl, {
+              controls: false,
+              autoplay: true,
+              preload: 'auto',
+              html5: {
+                vhs: {
+                  overrideNative: true
+                }
+              }
+            });
+
+            vjsPlayer.src({ src: url, type: 'application/dash+xml' });
+
+            vjsPlayer.ready(function() {
+              console.log('[DASH] video.js player ready');
+              vjsPlayer.play().catch(function() {});
+            });
+
+            vjsPlayer.on('error', function() {
+              var err = vjsPlayer.error();
+              console.error('[DASH] video.js error:', err && err.message);
+              handleRetry();
+            });
           }
-          player.initialize(videoEl, url, true);
-          player.on(dashjs.MediaPlayer.events.ERROR, function() {
-            handleRetry();
-          });
         },
         stop: function() {
-          if (player) { player.reset(); player = null; }
+          if (vjsPlayer) {
+            try { vjsPlayer.dispose(); } catch(e) { console.warn('[DASH] dispose error:', e); }
+            vjsPlayer = null;
+          }
         },
         retry: function() {
-          if (player) { player.reset(); player = null; }
+          if (vjsPlayer) {
+            try { vjsPlayer.dispose(); } catch(e) {}
+            vjsPlayer = null;
+          }
           if (lastStreamID) { this.start(lastEndpoints, lastStreamID); }
         }
       };
@@ -3769,13 +3805,22 @@
 
     lines.push(playbackParts.join(' | '));
 
-    if (playerState.hlsInstance) {
-      var hls = playerState.hlsInstance;
-      var level = hls.currentLevel >= 0 ? hls.levels[hls.currentLevel] : null;
-      if (level) {
-        lines.push('Bitrate: ' + (level.bitrate / 1000).toFixed(0) + ' kbps');
-      }
-      lines.push('Level: ' + (hls.currentLevel + 1) + '/' + hls.levels.length);
+    if (playerState.hlsInstance && typeof playerState.hlsInstance.tech === 'function') {
+      try {
+        var tech = playerState.hlsInstance.tech({ IWillNotUseThisInPlugins: true });
+        if (tech && tech.vhs) {
+          var playlists = tech.vhs.playlists;
+          var media = playlists && playlists.media && playlists.media();
+          if (media && media.attributes && media.attributes.BANDWIDTH) {
+            lines.push('Bitrate: ' + (media.attributes.BANDWIDTH / 1000).toFixed(0) + ' kbps');
+          }
+          var master = playlists && playlists.master;
+          if (master && master.playlists) {
+            var idx = master.playlists.indexOf(media);
+            lines.push('Level: ' + (idx + 1) + '/' + master.playlists.length);
+          }
+        }
+      } catch(e) {}
     }
 
     if (debugInfo) {

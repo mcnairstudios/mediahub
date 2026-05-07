@@ -440,6 +440,16 @@ func (e *Encoder) TimeBase() astiav.Rational {
 	return e.codecCtx.TimeBase()
 }
 
+// ToCodecParameters copies the encoder's full codec configuration to cp.
+// This wraps avcodec_parameters_from_context and produces correctly formatted
+// extradata (hvcC for HEVC, avcC for H.264, esds for AAC) that muxers need.
+func (e *Encoder) ToCodecParameters(cp *astiav.CodecParameters) error {
+	if e.codecCtx == nil {
+		return fmt.Errorf("encode: encoder not initialized")
+	}
+	return e.codecCtx.ToCodecParameters(cp)
+}
+
 func (e *Encoder) Flush() ([]*astiav.Packet, error) {
 	if e.codecCtx == nil {
 		return nil, nil

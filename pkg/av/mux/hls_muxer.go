@@ -3,6 +3,7 @@ package mux
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,13 @@ type HLSMuxOpts struct {
 	AudioSampleRate    int
 	AudioTimeBase      astiav.Rational
 	AudioFrameSize     int
+
+	// CopyVideoParams copies the video encoder's full codec parameters
+	// to the output stream, producing correctly formatted extradata.
+	// When set, this is used instead of manually setting codec fields.
+	CopyVideoParams func(cp *astiav.CodecParameters) error
+	// CopyAudioParams does the same for audio.
+	CopyAudioParams func(cp *astiav.CodecParameters) error
 }
 
 type HLSMuxer struct {
@@ -43,6 +51,7 @@ type HLSMuxer struct {
 	lastAudioDTS int64
 	videoDTSInit bool
 	audioDTSInit bool
+	initPatched  bool
 }
 
 func NewHLSMuxer(opts HLSMuxOpts) (*HLSMuxer, error) {
@@ -89,45 +98,31 @@ func (m *HLSMuxer) openFormatContext() error {
 			return errors.New("failed to allocate video stream")
 		}
 		cp := vs.CodecParameters()
-		cp.SetCodecID(m.opts.VideoCodecID)
-		cp.SetMediaType(astiav.MediaTypeVideo)
-		cp.SetWidth(m.opts.VideoWidth)
-		cp.SetHeight(m.opts.VideoHeight)
-		if len(m.opts.VideoExtradata) > 0 {
-			ed := m.opts.VideoExtradata
-			// Scrub HEVC hvcC general_profile_compatibility_flags for HLS.js.
-			// HLS.js reads bytes 2-5 of hvcC as a decimal integer for the codec
-			// string. VT encoder writes 0x60000000 which becomes "60000000" —
-			// Chrome rejects this. Reverse the bit order so HLS.js gets "6".
-			if m.opts.VideoCodecID == astiav.CodecIDHevc && len(ed) >= 13 && ed[0] == 1 {
-				ed = make([]byte, len(m.opts.VideoExtradata))
-				copy(ed, m.opts.VideoExtradata)
-				// Reverse bits in each of the 4 flag bytes (bytes 2-5)
-				for i := 2; i <= 5; i++ {
-					b := ed[i]
-					ed[i] = ((b & 0x80) >> 7) | ((b & 0x40) >> 5) | ((b & 0x20) >> 3) | ((b & 0x10) >> 1) |
-						((b & 0x08) << 1) | ((b & 0x04) << 3) | ((b & 0x02) << 5) | ((b & 0x01) << 7)
-				}
-			}
-			if err := cp.SetExtraData(ed); err != nil {
+
+		if m.opts.CopyVideoParams != nil {
+			// Use encoder's ToCodecParameters — produces correct extradata
+			if err := m.opts.CopyVideoParams(cp); err != nil {
 				fc.Free()
 				m.fc = nil
-				return fmt.Errorf("set video extradata: %w", err)
+				return fmt.Errorf("copy video encoder params: %w", err)
+			}
+		} else {
+			// Fallback: manual codec parameter setup (copy mode)
+			cp.SetCodecID(m.opts.VideoCodecID)
+			cp.SetMediaType(astiav.MediaTypeVideo)
+			cp.SetWidth(m.opts.VideoWidth)
+			cp.SetHeight(m.opts.VideoHeight)
+			if len(m.opts.VideoExtradata) > 0 {
+				if err := cp.SetExtraData(m.opts.VideoExtradata); err != nil {
+					fc.Free()
+					m.fc = nil
+					return fmt.Errorf("set video extradata: %w", err)
+				}
 			}
 		}
-		// HEVC: set hvc1 tag + profile/level for clean hvcC box.
-		if m.opts.VideoCodecID == astiav.CodecIDHevc {
-			cp.SetCodecTag(0x31637668) // 'hvc1' in little-endian
-			cp.SetProfile(astiav.ProfileHevcMain)
-			if m.opts.VideoHeight >= 2160 {
-				cp.SetLevel(153) // Level 5.1 for 4K
-			} else if m.opts.VideoHeight >= 1080 {
-				cp.SetLevel(120) // Level 4.0 for 1080p
-			} else {
-				cp.SetLevel(93) // Level 3.1
-			}
-		} else if m.opts.VideoCodecID == astiav.CodecIDH264 {
-			cp.SetProfile(astiav.ProfileH264Main)
+		// Set hvc1 tag for HEVC — required for browser HLS playback
+		if cp.CodecID() == astiav.CodecIDHevc {
+			cp.SetCodecTag(0x31637668) // 'hvc1'
 		}
 		vs.SetTimeBase(m.opts.VideoTimeBase)
 		m.videoIdx = vs.Index()
@@ -141,39 +136,38 @@ func (m *HLSMuxer) openFormatContext() error {
 			return errors.New("failed to allocate audio stream")
 		}
 		cp := as.CodecParameters()
-		cp.SetCodecID(m.opts.AudioCodecID)
-		cp.SetMediaType(astiav.MediaTypeAudio)
-		if m.opts.AudioSampleRate > 0 {
-			cp.SetSampleRate(m.opts.AudioSampleRate)
-		}
-		switch m.opts.AudioChannels {
-		case 1:
-			cp.SetChannelLayout(astiav.ChannelLayoutMono)
-		case 2:
-			cp.SetChannelLayout(astiav.ChannelLayoutStereo)
-		case 6:
-			cp.SetChannelLayout(astiav.ChannelLayout5Point1)
-		case 8:
-			cp.SetChannelLayout(astiav.ChannelLayout7Point1)
-		}
-		audioExtra := m.opts.AudioExtradata
-		// Generate AAC AudioSpecificConfig if not provided.
-		// Without it, esds lacks the AudioObjectType and Chrome gets
-		// mp4a.40 instead of mp4a.40.2 (AAC-LC).
-		if len(audioExtra) == 0 && m.opts.AudioCodecID == astiav.CodecIDAac {
-			audioExtra = buildAACExtradata(m.opts.AudioSampleRate, m.opts.AudioChannels)
-		}
-		if len(audioExtra) > 0 {
-			if err := cp.SetExtraData(audioExtra); err != nil {
+
+		if m.opts.CopyAudioParams != nil {
+			// Use encoder's ToCodecParameters — produces correct esds
+			if err := m.opts.CopyAudioParams(cp); err != nil {
 				fc.Free()
 				m.fc = nil
-				return fmt.Errorf("set audio extradata: %w", err)
+				return fmt.Errorf("copy audio encoder params: %w", err)
 			}
-		}
-		// AAC: set profile to AAC-LC so esds contains AudioObjectType 2.
-		// Without this, Chrome gets mp4a.40 instead of mp4a.40.2.
-		if m.opts.AudioCodecID == astiav.CodecIDAac {
-			cp.SetProfile(astiav.ProfileAacLow)
+		} else {
+			// Fallback: manual codec parameter setup (copy mode)
+			cp.SetCodecID(m.opts.AudioCodecID)
+			cp.SetMediaType(astiav.MediaTypeAudio)
+			if m.opts.AudioSampleRate > 0 {
+				cp.SetSampleRate(m.opts.AudioSampleRate)
+			}
+			switch m.opts.AudioChannels {
+			case 1:
+				cp.SetChannelLayout(astiav.ChannelLayoutMono)
+			case 2:
+				cp.SetChannelLayout(astiav.ChannelLayoutStereo)
+			case 6:
+				cp.SetChannelLayout(astiav.ChannelLayout5Point1)
+			case 8:
+				cp.SetChannelLayout(astiav.ChannelLayout7Point1)
+			}
+			if len(m.opts.AudioExtradata) > 0 {
+				if err := cp.SetExtraData(m.opts.AudioExtradata); err != nil {
+					fc.Free()
+					m.fc = nil
+					return fmt.Errorf("set audio extradata: %w", err)
+				}
+			}
 		}
 		as.SetTimeBase(m.opts.AudioTimeBase)
 		m.audioIdx = as.Index()
@@ -207,6 +201,9 @@ func (m *HLSMuxer) openFormatContext() error {
 		return fmt.Errorf("write header: %w", err)
 	}
 
+	// Post-process fMP4 init segment to fix hvcC codec string for HLS.js/video.js.
+	// ffmpeg generates hvcC from Annex-B extradata with raw compat flags (0x60000000)
+	// which browsers reject. Patch the init.mp4 on disk to reverse the flag bits.
 	if m.videoIdx >= 0 {
 		m.videoOutTB = fc.Streams()[m.videoIdx].TimeBase()
 	}
@@ -283,6 +280,21 @@ func (m *HLSMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 	if err := m.fc.WriteInterleavedFrame(pkt); err != nil {
 		return fmt.Errorf("avmux: write video packet: %w", err)
 	}
+
+	// Patch init.mp4 after first write — ffmpeg flushes the init segment lazily
+	if !m.initPatched && m.opts.SegmentType == "fmp4" {
+		initPath := filepath.Join(m.opts.OutputDir, "init.mp4")
+		if info, err := os.Stat(initPath); err == nil && info.Size() > 0 {
+			m.initPatched = true
+			if m.opts.VideoCodecID == astiav.CodecIDHevc {
+				patchHvcCFlags(initPath)
+			}
+			if m.opts.AudioCodecID == astiav.CodecIDAac {
+				patchAACEsds(initPath, m.opts.AudioSampleRate, m.opts.AudioChannels)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -380,6 +392,143 @@ func buildAACExtradata(sampleRate, channels int) []byte {
 	b0 := byte((2 << 3) | ((freqIdx >> 1) & 0x07))
 	b1 := byte(((freqIdx & 0x01) << 7) | ((channels & 0x0f) << 3))
 	return []byte{b0, b1}
+}
+
+// patchHvcCFlags patches the hvcC box in an fMP4 init segment to reverse
+// the general_profile_compatibility_flags bit order. ffmpeg writes MSB-first
+// flags (e.g. 0x60000000) but HLS.js/video.js reads them as a decimal
+// integer for the codec string, producing "60000000" instead of "6".
+// RFC 6381 expects reversed bits. This patches the file in-place.
+func patchHvcCFlags(initPath string) {
+	data, err := os.ReadFile(initPath)
+	if err != nil {
+		log.Printf("hls: patchHvcCFlags: read error: %v", err)
+		return
+	}
+	// Find "hvcC" box
+	needle := []byte("hvcC")
+	idx := -1
+	for i := 0; i <= len(data)-4; i++ {
+		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		log.Printf("hls: patchHvcCFlags: no hvcC box found in %s (%d bytes)", initPath, len(data))
+		return
+	}
+	hvcC := idx + 4 // start of hvcC payload
+	if hvcC+13 > len(data) || data[hvcC] != 1 {
+		log.Printf("hls: patchHvcCFlags: hvcC too short or bad version (len=%d, version=%d)", len(data)-hvcC, data[hvcC])
+		return
+	}
+	log.Printf("hls: patchHvcCFlags: found hvcC at offset %d, flags before: %02x%02x%02x%02x", idx, data[hvcC+2], data[hvcC+3], data[hvcC+4], data[hvcC+5])
+	// Reverse bits in bytes 2-5 (general_profile_compatibility_flags)
+	changed := false
+	for i := hvcC + 2; i <= hvcC+5; i++ {
+		b := data[i]
+		rev := ((b & 0x80) >> 7) | ((b & 0x40) >> 5) | ((b & 0x20) >> 3) | ((b & 0x10) >> 1) |
+			((b & 0x08) << 1) | ((b & 0x04) << 3) | ((b & 0x02) << 5) | ((b & 0x01) << 7)
+		if rev != b {
+			data[i] = rev
+			changed = true
+		}
+	}
+	if changed {
+		os.WriteFile(initPath, data, 0644) //nolint:errcheck
+		log.Printf("hls: patched hvcC compat flags in %s", filepath.Base(initPath))
+	}
+}
+
+// patchAACEsds patches the esds box in an fMP4 init segment to ensure
+// the AudioSpecificConfig contains AudioObjectType=2 (AAC-LC).
+// Without this, HLS.js/video.js generates "mp4a.40" instead of "mp4a.40.2".
+func patchAACEsds(initPath string, sampleRate, channels int) {
+	data, err := os.ReadFile(initPath)
+	if err != nil {
+		return
+	}
+	// Find "esds" box
+	needle := []byte("esds")
+	idx := -1
+	for i := 0; i <= len(data)-4; i++ {
+		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	// The esds box contains nested descriptors. Find the DecoderSpecificInfo
+	// descriptor (tag 0x05) which contains the AudioSpecificConfig.
+	esds := data[idx+4:]
+	// Search for tag 0x05 in the esds payload
+	for i := 0; i < len(esds)-6; i++ {
+		if esds[i] == 0x05 {
+			// Skip length bytes (could be 1-4 bytes with 0x80 extension)
+			j := i + 1
+			for j < len(esds) && esds[j] == 0x80 {
+				j++
+			}
+			if j >= len(esds) {
+				break
+			}
+			configLen := int(esds[j])
+			j++
+			if configLen >= 2 && j+1 < len(esds) {
+				// AudioSpecificConfig: first 5 bits = AudioObjectType
+				aot := (esds[j] >> 3) & 0x1f
+				if aot == 0 || aot > 5 {
+					// Fix: write AAC-LC AudioSpecificConfig
+					freqIdx := aacSampleRateIndex(sampleRate)
+					if channels <= 0 {
+						channels = 2
+					}
+					esds[j] = byte((2 << 3) | ((freqIdx >> 1) & 0x07))
+					esds[j+1] = byte(((freqIdx & 0x01) << 7) | ((channels & 0x0f) << 3))
+					os.WriteFile(initPath, data, 0644) //nolint:errcheck
+					log.Printf("hls: patched AAC esds AudioObjectType in %s (was %d)", filepath.Base(initPath), aot)
+				}
+			}
+			break
+		}
+	}
+}
+
+// PatchInitSegment patches an fMP4 init segment in memory to fix codec
+// strings for browser compatibility. Reverses hvcC compat flag bits so
+// HLS.js/video.js generates "hvc1.1.6.L153.B0" instead of "hvc1.1.60000000.L153.B0".
+func PatchInitSegment(data []byte) []byte {
+	patched := make([]byte, len(data))
+	copy(patched, data)
+
+	// Fix hvcC general_profile_compatibility_flags
+	if idx := findBoxOffset(patched, "hvcC"); idx >= 0 {
+		hvcC := idx + 4
+		if hvcC+13 <= len(patched) && patched[hvcC] == 1 {
+			for i := hvcC + 2; i <= hvcC+5; i++ {
+				patched[i] = reverseByte(patched[i])
+			}
+		}
+	}
+	return patched
+}
+
+func findBoxOffset(data []byte, name string) int {
+	needle := []byte(name)
+	for i := 0; i <= len(data)-4; i++ {
+		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
+			return i
+		}
+	}
+	return -1
+}
+
+func reverseByte(b byte) byte {
+	return ((b & 0x80) >> 7) | ((b & 0x40) >> 5) | ((b & 0x20) >> 3) | ((b & 0x10) >> 1) |
+		((b & 0x08) << 1) | ((b & 0x04) << 3) | ((b & 0x02) << 5) | ((b & 0x01) << 7)
 }
 
 func aacSampleRateIndex(rate int) int {

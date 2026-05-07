@@ -297,6 +297,24 @@ func (b *Bridge) VideoEncoderCodecID() astiav.CodecID {
 	return b.videoEnc.CodecID()
 }
 
+// VideoEncoderToCodecParameters copies the video encoder's full codec
+// configuration to cp, producing correctly formatted extradata (hvcC/avcC).
+func (b *Bridge) VideoEncoderToCodecParameters(cp *astiav.CodecParameters) error {
+	if b.videoEnc == nil {
+		return fmt.Errorf("bridge: no video encoder")
+	}
+	return b.videoEnc.ToCodecParameters(cp)
+}
+
+// AudioEncoderToCodecParameters copies the audio encoder's full codec
+// configuration to cp, producing correctly formatted extradata (esds).
+func (b *Bridge) AudioEncoderToCodecParameters(cp *astiav.CodecParameters) error {
+	if b.audioEnc == nil {
+		return fmt.Errorf("bridge: no audio encoder")
+	}
+	return b.audioEnc.ToCodecParameters(cp)
+}
+
 func (b *Bridge) AudioEncoderExtradata() []byte {
 	if b.audioEnc == nil {
 		return nil

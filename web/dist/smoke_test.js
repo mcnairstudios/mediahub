@@ -78,7 +78,8 @@ const sandbox = {
     innerWidth: 1024,
     innerHeight: 768,
     MediaSource: undefined,
-    Hls: undefined
+    Hls: undefined,
+    videojs: undefined
   },
   localStorage: {
     _data: {},
@@ -98,6 +99,7 @@ const sandbox = {
   URL: { createObjectURL: function() { return 'blob:test'; } },
   Promise: Promise,
   Hls: undefined,
+  videojs: undefined,
   module: { exports: {} }
 };
 

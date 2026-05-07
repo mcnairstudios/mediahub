@@ -87,6 +87,8 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		SegmentDurationSec: segDur,
 		SegmentType:        segType,
 		IsLive:             cfg.IsLive,
+		CopyVideoParams:    cfg.CopyVideoParams,
+		CopyAudioParams:    cfg.CopyAudioParams,
 	}
 
 	if hasVideo {
@@ -492,6 +494,12 @@ func (p *Plugin) serveSegment(w http.ResponseWriter, _ *http.Request, path strin
 	if err != nil {
 		http.NotFound(w, nil)
 		return
+	}
+
+	// Patch init.mp4 in memory before serving — fix hvcC compat flags
+	// and AAC esds so browsers get valid codec strings
+	if name == "init.mp4" {
+		data = mux.PatchInitSegment(data)
 	}
 
 	contentType := "video/mp2t"

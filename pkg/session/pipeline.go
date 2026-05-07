@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
 	"github.com/mcnairstudios/mediahub/pkg/av/demuxloop"
@@ -76,6 +77,13 @@ type PipelineResult struct {
 	AudioCodecParams any // *astiav.CodecParameters
 	VideoExtradata   []byte
 	AudioExtradata   []byte
+
+	// CopyVideoParams copies the video encoder's full codec parameters
+	// (including correctly formatted extradata) to the given CodecParameters.
+	// This wraps avcodec_parameters_from_context. Nil when not transcoding.
+	CopyVideoParams func(cp *astiav.CodecParameters) error
+	// CopyAudioParams does the same for audio.
+	CopyAudioParams func(cp *astiav.CodecParameters) error
 }
 
 func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResult, error) {
@@ -217,6 +225,7 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 
 	var sink av.PacketSink = sess.FanOut
 	var videoExtradata, audioExtradata []byte
+	var copyVideoParams, copyAudioParams func(cp *astiav.CodecParameters) error
 
 	if info.Video == nil && cfg.NeedsTranscode {
 		cfg.NeedsTranscode = false
@@ -256,6 +265,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		sink = b
 		videoExtradata = b.VideoEncoderExtradata()
 		audioExtradata = b.AudioEncoderExtradata()
+		copyVideoParams = b.VideoEncoderToCodecParameters
+		copyAudioParams = b.AudioEncoderToCodecParameters
 	}
 
 	// Wire demuxer onSeek callback to reset pipeline state (bridge + output plugins)
@@ -381,6 +392,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		AudioCodecParams: audioCP,
 		VideoExtradata:   videoExtradata,
 		AudioExtradata:   audioExtradata,
+		CopyVideoParams:  copyVideoParams,
+		CopyAudioParams:  copyAudioParams,
 	}, nil
 }
 

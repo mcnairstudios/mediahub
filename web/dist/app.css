@@ -759,3 +759,12 @@ a:hover{color:var(--accent-hover)}
   .epg-program{font-size:11px}
   .epg-scroll{max-height:calc(100vh - 220px)}
 }
+
+/* Hide video.js default UI — we use custom controls */
+.video-js .vjs-control-bar,
+.video-js .vjs-big-play-button,
+.video-js .vjs-loading-spinner,
+.video-js .vjs-text-track-display,
+.video-js .vjs-modal-dialog{display:none!important}
+.video-js{background:transparent!important}
+.video-js .vjs-tech{position:static!important;width:100%!important;height:100%!important}
