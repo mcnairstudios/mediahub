@@ -4115,7 +4115,12 @@
       }
       var cur = videoEl.currentTime || 0;
       var dur = videoEl.duration;
+      // Use probe duration for VOD when videoEl.duration is infinite/growing
+      var probeDurSec = (playerState.probeInfo && playerState.probeInfo.duration_ms) ? playerState.probeInfo.duration_ms / 1000 : 0;
       var effectiveDur = isFinite(dur) && dur > 0 ? dur : 0;
+      if (probeDurSec > 0 && (!isFinite(dur) || dur <= 0 || effectiveDur < probeDurSec * 0.9)) {
+        effectiveDur = probeDurSec;
+      }
       if (playerTime) playerTime.textContent = formatTime(cur) + ' / ' + formatTime(effectiveDur);
       if (effectiveDur > 0) {
         var pct = cur / effectiveDur;

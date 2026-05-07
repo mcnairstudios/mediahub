@@ -187,8 +187,10 @@ func (m *HLSMuxer) openFormatContext() error {
 		dict.Set("hls_list_size", "6", 0)
 		dict.Set("hls_flags", "delete_segments", 0)
 	} else {
-		// VOD: keep all segments
+		// VOD: keep all segments, EVENT type tells HLS.js this is a growing
+		// VOD playlist (not live) so it shows duration and enables seeking
 		dict.Set("hls_list_size", "0", 0)
+		dict.Set("hls_playlist_type", "event", 0)
 	}
 
 	if m.opts.SegmentType == "fmp4" {

@@ -294,11 +294,17 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	sess.Delivery = string(delivery)
 	result.DeliverySwitchable = deliverySwitchable
 
+	// Determine if source is VOD (has known duration) or live
+	isLive := true
+	if !isWebRTC && pipelineResult != nil && pipelineResult.Info != nil && pipelineResult.Info.DurationMs > 0 {
+		isLive = false
+	}
+
 	pluginCfg := output.PluginConfig{
 		OutputDir:      sess.OutputDir,
 		OutputFilePath: filepath.Join(sess.OutputDir, "source.ts"),
 		OutputFormat:   "mpegts",
-		IsLive:         true,
+		IsLive:         isLive,
 	}
 
 	info := result.ProbeInfo
