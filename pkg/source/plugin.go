@@ -1,5 +1,7 @@
 package source
 
+import "encoding/json"
+
 // FieldType identifies the UI input type for a config field.
 type FieldType string
 
@@ -16,15 +18,15 @@ const (
 
 // ConfigField describes a single configuration field for a source plugin.
 type ConfigField struct {
-	Key         string    `json:"key"`
-	Label       string    `json:"label"`
-	Type        FieldType `json:"type"`
-	Required    bool      `json:"required,omitempty"`
-	Default     string    `json:"default,omitempty"`
-	Placeholder string    `json:"placeholder,omitempty"`
-	HelpText    string    `json:"help_text,omitempty"`
-	Options     []Option  `json:"options,omitempty"`
-	Component   string    `json:"component,omitempty"`
+	Key         string          `json:"key"`
+	Label       string          `json:"label"`
+	Type        FieldType       `json:"type"`
+	Required    bool            `json:"required,omitempty"`
+	Default     json.RawMessage `json:"default,omitempty"`
+	Placeholder string          `json:"placeholder,omitempty"`
+	HelpText    string          `json:"help_text,omitempty"`
+	Options     []Option        `json:"options,omitempty"`
+	Component   string          `json:"component,omitempty"`
 }
 
 // Option is a value/label pair for select fields.

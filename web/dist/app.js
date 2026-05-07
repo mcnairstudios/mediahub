@@ -244,7 +244,7 @@
       var req = field.required ? ' required' : '';
       if (field.type === 'bool') {
         inputHtml = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
-          '<input type="checkbox" id="' + fieldId + '"' + (field.default === 'true' ? ' checked' : '') + ' style="width:18px;height:18px">' +
+          '<input type="checkbox" id="' + fieldId + '"' + (field.default === 'true' ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--accent)">' +
           ' ' + esc(field.label) + '</label>';
       } else if (field.type === 'select') {
         var opts = '';
@@ -252,34 +252,34 @@
         for (var o = 0; o < options.length; o++) {
           opts += '<option value="' + esc(options[o].value) + '"' + (options[o].value === field.default ? ' selected' : '') + '>' + esc(options[o].label) + '</option>';
         }
-        inputHtml = '<label style="display:block;margin-bottom:4px;font-weight:500">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
-          '<select id="' + fieldId + '" class="form-input" style="width:100%">' + opts + '</select>';
+        inputHtml = '<label class="form-label">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
+          '<select id="' + fieldId + '" class="form-input">' + opts + '</select>';
       } else {
         var inputType = field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : field.type === 'url' ? 'url' : 'text';
-        inputHtml = '<label style="display:block;margin-bottom:4px;font-weight:500">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
-          '<input type="' + inputType + '" id="' + fieldId + '" class="form-input" style="width:100%"' +
+        inputHtml = '<label class="form-label">' + esc(field.label) + (field.required ? ' *' : '') + '</label>' +
+          '<input type="' + inputType + '" id="' + fieldId + '" class="form-input"' +
           (field.placeholder ? ' placeholder="' + esc(field.placeholder) + '"' : '') +
           (field.default ? ' value="' + esc(field.default) + '"' : '') +
           req + '>';
       }
       if (field.help_text) {
-        inputHtml += '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">' + esc(field.help_text) + '</div>';
+        inputHtml += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">' + esc(field.help_text) + '</div>';
       }
-      fieldsHtml += '<div style="margin-bottom:12px">' + inputHtml + '</div>';
+      fieldsHtml += '<div class="form-group">' + inputHtml + '</div>';
     }
 
     var overlay = document.createElement('div');
     overlay.id = 'generic-source-overlay';
     overlay.className = 'modal-overlay';
     overlay.innerHTML =
-      '<div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;position:relative" class="source-modal-form">' +
-      '<h2 style="margin:0 0 16px">Add ' + esc(st.label) + ' Source</h2>' +
-      '<div style="margin-bottom:12px">' +
-        '<label style="display:block;margin-bottom:4px;font-weight:500">Name *</label>' +
-        '<input type="text" id="gen-src-name" class="form-input" style="width:100%" placeholder="My ' + esc(st.label) + '" required>' +
+      '<div class="source-modal-form" style="max-width:480px">' +
+      '<h2>Add ' + esc(st.label) + ' Source</h2>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Name *</label>' +
+        '<input type="text" id="gen-src-name" class="form-input" placeholder="My ' + esc(st.label) + '" required>' +
       '</div>' +
       fieldsHtml +
-      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">' +
         '<button class="btn btn-ghost" id="gen-src-cancel">Cancel</button>' +
         '<button class="btn btn-primary" id="gen-src-create">Create</button>' +
       '</div>' +
@@ -382,7 +382,7 @@
     if (existing) existing.remove();
     var html = '<div class="modal-overlay" id="' + id + '">' +
       '<div class="modal-content" style="max-width:' + maxWidth + '">' +
-      '<div class="modal-header">' + esc(title) + '</div>' +
+      '<div class="modal-header"><span>' + esc(title) + '</span><button class="modal-close-x" title="Close">\u2715</button></div>' +
       '<div class="modal-body">' + bodyHtml + '</div>' +
       '<div class="modal-footer">' +
       '<button class="btn btn-ghost modal-cancel-btn">Cancel</button>' +
@@ -391,7 +391,9 @@
     document.body.insertAdjacentHTML('beforeend', html);
     var overlay = document.getElementById(id);
     overlay.querySelector('.modal-cancel-btn').addEventListener('click', function() { overlay.remove(); });
+    overlay.querySelector('.modal-close-x').addEventListener('click', function() { overlay.remove(); });
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { var el = document.getElementById(id); if (el) el.remove(); document.removeEventListener('keydown', onKey); } });
     return overlay;
   }
 
@@ -807,19 +809,44 @@
 
       var sourcesEl = document.getElementById('dash-sources');
       if (sourcesEl && stats.sources) {
-        var sHtml = '';
+        var sh = stats.source_health || {};
+        var healthBanner = '';
+        if (sh.total > 0) {
+          var hParts = [];
+          if (sh.healthy > 0) hParts.push('<span style="color:var(--success)">' + sh.healthy + ' healthy</span>');
+          if (sh.stale > 0) hParts.push('<span style="color:var(--warning)">' + sh.stale + ' stale</span>');
+          if (sh.error > 0) hParts.push('<span style="color:var(--danger)">' + sh.error + ' error</span>');
+          if (sh.disabled > 0) hParts.push('<span style="color:var(--text-muted)">' + sh.disabled + ' disabled</span>');
+          healthBanner = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 16px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);font-size:13px">' +
+            '<span style="font-weight:600;color:#fff">' + sh.total + ' sources:</span> ' +
+            hParts.join(' <span style="color:var(--text-muted)">/</span> ') +
+            '<a href="#/sources" style="margin-left:auto;font-size:12px;color:var(--accent);cursor:pointer">View all</a>' +
+            '</div>';
+        }
+        var sHtml = healthBanner;
         for (var si = 0; si < stats.sources.length; si++) {
           var src = stats.sources[si];
           var color = _sourceTypeColor(src.type);
           var label = _sourceTypeShortLabel(src.type);
-          var statusDot = src.is_enabled
-            ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success)"></span>'
-            : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text-muted)"></span>';
-          sHtml += '<div class="dash-source-card" style="cursor:pointer" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
+          var healthColor = 'var(--success)';
+          var healthLabel = '';
+          if (src.health === 'error') { healthColor = 'var(--danger)'; healthLabel = 'Error'; }
+          else if (src.health === 'stale') { healthColor = 'var(--warning)'; healthLabel = 'Stale'; }
+          else if (src.health === 'disabled') { healthColor = 'var(--text-muted)'; healthLabel = 'Off'; }
+          var statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + healthColor + '"></span>';
+          var metaParts = [(src.stream_count || 0) + ' streams'];
+          if (src.last_refreshed) {
+            var rDate = new Date(src.last_refreshed);
+            var rMin = Math.floor((Date.now() - rDate.getTime()) / 60000);
+            var rAgo = rMin < 1 ? 'just now' : rMin < 60 ? rMin + 'm ago' : rMin < 1440 ? Math.floor(rMin / 60) + 'h ago' : Math.floor(rMin / 1440) + 'd ago';
+            metaParts.push('refreshed ' + rAgo);
+          }
+          if (healthLabel) metaParts.push('<span style="color:' + healthColor + '">' + healthLabel + '</span>');
+          sHtml += '<div class="dash-source-card" style="cursor:pointer;border-left:3px solid ' + healthColor + '" data-source-type="' + esc(src.type) + '" data-source-id="' + esc(src.id) + '">' +
             '<div class="dash-source-icon" style="background:' + color + '20;color:' + color + '">' + label + '</div>' +
             '<div class="dash-source-info">' +
             '<div class="dash-source-name">' + statusDot + ' ' + esc(src.name) + '</div>' +
-            '<div class="dash-source-meta">' + (src.stream_count || 0) + ' streams</div>' +
+            '<div class="dash-source-meta">' + metaParts.join(' &bull; ') + '</div>' +
             '</div></div>';
         }
         sourcesEl.innerHTML = sHtml || '<div style="color:var(--text-muted)">No sources configured</div>';
@@ -1600,6 +1627,7 @@
         searchTerm = searchInput.value.toLowerCase();
         groupsContainer._searchTerm = searchTerm;
         renderActiveTab();
+        searchInput.focus();
       }, 300);
     });
 
@@ -1692,6 +1720,7 @@
         searchTerm = searchInput.value.toLowerCase();
         groupsContainer._searchTerm = searchTerm;
         renderGroups();
+        searchInput.focus();
       }, 300);
     });
 
@@ -1734,7 +1763,7 @@
 
     var html = '<div class="modal-overlay" id="add-channel-modal">' +
       '<div class="modal-content" style="max-width:480px">' +
-      '<div class="modal-header">Add "' + esc(streamName) + '" to Channel</div>' +
+      '<div class="modal-header"><span>Add "' + esc(streamName) + '" to Channel</span><button class="modal-close-x addch-close-x" title="Close">\u2715</button></div>' +
       '<div class="modal-body">' +
       '<button class="btn btn-primary" id="create-new-ch-btn" style="width:100%;margin-bottom:16px;padding:10px">+ Create New Channel with this Stream</button>';
 
@@ -1777,6 +1806,9 @@
     }
 
     document.getElementById('close-channel-modal').addEventListener('click', function() {
+      document.getElementById('add-channel-modal').remove();
+    });
+    document.querySelector('.addch-close-x').addEventListener('click', function() {
       document.getElementById('add-channel-modal').remove();
     });
     document.getElementById('add-channel-modal').addEventListener('click', function(e) {
@@ -2118,7 +2150,7 @@
     function showGroupManageModal() {
       var existing = document.getElementById('group-manage-modal');
       if (existing) existing.remove();
-      var html = '<div class="modal-overlay" id="group-manage-modal"><div class="modal-content" style="max-width:500px"><div class="modal-header">Channel Groups</div><div class="modal-body">' +
+      var html = '<div class="modal-overlay" id="group-manage-modal"><div class="modal-content" style="max-width:500px"><div class="modal-header"><span>Channel Groups</span><button class="modal-close-x gm-close-x" title="Close">\u2715</button></div><div class="modal-body">' +
         '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Drag to reorder groups</p>' +
         '<div id="gm-group-list"></div>' +
         '<div style="display:flex;gap:8px;margin-top:12px"><input class="form-input" id="gm-new-name" placeholder="New group name" style="flex:1"><button class="btn btn-primary" id="gm-create-btn">Add</button></div>' +
@@ -2126,6 +2158,7 @@
       document.body.insertAdjacentHTML('beforeend', html);
       var overlay = document.getElementById('group-manage-modal');
       overlay.querySelector('#gm-close').addEventListener('click', function() { overlay.remove(); renderChannels(el); });
+      overlay.querySelector('.gm-close-x').addEventListener('click', function() { overlay.remove(); renderChannels(el); });
       overlay.addEventListener('click', function(e) { if (e.target === overlay) { overlay.remove(); renderChannels(el); } });
       overlay.querySelector('#gm-create-btn').addEventListener('click', async function() {
         var name = document.getElementById('gm-new-name').value.trim();
@@ -2738,8 +2771,34 @@
             '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
             '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
             '<div style="flex:1"></div>' +
+            '<div style="position:relative;display:inline-flex;align-items:center" id="audio-track-container">' +
+              '<button class="player-ctrl-btn" id="audio-track-btn" title="Audio tracks" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></button>' +
+              '<div id="audio-track-menu" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;background:rgba(20,20,20,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:6px;min-width:220px;max-height:240px;overflow-y:auto;z-index:100;padding:4px 0"></div>' +
+            '</div>' +
             '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
+            '<button class="player-ctrl-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">?</button>' +
             '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="kb-help-overlay" id="kb-help-overlay">' +
+          '<div class="kb-help-inner">' +
+            '<div class="kb-help-title">Keyboard Shortcuts</div>' +
+            '<div class="kb-help-grid">' +
+              '<div class="kb-help-section">Playback</div>' +
+              '<span class="kb-help-key">Space</span><span class="kb-help-desc">Play / Pause</span>' +
+              '<span class="kb-help-key">M</span><span class="kb-help-desc">Toggle mute</span>' +
+              '<span class="kb-help-key">\u2191</span><span class="kb-help-desc">Volume up 10%</span>' +
+              '<span class="kb-help-key">\u2193</span><span class="kb-help-desc">Volume down 10%</span>' +
+              '<div class="kb-help-section">Seeking (VOD only)</div>' +
+              '<span class="kb-help-key">\u2190</span><span class="kb-help-desc">Seek back 10 seconds</span>' +
+              '<span class="kb-help-key">\u2192</span><span class="kb-help-desc">Seek forward 10 seconds</span>' +
+              '<span class="kb-help-key">0 - 9</span><span class="kb-help-desc">Seek to 0% - 90% of duration</span>' +
+              '<div class="kb-help-section">Display</div>' +
+              '<span class="kb-help-key">F</span><span class="kb-help-desc">Toggle fullscreen</span>' +
+              '<span class="kb-help-key">I</span><span class="kb-help-desc">Toggle stats overlay</span>' +
+              '<span class="kb-help-key">?</span><span class="kb-help-desc">Show / hide this help</span>' +
+              '<span class="kb-help-key">Esc</span><span class="kb-help-desc">Exit fullscreen or close player</span>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2805,8 +2864,34 @@
             '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
             '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
             '<div style="flex:1"></div>' +
+            '<div style="position:relative;display:inline-flex;align-items:center" id="audio-track-container">' +
+              '<button class="player-ctrl-btn" id="audio-track-btn" title="Audio tracks" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></button>' +
+              '<div id="audio-track-menu" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;background:rgba(20,20,20,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:6px;min-width:220px;max-height:240px;overflow-y:auto;z-index:100;padding:4px 0"></div>' +
+            '</div>' +
             '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
+            '<button class="player-ctrl-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">?</button>' +
             '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="kb-help-overlay" id="kb-help-overlay">' +
+          '<div class="kb-help-inner">' +
+            '<div class="kb-help-title">Keyboard Shortcuts</div>' +
+            '<div class="kb-help-grid">' +
+              '<div class="kb-help-section">Playback</div>' +
+              '<span class="kb-help-key">Space</span><span class="kb-help-desc">Play / Pause</span>' +
+              '<span class="kb-help-key">M</span><span class="kb-help-desc">Toggle mute</span>' +
+              '<span class="kb-help-key">\u2191</span><span class="kb-help-desc">Volume up 10%</span>' +
+              '<span class="kb-help-key">\u2193</span><span class="kb-help-desc">Volume down 10%</span>' +
+              '<div class="kb-help-section">Seeking (VOD only)</div>' +
+              '<span class="kb-help-key">\u2190</span><span class="kb-help-desc">Seek back 10 seconds</span>' +
+              '<span class="kb-help-key">\u2192</span><span class="kb-help-desc">Seek forward 10 seconds</span>' +
+              '<span class="kb-help-key">0 - 9</span><span class="kb-help-desc">Seek to 0% - 90% of duration</span>' +
+              '<div class="kb-help-section">Display</div>' +
+              '<span class="kb-help-key">F</span><span class="kb-help-desc">Toggle fullscreen</span>' +
+              '<span class="kb-help-key">I</span><span class="kb-help-desc">Toggle stats overlay</span>' +
+              '<span class="kb-help-key">?</span><span class="kb-help-desc">Show / hide this help</span>' +
+              '<span class="kb-help-key">Esc</span><span class="kb-help-desc">Exit fullscreen or close player</span>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2888,7 +2973,7 @@
     startBufferWatch(videoEl);
     startStatsWatch(videoEl);
     // Pre-fetch signal for SAT>IP sources so it's ready when stats panel opens
-    if (playerState.sourceType === 'satip' && playerState.currentStreamID) {
+    if ((playerState.sourceType === 'satip' || playerState.sourceType === 'hdhr') && playerState.currentStreamID) {
       api.get('/api/play/' + playerState.currentStreamID + '/signal')
         .then(function(resp) { return resp.ok ? resp.json() : null; })
         .then(function(data) { if (data) playerState.signalInfo = data; })
@@ -2954,8 +3039,10 @@
           if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
           playerState.hlsInstance = null;
 
+          console.log('[HLS] Hls available:', typeof Hls !== 'undefined', 'supported:', typeof Hls !== 'undefined' && Hls.isSupported());
           if (typeof Hls !== 'undefined' && Hls.isSupported()) {
             var hls = new Hls({
+              debug: true,
               liveSyncDurationCount: 3,
               liveMaxLatencyDurationCount: 6,
               maxBufferLength: 30,
@@ -2967,10 +3054,12 @@
             });
             hls.loadSource(url);
             hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+              console.log('[HLS] manifest parsed, levels:', data.levels.length);
               videoEl.play().catch(function() {});
             });
             hls.on(Hls.Events.ERROR, function(event, data) {
+              console.error('[HLS] error:', data.type, data.details, data.fatal, data.reason || '', data.response ? data.response.code : '');
               if (data.fatal) {
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                   hls.startLoad();
@@ -2984,8 +3073,11 @@
             hlsInstance = hls;
             playerState.hlsInstance = hls;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('[HLS] using native HLS (not hls.js)');
             videoEl.src = url;
             videoEl.play().catch(function() {});
+          } else {
+            console.error('[HLS] no HLS support available');
           }
         },
         stop: function() {
@@ -3611,7 +3703,7 @@
       updateStats(videoEl, overlay);
     }, 500);
     // Poll signal info every 5 seconds for satip sources when stats visible
-    if (playerState.sourceType === 'satip') {
+    if (playerState.sourceType === 'satip' || playerState.sourceType === 'hdhr') {
       playerState.signalInterval = setInterval(function() {
         var overlay = document.getElementById('stats-overlay');
         if (!overlay || !overlay.classList.contains('visible')) return;
@@ -3710,10 +3802,15 @@
       right.push('<span style="color:' + lockColor + '">' + (sig.lock ? 'Locked' : 'No Lock') + '</span>');
       right.push('Lvl ' + sigBar(lvl, lvlColor) + ' <span style="color:' + lvlColor + '">' + lvl + '%</span>');
       right.push('Qlt ' + sigBar(qlt, qltColor) + ' <span style="color:' + qltColor + '">' + qlt + '%</span>');
-      if (sig.ber != null) right.push('BER ' + sig.ber);
+      if (sig.symbol_pct != null) {
+        var symColor = sig.symbol_pct > 60 ? '#4caf50' : sig.symbol_pct > 30 ? '#ffb300' : '#ff6b6b';
+        right.push('Sym ' + sigBar(sig.symbol_pct, symColor) + ' <span style="color:' + symColor + '">' + sig.symbol_pct + '%</span>');
+      }
+      if (sig.ber != null && sig.symbol_pct == null) right.push('BER ' + sig.ber);
       if (sig.freq_mhz) right.push(sig.freq_mhz + ' MHz ' + esc((sig.msys || '').toUpperCase()));
       if (sig.bitrate_kbps) right.push((sig.bitrate_kbps / 1000).toFixed(1) + ' Mbps');
-    } else if (playerState.sourceType === 'satip') {
+      if (sig.tuner != null) right.push('Tuner ' + sig.tuner);
+    } else if (playerState.sourceType === 'satip' || playerState.sourceType === 'hdhr') {
       right.push('<span style="color:#999">querying...</span>');
     }
 
@@ -3836,22 +3933,176 @@
       });
     }
 
+    var kbHelpBtn = document.getElementById('kb-help-btn');
+    if (kbHelpBtn) {
+      kbHelpBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var helpEl = document.getElementById('kb-help-overlay');
+        if (helpEl) helpEl.classList.toggle('visible');
+      });
+    }
+    var kbHelpEl = document.getElementById('kb-help-overlay');
+    if (kbHelpEl) {
+      kbHelpEl.addEventListener('click', function(e) {
+        if (e.target === kbHelpEl) kbHelpEl.classList.remove('visible');
+      });
+    }
+
+    // Audio track selector
+    var audioTrackBtn = document.getElementById('audio-track-btn');
+    var audioTrackMenu = document.getElementById('audio-track-menu');
+    if (audioTrackBtn && audioTrackMenu) {
+      var audioMenuOpen = false;
+      var closeAudioMenu = function() {
+        audioTrackMenu.style.display = 'none';
+        audioMenuOpen = false;
+      };
+      audioTrackBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (audioMenuOpen) { closeAudioMenu(); return; }
+        audioTrackMenu.style.display = 'block';
+        audioMenuOpen = true;
+      });
+      audioTrackMenu.addEventListener('click', function(e) { e.stopPropagation(); });
+      document.addEventListener('click', function() { if (audioMenuOpen) closeAudioMenu(); });
+
+      var realStreamID = streamID;
+      if (realStreamID && realStreamID.indexOf('rec:') === 0) realStreamID = null;
+      if (realStreamID) {
+        // Small delay to let the session start before fetching tracks
+        setTimeout(function() {
+          api.get('/api/play/' + realStreamID + '/tracks')
+            .then(function(resp) { return resp.ok ? resp.json() : null; })
+            .then(function(data) {
+              if (!data || !data.audio_tracks || data.audio_tracks.length <= 1) return;
+              audioTrackBtn.style.display = '';
+              var tracks = data.audio_tracks;
+              var html = '';
+              for (var ti = 0; ti < tracks.length; ti++) {
+                var t = tracks[ti];
+                var langName = t.language ? t.language.toUpperCase() : '';
+                var label = langName || ('Track ' + (ti + 1));
+                if (t.is_ad) label += ' (AD)';
+                var chLabel = '';
+                if (t.channels === 1) chLabel = 'Mono';
+                else if (t.channels === 2) chLabel = 'Stereo';
+                else if (t.channels === 6) chLabel = '5.1';
+                else if (t.channels === 8) chLabel = '7.1';
+                else if (t.channels > 0) chLabel = t.channels + 'ch';
+                var codecLabel = (t.codec || '').toUpperCase();
+                var meta = [chLabel, codecLabel].filter(Boolean).join(' / ');
+                var activeCls = t.is_active ? ' audio-track-active' : '';
+                html += '<div class="audio-track-item' + activeCls + '" data-index="' + t.index + '" style="padding:6px 12px;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:13px;color:#fff;white-space:nowrap">' +
+                  '<span class="audio-track-dot" style="width:8px;height:8px;border-radius:50%;margin-right:6px;flex-shrink:0;' + (t.is_active ? 'background:#3b82f6' : 'background:transparent') + '"></span>' +
+                  '<span style="flex:1">' + label + '</span>' +
+                  (meta ? '<span style="color:rgba(255,255,255,0.5);font-size:11px;margin-left:8px">' + meta + '</span>' : '') +
+                  '</div>';
+              }
+              audioTrackMenu.innerHTML = html;
+
+              audioTrackMenu.querySelectorAll('.audio-track-item').forEach(function(item) {
+                item.addEventListener('mouseenter', function() { item.style.background = 'rgba(255,255,255,0.1)'; });
+                item.addEventListener('mouseleave', function() {
+                  item.style.background = item.classList.contains('audio-track-active') ? 'rgba(59,130,246,0.15)' : '';
+                });
+                if (item.classList.contains('audio-track-active')) {
+                  item.style.background = 'rgba(59,130,246,0.15)';
+                }
+                item.addEventListener('click', function(e) {
+                  e.stopPropagation();
+                  var idx = parseInt(item.getAttribute('data-index'), 10);
+                  api.post('/api/play/' + realStreamID + '/tracks/audio', { track: idx })
+                    .then(function(resp) {
+                      if (resp.ok) {
+                        audioTrackMenu.querySelectorAll('.audio-track-item').forEach(function(el) {
+                          var isThis = parseInt(el.getAttribute('data-index'), 10) === idx;
+                          el.classList.toggle('audio-track-active', isThis);
+                          el.style.background = isThis ? 'rgba(59,130,246,0.15)' : '';
+                          var dot = el.querySelector('.audio-track-dot');
+                          if (dot) dot.style.background = isThis ? '#3b82f6' : 'transparent';
+                        });
+                        closeAudioMenu();
+                      } else {
+                        resp.json().then(function(d) { toast('Failed to switch audio: ' + (d.error || 'unknown'), 'error'); }).catch(function() {});
+                      }
+                    })
+                    .catch(function() { toast('Failed to switch audio track', 'error'); });
+                });
+              });
+            })
+            .catch(function() {});
+        }, 500);
+      }
+    }
+
     var playerKeyHandler = function(e) {
       if (!document.getElementById('player-wrapper')) {
         document.removeEventListener('keydown', playerKeyHandler);
         return;
       }
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-      if (e.key === 's' || e.key === 'S') {
-        var statsEl = document.getElementById('stats-overlay');
-        if (statsEl) statsEl.classList.toggle('visible');
-      }
-      if (e.key === ' ') {
+      var tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      var dur = videoEl.duration;
+      var isVOD = dur && isFinite(dur) && dur > 0;
+      var helpOverlay = document.getElementById('kb-help-overlay');
+      var key = e.key;
+
+      if (key === ' ') {
         e.preventDefault();
         if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
-      }
-      if (e.key === 'Escape') {
-        closePlayerOverlay();
+      } else if (key === 'f' || key === 'F') {
+        e.preventDefault();
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (wrapper) wrapper.requestFullscreen().catch(function() {});
+      } else if (key === 'm' || key === 'M') {
+        e.preventDefault();
+        videoEl.muted = !videoEl.muted;
+        if (volBtn) volBtn.textContent = videoEl.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+      } else if (key === 'ArrowLeft') {
+        if (isVOD) {
+          e.preventDefault();
+          var newTime = Math.max(0, videoEl.currentTime - 10);
+          videoEl.currentTime = newTime;
+          api.post(seekPath, { position_ms: Math.round(newTime * 1000) }).catch(function() {});
+        }
+      } else if (key === 'ArrowRight') {
+        if (isVOD) {
+          e.preventDefault();
+          var newTime = Math.min(dur, videoEl.currentTime + 10);
+          videoEl.currentTime = newTime;
+          api.post(seekPath, { position_ms: Math.round(newTime * 1000) }).catch(function() {});
+        }
+      } else if (key === 'ArrowUp') {
+        e.preventDefault();
+        videoEl.volume = Math.min(1, videoEl.volume + 0.1);
+        videoEl.muted = false;
+        if (volBtn) volBtn.textContent = '\uD83D\uDD0A';
+      } else if (key === 'ArrowDown') {
+        e.preventDefault();
+        videoEl.volume = Math.max(0, videoEl.volume - 0.1);
+        if (volBtn) volBtn.textContent = videoEl.volume === 0 ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+      } else if (key === 'i' || key === 'I') {
+        var statsEl = document.getElementById('stats-overlay');
+        if (statsEl) statsEl.classList.toggle('visible');
+      } else if (key === 's' || key === 'S') {
+        var statsEl = document.getElementById('stats-overlay');
+        if (statsEl) statsEl.classList.toggle('visible');
+      } else if (key === '?') {
+        if (helpOverlay) helpOverlay.classList.toggle('visible');
+      } else if (key === 'Escape') {
+        if (helpOverlay && helpOverlay.classList.contains('visible')) {
+          helpOverlay.classList.remove('visible');
+        } else if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          closePlayerOverlay();
+        }
+      } else if (key >= '0' && key <= '9' && isVOD) {
+        e.preventDefault();
+        var pct = parseInt(key, 10) / 10;
+        var seekTo = pct * dur;
+        videoEl.currentTime = seekTo;
+        api.post(seekPath, { position_ms: Math.round(seekTo * 1000) }).catch(function() {});
       }
     };
     document.addEventListener('keydown', playerKeyHandler);
@@ -4417,6 +4668,7 @@
       '<button class="btn btn-primary" id="add-radiogarden-btn">' + icons.plus + ' Add Radio Garden</button>' +
       '<button class="btn btn-ghost" id="discover-hdhr-btn">Discover HDHomeRun</button>' +
       '</div>' +
+      '<div id="source-health-panel" style="margin-bottom:16px"></div>' +
       '<div id="source-list"><div class="skeleton" style="height:200px"></div></div>' +
       '<div id="add-m3u-form" style="display:none" class="card">' +
       '<div class="card-title">New M3U Source</div>' +
@@ -5137,6 +5389,65 @@
         toast('Failed to save source', 'error');
       }
     });
+
+    // Load source health panel
+    try {
+      var healthResp = await api.get('/api/sources/health');
+      var healthData = await healthResp.json();
+      var healthPanel = document.getElementById('source-health-panel');
+      if (healthPanel && healthData.summary) {
+        var hs = healthData.summary;
+        var hpHtml = '<div class="card" style="padding:16px">' +
+          '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
+          '<span style="font-size:14px;font-weight:600;color:#fff">Source Health</span>';
+        if (hs.healthy > 0) hpHtml += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--success)"></span><span style="font-size:13px;color:var(--success)">' + hs.healthy + ' healthy</span></span>';
+        if (hs.stale > 0) hpHtml += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--warning)"></span><span style="font-size:13px;color:var(--warning)">' + hs.stale + ' stale</span></span>';
+        if (hs.error > 0) hpHtml += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--danger)"></span><span style="font-size:13px;color:var(--danger)">' + hs.error + ' error</span></span>';
+        if (hs.disabled > 0) hpHtml += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--text-muted)"></span><span style="font-size:13px;color:var(--text-muted)">' + hs.disabled + ' disabled</span></span>';
+        hpHtml += '</div>';
+        if (healthData.sources && healthData.sources.length > 0) {
+          hpHtml += '<table class="list-table" style="margin-top:12px"><thead><tr>' +
+            '<th>Source</th><th>Type</th><th>Status</th><th>Streams</th><th>Last Refresh</th><th>Error</th><th>Action</th>' +
+            '</tr></thead><tbody>';
+          for (var hi = 0; hi < healthData.sources.length; hi++) {
+            var hsrc = healthData.sources[hi];
+            var hDot = 'var(--success)';
+            var hBadge = '<span class="badge badge-enabled">Healthy</span>';
+            if (hsrc.health === 'error') { hDot = 'var(--danger)'; hBadge = '<span class="badge badge-live">Error</span>'; }
+            else if (hsrc.health === 'stale') { hDot = 'var(--warning)'; hBadge = '<span class="badge badge-warning">Stale</span>'; }
+            else if (hsrc.health === 'disabled') { hDot = 'var(--text-muted)'; hBadge = '<span class="badge badge-disabled">Disabled</span>'; }
+            var hRefreshed = 'Never';
+            if (hsrc.last_refreshed) {
+              var hDate = new Date(hsrc.last_refreshed);
+              var hMin = Math.floor((Date.now() - hDate.getTime()) / 60000);
+              hRefreshed = hMin < 1 ? 'just now' : hMin < 60 ? hMin + 'm ago' : hMin < 1440 ? Math.floor(hMin / 60) + 'h ago' : Math.floor(hMin / 1440) + 'd ago';
+            }
+            hpHtml += '<tr>' +
+              '<td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + hDot + ';margin-right:6px"></span>' + esc(hsrc.name) + '</td>' +
+              '<td><span class="badge badge-enabled">' + esc(hsrc.type).toUpperCase() + '</span></td>' +
+              '<td>' + hBadge + '</td>' +
+              '<td>' + (hsrc.stream_count || 0) + '</td>' +
+              '<td>' + esc(hRefreshed) + '</td>' +
+              '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--danger)">' + (hsrc.last_error ? esc(hsrc.last_error) : '-') + '</td>' +
+              '<td><button class="btn btn-sm btn-ghost health-refresh-btn" data-id="' + esc(hsrc.id) + '">' + icons.refresh + '</button></td>' +
+              '</tr>';
+          }
+          hpHtml += '</tbody></table>';
+        }
+        hpHtml += '</div>';
+        healthPanel.innerHTML = hpHtml;
+        healthPanel.querySelectorAll('.health-refresh-btn').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var sid = this.getAttribute('data-id');
+            this.disabled = true;
+            this.innerHTML = '...';
+            try { await api.post('/api/sources/' + sid + '/refresh'); toast('Refresh started'); }
+            catch(e) { toast('Refresh failed', 'error'); }
+            setTimeout(function() { renderSources(el); }, 2000);
+          });
+        });
+      }
+    } catch (e) { /* health panel optional */ }
 
     try {
       var resp = await api.get('/api/sources');
@@ -6384,7 +6695,7 @@
 
         var html = '<div class="modal-overlay" id="pw-modal">' +
           '<div class="modal-content">' +
-          '<div class="modal-header">Change Password - ' + esc(username) + '</div>' +
+          '<div class="modal-header"><span>Change Password - ' + esc(username) + '</span><button class="modal-close-x pw-close-x" title="Close">\u2715</button></div>' +
           '<div class="modal-body">' +
           '<div class="form-group"><label class="form-label">New Password</label>' +
           '<input class="form-input" id="pw-new" type="password" placeholder="Enter new password"></div>' +
@@ -6400,6 +6711,9 @@
         document.getElementById('pw-new').focus();
 
         document.getElementById('pw-cancel').addEventListener('click', function() {
+          document.getElementById('pw-modal').remove();
+        });
+        document.querySelector('.pw-close-x').addEventListener('click', function() {
           document.getElementById('pw-modal').remove();
         });
         document.getElementById('pw-modal').addEventListener('click', function(e) {
@@ -6431,7 +6745,7 @@
 
         var html = '<div class="modal-overlay" id="email-modal">' +
           '<div class="modal-content">' +
-          '<div class="modal-header">Edit Email - ' + esc(username) + '</div>' +
+          '<div class="modal-header"><span>Edit Email - ' + esc(username) + '</span><button class="modal-close-x email-close-x" title="Close">\u2715</button></div>' +
           '<div class="modal-body">' +
           '<div class="form-group"><label class="form-label">Email</label>' +
           '<input class="form-input" id="email-input" type="email" value="' + esc(currentEmail) + '" placeholder="user@example.com (optional, for Google SSO)"></div>' +
@@ -6445,6 +6759,9 @@
         document.getElementById('email-input').focus();
 
         document.getElementById('email-cancel').addEventListener('click', function() {
+          document.getElementById('email-modal').remove();
+        });
+        document.querySelector('.email-close-x').addEventListener('click', function() {
           document.getElementById('email-modal').remove();
         });
         document.getElementById('email-modal').addEventListener('click', function(e) {
@@ -6482,7 +6799,7 @@
       if (existing) existing.remove();
       var html = '<div class="modal-overlay" id="invite-modal">' +
         '<div class="modal-content" style="max-width:420px">' +
-        '<div class="modal-header">Create Invite</div>' +
+        '<div class="modal-header"><span>Create Invite</span><button class="modal-close-x invite-close-x" title="Close">\u2715</button></div>' +
         '<div class="modal-body">' +
         '<div class="form-group"><label class="form-label">Role</label>' +
         '<select class="form-input" id="invite-role">' +
@@ -6500,6 +6817,9 @@
         '</div></div></div>';
       document.body.insertAdjacentHTML('beforeend', html);
       document.getElementById('invite-cancel').addEventListener('click', function() {
+        document.getElementById('invite-modal').remove();
+      });
+      document.querySelector('.invite-close-x').addEventListener('click', function() {
         document.getElementById('invite-modal').remove();
       });
       document.getElementById('invite-modal').addEventListener('click', function(e) {
@@ -7807,6 +8127,74 @@
   }
 
 
+  function showTMDBMatchModal(streamID, streamName, currentTMDBID, mediaType, onMatched) {
+    var existingModal = document.getElementById('tmdb-match-modal');
+    if (existingModal) existingModal.remove();
+    var isSeriesType = mediaType === 'series' || mediaType === 'tv' || mediaType === 'episode';
+    var searchType = isSeriesType ? 'tv' : 'movie';
+    var bodyHtml = '';
+    if (currentTMDBID) {
+      bodyHtml += '<div style="margin-bottom:16px;padding:12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:8px;display:flex;align-items:center;justify-content:space-between"><div><span style="font-size:13px;color:var(--text-muted)">Current match:</span> <strong style="color:var(--text-primary)">TMDB #' + esc(String(currentTMDBID)) + '</strong></div><button class="btn btn-ghost" id="tmdb-clear-match" style="color:#ef4444;font-size:13px">Clear Match</button></div>';
+    }
+    bodyHtml += '<div class="form-group"><label class="form-label">Search TMDB</label><div style="display:flex;gap:8px"><input class="form-input" id="tmdb-search-input" placeholder="Search for ' + (isSeriesType ? 'TV show' : 'movie') + '..." value="' + esc(streamName) + '" style="flex:1"><select class="form-input" id="tmdb-search-type" style="width:auto;flex-shrink:0"><option value="movie"' + (searchType === 'movie' ? ' selected' : '') + '>Movie</option><option value="tv"' + (searchType === 'tv' ? ' selected' : '') + '>TV Show</option></select><button class="btn btn-primary" id="tmdb-search-btn" style="flex-shrink:0">Search</button></div></div><div id="tmdb-search-results" style="margin-top:12px;max-height:400px;overflow-y:auto"></div>';
+    var tmdbModal = showFormModal(currentTMDBID ? 'Edit TMDB Match' : 'Match to TMDB', bodyHtml, { id: 'tmdb-match-modal', maxWidth: '600px', saveLabel: 'Close' });
+    var tmdbSaveBtn = tmdbModal.querySelector('.modal-save-btn');
+    if (tmdbSaveBtn) tmdbSaveBtn.style.display = 'none';
+    var tmdbCancelBtn = tmdbModal.querySelector('.modal-cancel-btn');
+    if (tmdbCancelBtn) tmdbCancelBtn.textContent = 'Close';
+    var searchInput = document.getElementById('tmdb-search-input');
+    var searchBtn = document.getElementById('tmdb-search-btn');
+    var searchTypeSelect = document.getElementById('tmdb-search-type');
+    var resultsContainer = document.getElementById('tmdb-search-results');
+    function doTMDBSearch() {
+      var q = searchInput.value.trim();
+      if (!q) return;
+      var stype = searchTypeSelect.value;
+      resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Searching...</div>';
+      api.get('/api/tmdb/search?q=' + encodeURIComponent(q) + '&type=' + encodeURIComponent(stype)).then(function(resp) { return resp.json(); }).then(function(results) {
+        if (!results || results.length === 0) { resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No results found</div>'; return; }
+        var html = '';
+        for (var i = 0; i < results.length; i++) {
+          var r = results[i];
+          var posterHtml = r.poster_url ? '<img src="' + esc(r.poster_url) + '" style="width:48px;height:72px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#2d3748" loading="lazy">' : '<div style="width:48px;height:72px;background:#2d3748;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px">No img</div>';
+          var isSelected = String(r.id) === String(currentTMDBID);
+          var bdrStyle = isSelected ? 'border:2px solid #3b82f6;' : 'border:1px solid var(--border);';
+          var ratingHtml = r.vote_average > 0 ? '<span style="color:#eab308;font-size:12px">\u2605 ' + r.vote_average.toFixed(1) + '</span>' : '';
+          html += '<div class="tmdb-result-item" data-tmdb-id="' + r.id + '" style="display:flex;gap:12px;padding:10px;border-radius:8px;' + bdrStyle + 'cursor:pointer;margin-bottom:8px;transition:background 0.15s">' + posterHtml + '<div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text-primary);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.title || '') + '</div><div style="display:flex;gap:8px;align-items:center;margin-top:2px">' + (r.year ? '<span style="color:var(--text-muted);font-size:13px">' + esc(r.year) + '</span>' : '') + ratingHtml + '</div>' + (r.overview ? '<div style="color:var(--text-muted);font-size:12px;margin-top:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">' + esc(r.overview.substring(0, 150)) + '</div>' : '') + (isSelected ? '<div style="color:#3b82f6;font-size:11px;font-weight:600;margin-top:4px">CURRENT MATCH</div>' : '') + '</div></div>';
+        }
+        resultsContainer.innerHTML = html;
+        var resultItems = resultsContainer.querySelectorAll('.tmdb-result-item');
+        for (var j = 0; j < resultItems.length; j++) {
+          (function(el) {
+            el.addEventListener('mouseenter', function() { el.style.background = 'rgba(255,255,255,0.05)'; });
+            el.addEventListener('mouseleave', function() { el.style.background = ''; });
+            el.addEventListener('click', function() {
+              var tmdbId = parseInt(el.dataset.tmdbId, 10);
+              var selType = searchTypeSelect.value === 'tv' ? 'series' : 'movie';
+              el.style.opacity = '0.5';
+              api.post('/api/streams/' + encodeURIComponent(streamID) + '/tmdb-match', { tmdb_id: tmdbId, media_type: selType }).then(function(resp) { return resp.json(); }).then(function(data) {
+                if (data.error) { toast(data.error, 'error'); el.style.opacity = '1'; return; }
+                toast('TMDB match updated'); tmdbModal.remove(); if (onMatched) onMatched(tmdbId, selType);
+              }).catch(function(err) { toast('Failed to update match: ' + err.message, 'error'); el.style.opacity = '1'; });
+            });
+          })(resultItems[j]);
+        }
+      }).catch(function(err) { resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:#ef4444">Search failed: ' + esc(err.message) + '</div>'; });
+    }
+    searchBtn.addEventListener('click', doTMDBSearch);
+    searchInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doTMDBSearch(); });
+    var clearMatchBtn = document.getElementById('tmdb-clear-match');
+    if (clearMatchBtn) {
+      clearMatchBtn.addEventListener('click', function() {
+        api.post('/api/streams/' + encodeURIComponent(streamID) + '/tmdb-match', { tmdb_id: 0 }).then(function(resp) { return resp.json(); }).then(function(data) {
+          if (data.error) { toast(data.error, 'error'); return; }
+          toast('TMDB match cleared'); tmdbModal.remove(); if (onMatched) onMatched(0, '');
+        }).catch(function(err) { toast('Failed to clear match: ' + err.message, 'error'); });
+      });
+    }
+    setTimeout(doTMDBSearch, 100);
+  }
+
   function showMovieModal(item) {
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
@@ -7907,6 +8295,21 @@
       }).catch(function() { toast('Failed to update favorite', 'error'); });
     };
     actionIcons.appendChild(favIcon);
+    if (api.user && api.user.is_admin) {
+      var tmdbMatchIcon = document.createElement('button');
+      tmdbMatchIcon.style.cssText = iconBtnStyle;
+      tmdbMatchIcon.title = item.tmdb_id ? 'Edit TMDB Match' : 'Match to TMDB';
+      tmdbMatchIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+      tmdbMatchIcon.onmouseenter = function() { tmdbMatchIcon.style.background = '#10b981'; };
+      tmdbMatchIcon.onmouseleave = function() { tmdbMatchIcon.style.background = 'rgba(0,0,0,0.5)'; };
+      tmdbMatchIcon.onclick = function() {
+        var vodType = item.vod_type || 'movie';
+        showTMDBMatchModal(item.id, item.name, item.tmdb_id, vodType, function(newTmdbId) {
+          overlay.remove();
+        });
+      };
+      actionIcons.appendChild(tmdbMatchIcon);
+    }
 
     metaRow.appendChild(actionIcons);
     titleBlock.appendChild(metaRow);
@@ -8054,6 +8457,24 @@
     closeBtn.style.cssText = 'position:absolute;top:16px;right:16px;background:rgba(0,0,0,0.6);border:none;color:#fff;font-size:18px;width:40px;height:40px;border-radius:50%;cursor:pointer;z-index:3;';
     closeBtn.onclick = function() { overlay.remove(); };
     backdrop.appendChild(closeBtn);
+
+    if (api.user && api.user.is_admin) {
+      var tmdbMatchBtn = document.createElement('button');
+      tmdbMatchBtn.style.cssText = 'position:absolute;top:16px;right:64px;background:rgba(0,0,0,0.6);border:none;color:#fff;font-size:13px;height:40px;padding:0 14px;border-radius:20px;cursor:pointer;z-index:3;display:flex;align-items:center;gap:6px;transition:background 0.2s;';
+      var ep0 = show.episodes && show.episodes[0];
+      var seriesTmdbId = ep0 ? ep0.tmdb_id : '';
+      tmdbMatchBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>' + (seriesTmdbId ? 'Edit Match' : 'Match');
+      tmdbMatchBtn.onmouseenter = function() { tmdbMatchBtn.style.background = '#10b981'; };
+      tmdbMatchBtn.onmouseleave = function() { tmdbMatchBtn.style.background = 'rgba(0,0,0,0.6)'; };
+      tmdbMatchBtn.onclick = function() {
+        var firstEp = show.episodes && show.episodes[0];
+        var sid = firstEp ? firstEp.id : '';
+        showTMDBMatchModal(sid, show.name, seriesTmdbId, 'series', function(newTmdbId) {
+          overlay.remove();
+        });
+      };
+      backdrop.appendChild(tmdbMatchBtn);
+    }
 
     backdrop.appendChild(Object.assign(document.createElement('div'), {
       style: 'position:absolute;bottom:0;left:0;right:0;height:150px;background:linear-gradient(transparent,#1a1d23);'

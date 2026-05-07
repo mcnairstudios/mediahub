@@ -35,7 +35,7 @@ func newTestEnvWithPlugins(t *testing.T) *testEnv {
 			Version:     "1.0.0",
 			Description: "Demo streams for testing",
 			ConfigFields: []source.ConfigField{
-				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: "10"},
+				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: json.RawMessage(`"10"`)},
 				{Key: "quality", Label: "Quality", Type: source.FieldSelect, Required: true, Options: []source.Option{
 					{Value: "low", Label: "Low"},
 					{Value: "high", Label: "High"},

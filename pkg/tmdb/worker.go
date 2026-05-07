@@ -3,6 +3,7 @@ package tmdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -63,7 +64,7 @@ func (w *MetadataWorker) Run(ctx context.Context) {
 			w.store.DeleteQueueEntry(entry.TMDBID)
 		}
 
-		sleep(ctx, 250*time.Millisecond)
+		sleep(ctx, 500*time.Millisecond)
 	}
 }
 
@@ -228,6 +229,9 @@ func (w *MetadataWorker) processMovie(ctx context.Context, apiKey string, entry 
 	raw, err := w.apiGet(ctx, u)
 	if err != nil {
 		log.Printf("tmdb worker: movie %d: %v", entry.TMDBID, err)
+		if isPermanent(err) {
+			w.store.DeleteQueueEntry(entry.TMDBID)
+		}
 		return
 	}
 
@@ -332,6 +336,9 @@ func (w *MetadataWorker) processSeries(ctx context.Context, apiKey string, entry
 		raw, err := w.apiGet(ctx, u)
 		if err != nil {
 			log.Printf("tmdb worker: series %d: %v", entry.TMDBID, err)
+			if isPermanent(err) {
+				w.store.DeleteQueueEntry(entry.TMDBID)
+			}
 			return
 		}
 
@@ -481,6 +488,20 @@ func (w *MetadataWorker) enqueueImage(localPath, tmdbPath, size string) {
 	}
 }
 
+// permanentError indicates a non-retriable TMDB error (404, 401, etc).
+type permanentError struct {
+	code int
+}
+
+func (e *permanentError) Error() string {
+	return fmt.Sprintf("TMDB returned %d", e.code)
+}
+
+func isPermanent(err error) bool {
+	var pe *permanentError
+	return errors.As(err, &pe)
+}
+
 func (w *MetadataWorker) apiGet(ctx context.Context, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -493,8 +514,11 @@ func (w *MetadataWorker) apiGet(ctx context.Context, u string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("TMDB rate limited (429)")
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("TMDB returned %d", resp.StatusCode)
+		return nil, &permanentError{code: resp.StatusCode}
 	}
 
 	return io.ReadAll(resp.Body)

@@ -661,5 +661,121 @@ func (s *Server) handleTMDBRecent(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondJSON(w, http.StatusOK, entries)
 }
 
+func (s *Server) handleTMDBSearch(w http.ResponseWriter, r *http.Request) {
+	if s.deps.TMDBClient == nil {
+		httputil.RespondError(w, http.StatusServiceUnavailable, "TMDB client not configured")
+		return
+	}
+
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "query parameter 'q' required")
+		return
+	}
+
+	mediaType := r.URL.Query().Get("type")
+	if mediaType == "" {
+		mediaType = "movie"
+	}
+
+	results, err := s.deps.TMDBClient.SearchResults(query, mediaType)
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "search failed: "+err.Error())
+		return
+	}
+	if results == nil {
+		results = []tmdb.SearchResult{}
+	}
+
+	// Add poster URLs
+	type resultWithURL struct {
+		tmdb.SearchResult
+		PosterURL string `json:"poster_url"`
+		Year      string `json:"year"`
+	}
+	var enriched []resultWithURL
+	for _, r := range results {
+		item := resultWithURL{SearchResult: r}
+		if r.PosterPath != "" {
+			item.PosterURL = tmdb.ImageURL(r.PosterPath, "w185")
+		}
+		if len(r.ReleaseDate) >= 4 {
+			item.Year = r.ReleaseDate[:4]
+		}
+		enriched = append(enriched, item)
+	}
+	if enriched == nil {
+		enriched = []resultWithURL{}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, enriched)
+}
+
+func (s *Server) handleTMDBMatch(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "stream ID required")
+		return
+	}
+
+	var req struct {
+		TMDBID    int    `json:"tmdb_id"`
+		MediaType string `json:"media_type"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	stream, err := s.deps.StreamStore.Get(r.Context(), streamID)
+	if err != nil || stream == nil {
+		httputil.RespondError(w, http.StatusNotFound, "stream not found")
+		return
+	}
+
+	if req.TMDBID <= 0 {
+		// Clear the TMDB match
+		stream.TMDBID = ""
+		if err := s.deps.StreamStore.BulkUpsert(r.Context(), []media.Stream{*stream}); err != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to update stream")
+			return
+		}
+		httputil.RespondJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+		return
+	}
+
+	// Set the TMDB match
+	stream.TMDBID = strconv.Itoa(req.TMDBID)
+
+	mediaType := req.MediaType
+	if mediaType == "" {
+		mediaType = "movie"
+		if stream.VODType == "series" || stream.VODType == "episode" || stream.Season > 0 {
+			mediaType = "series"
+		}
+	}
+
+	// Enqueue metadata fetch if we have a TMDB store
+	if s.deps.TMDBStore != nil {
+		s.deps.TMDBStore.EnqueueMetadata(tmdb.QueueEntry{
+			TMDBID:    req.TMDBID,
+			MediaType: mediaType,
+			Status:    "resolving",
+			CreatedAt: now().Unix(),
+		})
+	}
+
+	if err := s.deps.StreamStore.BulkUpsert(r.Context(), []media.Stream{*stream}); err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to update stream")
+		return
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"status":     "matched",
+		"tmdb_id":    req.TMDBID,
+		"media_type": mediaType,
+	})
+}
+
 var now = time.Now
 

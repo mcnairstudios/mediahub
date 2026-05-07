@@ -1160,6 +1160,108 @@ func (s *Server) handleRadioGardenPlaces(w http.ResponseWriter, r *http.Request)
 	httputil.RespondJSON(w, http.StatusOK, matches)
 }
 
+func (s *Server) handleSourceHealth(w http.ResponseWriter, r *http.Request) {
+	configs, err := s.deps.SourceConfigStore.List(r.Context())
+	if err != nil {
+		httputil.RespondError(w, http.StatusInternalServerError, "failed to list sources")
+		return
+	}
+
+	type sourceHealth struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Type          string `json:"type"`
+		IsEnabled     bool   `json:"is_enabled"`
+		StreamCount   int    `json:"stream_count"`
+		LastRefreshed string `json:"last_refreshed,omitempty"`
+		LastError     string `json:"last_error,omitempty"`
+		Health        string `json:"health"`
+	}
+
+	healthy := 0
+	stale := 0
+	errCount := 0
+	disabled := 0
+
+	items := make([]sourceHealth, 0, len(configs))
+	for _, cfg := range configs {
+		sh := sourceHealth{
+			ID:        cfg.ID,
+			Name:      cfg.Name,
+			Type:      cfg.Type,
+			IsEnabled: cfg.IsEnabled,
+		}
+
+		// Stream count
+		if cs := cfg.Config["stream_count"]; cs != "" {
+			if n, serr := strconv.Atoi(cs); serr == nil {
+				sh.StreamCount = n
+			}
+		}
+		if sh.StreamCount == 0 && s.deps.StreamStore != nil {
+			if n, cerr := s.deps.StreamStore.CountBySource(r.Context(), cfg.Type, cfg.ID); cerr == nil && n > 0 {
+				sh.StreamCount = n
+			}
+		}
+
+		// Health determination
+		sh.Health = "healthy"
+		if !cfg.IsEnabled {
+			sh.Health = "disabled"
+			disabled++
+		} else {
+			src, serr := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
+			if serr == nil {
+				info := src.Info(r.Context())
+				if info.LastRefreshed != nil {
+					sh.LastRefreshed = info.LastRefreshed.Format(time.RFC3339)
+					if time.Since(*info.LastRefreshed) > time.Hour {
+						sh.Health = "stale"
+					}
+				} else {
+					sh.Health = "stale"
+				}
+				if info.LastError != "" {
+					sh.LastError = info.LastError
+					sh.Health = "error"
+				}
+			}
+			if sh.LastRefreshed == "" {
+				if lr := cfg.Config["last_refreshed"]; lr != "" {
+					sh.LastRefreshed = lr
+					if t, terr := time.Parse(time.RFC3339, lr); terr == nil && time.Since(t) > time.Hour {
+						sh.Health = "stale"
+					}
+				} else {
+					sh.Health = "stale"
+				}
+			}
+
+			switch sh.Health {
+			case "healthy":
+				healthy++
+			case "stale":
+				stale++
+			case "error":
+				errCount++
+			}
+		}
+
+		items = append(items, sh)
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"sources": items,
+		"summary": map[string]any{
+			"total":    len(configs),
+			"healthy":  healthy,
+			"stale":    stale,
+			"error":    errCount,
+			"disabled": disabled,
+		},
+	})
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

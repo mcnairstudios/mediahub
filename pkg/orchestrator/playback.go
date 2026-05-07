@@ -9,10 +9,13 @@ import (
 	"strings"
 
 	"github.com/mcnairstudios/mediahub/pkg/client"
+	"github.com/mcnairstudios/mediahub/pkg/codec"
+	"github.com/mcnairstudios/mediahub/pkg/hwcaps"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity"
 	"github.com/mcnairstudios/mediahub/pkg/connectivity/wg"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
+	webrtcplugin "github.com/mcnairstudios/mediahub/pkg/output/webrtc"
 	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/sourceconfig"
 	"github.com/mcnairstudios/mediahub/pkg/sourceprofile"
@@ -39,6 +42,8 @@ type PlaybackDeps struct {
 	PipelineRunner     PipelineRunner
 	ClientOverrideID   string
 	DeliveryOverride   string
+	VideoCodecOverride string
+	AudioCodecOverride string
 }
 
 type PlaybackResult struct {
@@ -70,13 +75,6 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		BitDepth:   stream.BitDepth,
 	}
 
-	bitrate := 0
-	out := strategy.Output{
-		VideoCodec: "copy",
-		AudioCodec: "aac",
-		Container:  "mp4",
-	}
-
 	var detectedClient *client.Client
 	if deps.ClientOverrideID != "" && deps.ClientStore != nil {
 		overrideClient, lookupErr := deps.ClientStore.Get(ctx, deps.ClientOverrideID)
@@ -88,41 +86,37 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		detectedClient = deps.Detector.Detect(port, headers)
 	}
 	if detectedClient != nil {
-		p := detectedClient.Profile
-		log.Printf("detected client: %s video=%s audio=%s delivery=%s hwaccel=%s", detectedClient.Name, p.VideoCodec, p.AudioCodec, p.Delivery, p.HWAccel)
-		if p.VideoCodec != "" {
-			out.VideoCodec = p.VideoCodec
-		}
-		if p.AudioCodec != "" {
-			out.AudioCodec = p.AudioCodec
-		}
-		if p.Container != "" {
-			out.Container = p.Container
-		}
-		if p.HWAccel != "" {
-			out.HWAccel = p.HWAccel
-		}
-		if p.OutputHeight > 0 {
-			out.OutputHeight = p.OutputHeight
-		}
-		if p.Bitrate > 0 {
-			bitrate = p.Bitrate
-		}
+		log.Printf("detected client: %s video=%s audio=%s delivery=%s hwaccel=%s",
+			detectedClient.Name, detectedClient.Profile.VideoCodec,
+			detectedClient.Profile.AudioCodec, detectedClient.Profile.Delivery,
+			detectedClient.Profile.HWAccel)
 	}
 
-	var audioLanguage string
-	if deps.SettingsStore != nil {
-		if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" && out.HWAccel == "" {
-			out.HWAccel = hw
-		}
-		if mbd, err := deps.SettingsStore.Get(ctx, "default_max_bit_depth"); err == nil && mbd != "" {
-			if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
-				out.MaxBitDepth = v
-			}
-		}
-		if al, err := deps.SettingsStore.Get(ctx, "audio_language"); err == nil && al != "" {
-			audioLanguage = al
-		}
+	// Determine delivery mode early for constraints
+	earlyDelivery := output.DeliveryMode(deps.DeliveryOverride)
+	if earlyDelivery == "" && detectedClient != nil && detectedClient.Profile.Delivery != "" && detectedClient.Profile.Delivery != "user" {
+		earlyDelivery = output.DeliveryMode(detectedClient.Profile.Delivery)
+	}
+
+	// Build codec.Input from all sources and resolve ONCE
+	codecInput := codec.Input{
+		Defaults:            codec.Preference{VideoCodec: "copy", AudioCodec: "aac", Container: "mp4"},
+		Settings:            gatherSettingsPreference(ctx, deps),
+		ClientProfile:       gatherClientPreference(detectedClient),
+		ClientOverride:      gatherClientOverride(deps),
+		DeliveryConstraints: codec.DeliveryConstraints(string(earlyDelivery)),
+	}
+	resolved := codec.Resolve(codecInput)
+
+	audioLanguage := resolveAudioLanguage(ctx, deps)
+
+	out := strategy.Output{
+		VideoCodec:   resolved.VideoCodec,
+		AudioCodec:   resolved.AudioCodec,
+		Container:    resolved.Container,
+		HWAccel:      resolved.HWAccel,
+		OutputHeight: resolved.OutputHeight,
+		MaxBitDepth:  resolved.MaxBitDepth,
 	}
 
 	decision := deps.Strategy(in, out)
@@ -181,64 +175,108 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	}
 
 	decodeHWAccel := resolveDecodeHWAccel(ctx, deps)
-	encoderName := resolveEncoderName(ctx, deps, string(decision.VideoCodec))
 	decoderName := resolveDecoderName(ctx, deps, stream.VideoCodec)
 
-	// WebRTC mandates Opus audio
 	audioCodec := string(decision.AudioCodec)
-	earlyDelivery := output.DeliveryMode(deps.DeliveryOverride)
-	if earlyDelivery == "" && detectedClient != nil && detectedClient.Profile.Delivery != "" && detectedClient.Profile.Delivery != "user" {
-		earlyDelivery = output.DeliveryMode(detectedClient.Profile.Delivery)
-	}
-	if earlyDelivery == output.DeliveryWebRTC && audioCodec != "opus" {
-		audioCodec = "opus"
+	isWebRTC := earlyDelivery == output.DeliveryWebRTC
+
+	// Apply delivery constraints: force transcode and disable HW decode
+	if resolved.ForceTranscode {
+		decision.NeedsTranscode = true
 		decision.NeedsAudioTranscode = true
 	}
-
-	pipeCfg := session.PipelineConfig{
-		StreamURL:           pipelineURL,
-		StreamID:            stream.ID,
-		UserAgent:           deps.UserAgent,
-		AudioLanguage:       audioLanguage,
-		NeedsTranscode:      decision.NeedsTranscode,
-		NeedsAudioTranscode: decision.NeedsAudioTranscode,
-		OutputCodec:         string(decision.VideoCodec),
-		OutputAudioCodec:    audioCodec,
-		HWAccel:             decision.HWAccel,
-		DecodeHWAccel:       decodeHWAccel,
-		Deinterlace:         decision.Deinterlace,
-		OutputHeight:        out.OutputHeight,
-		MaxBitDepth:         out.MaxBitDepth,
-		EncoderName:         encoderName,
-		DecoderName:         decoderName,
-		Bitrate:             bitrate,
-		IsLive:              true,
-		CachedStreamInfo:    cachedProbe,
+	if resolved.DisableDecodeHW {
+		decodeHWAccel = ""
+		decoderName = ""
 	}
 
-	applySourceProfile(ctx, deps, stream, &pipeCfg)
+	buildPipeCfg := func(videoCodec string) session.PipelineConfig {
+		encoderName := resolveEncoderName(ctx, deps, videoCodec)
+		cfg := session.PipelineConfig{
+			StreamURL:           pipelineURL,
+			StreamID:            stream.ID,
+			UserAgent:           deps.UserAgent,
+			AudioLanguage:       audioLanguage,
+			NeedsTranscode:      decision.NeedsTranscode,
+			NeedsAudioTranscode: decision.NeedsAudioTranscode,
+			OutputCodec:         videoCodec,
+			OutputAudioCodec:    audioCodec,
+			HWAccel:             decision.HWAccel,
+			DecodeHWAccel:       decodeHWAccel,
+			Deinterlace:         decision.Deinterlace,
+			OutputHeight:        out.OutputHeight,
+			MaxBitDepth:         out.MaxBitDepth,
+			EncoderName:         encoderName,
+			DecoderName:         decoderName,
+			Bitrate:             resolved.Bitrate,
+			IsLive:              true,
+			CachedStreamInfo:    cachedProbe,
+		}
+		applySourceProfile(ctx, deps, stream, &cfg)
+		return cfg
+	}
 
 	runner := deps.PipelineRunner
 	if runner == nil {
 		runner = deps.SessionMgr.RunPipeline
 	}
-	pipelineResult, err := runner(sess, pipeCfg)
-	if err != nil {
-		if deps.ProbeCache != nil && cachedProbe != nil {
-			_ = deps.ProbeCache.Delete(stream.URL)
+
+	var pipelineResult *session.PipelineResult
+
+	if isWebRTC {
+		// Defer pipeline start until WHEP offer arrives with browser SDP.
+		// Register callback that parses SDP, picks best codec, starts pipeline.
+		sess.SetOnSDPOffer(func(sdp string) (string, error) {
+			browserCodecs := hwcaps.ParseSDPVideoCodecs(sdp)
+			log.Printf("webrtc: SDP negotiation browser=%v", browserCodecs)
+
+			// Re-resolve with browser's allowed video codecs
+			sdpInput := codecInput
+			sdpInput.DeliveryConstraints.AllowedVideoCodecs = browserCodecs
+			sdpResolved := codec.Resolve(sdpInput)
+			negotiated := sdpResolved.VideoCodec
+			log.Printf("webrtc: negotiated codec=%s", negotiated)
+
+			decision.VideoCodec = media.VideoCodec(negotiated)
+			decision.NeedsTranscode = true
+
+			pipeCfg := buildPipeCfg(negotiated)
+			pr, err := runner(sess, pipeCfg)
+			if err != nil {
+				deps.SessionMgr.Stop(stream.ID)
+				return "", fmt.Errorf("pipeline failed: %w", err)
+			}
+			if pr.Info != nil {
+				if deps.ProbeCache != nil && cachedProbe == nil {
+					_ = deps.ProbeCache.Set(stream.URL, pr.Info)
+				}
+				if stream.VideoCodec == "" {
+					updateStreamFromProbe(ctx, deps.StreamStore, stream, pr.Info)
+				}
+			}
+			return negotiated, nil
+		})
+	} else {
+		// Non-WebRTC: start pipeline immediately
+		pipeCfg := buildPipeCfg(string(decision.VideoCodec))
+		var err error
+		pipelineResult, err = runner(sess, pipeCfg)
+		if err != nil {
+			if deps.ProbeCache != nil && cachedProbe != nil {
+				_ = deps.ProbeCache.Delete(stream.URL)
+			}
+			deps.SessionMgr.Stop(stream.ID)
+			return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
 		}
-		deps.SessionMgr.Stop(stream.ID)
-		return nil, fmt.Errorf("pipeline failed for stream %q (%s): %w", stream.Name, stream.URL, err)
-	}
 
-	if deps.ProbeCache != nil && cachedProbe == nil && pipelineResult.Info != nil {
-		_ = deps.ProbeCache.Set(stream.URL, pipelineResult.Info)
-	}
-	info := pipelineResult.Info
-	result.ProbeInfo = info
+		if deps.ProbeCache != nil && cachedProbe == nil && pipelineResult.Info != nil {
+			_ = deps.ProbeCache.Set(stream.URL, pipelineResult.Info)
+		}
+		result.ProbeInfo = pipelineResult.Info
 
-	if info != nil && stream.VideoCodec == "" {
-		updateStreamFromProbe(ctx, deps.StreamStore, stream, info)
+		if pipelineResult.Info != nil && stream.VideoCodec == "" {
+			updateStreamFromProbe(ctx, deps.StreamStore, stream, pipelineResult.Info)
+		}
 	}
 
 	delivery := resolveDelivery(ctx, deps)
@@ -262,39 +300,49 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		OutputFormat:   "mpegts",
 		IsLive:         true,
 	}
-	if !decision.NeedsTranscode {
-		pluginCfg.VideoCodecParams = pipelineResult.VideoCodecParams
-	}
-	if !decision.NeedsAudioTranscode {
-		pluginCfg.AudioCodecParams = pipelineResult.AudioCodecParams
-	}
-	if len(pipelineResult.VideoExtradata) > 0 {
-		pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
-	} else if !decision.NeedsTranscode && info != nil && info.Video != nil && len(info.Video.Extradata) > 0 {
-		pluginCfg.VideoExtradata = info.Video.Extradata
-	}
-	if len(pipelineResult.AudioExtradata) > 0 {
-		pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
-	}
-	if info != nil && info.Video != nil {
-		v := *info.Video
-		if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
-			v.Codec = string(decision.VideoCodec)
-			v.Extradata = nil
+
+	info := result.ProbeInfo
+	if isWebRTC {
+		// WebRTC: pipeline deferred — use placeholder probe info for plugin creation.
+		// Actual codec will be set after SDP negotiation.
+		pluginCfg.Video = &media.VideoInfo{Codec: resolved.VideoCodec, Width: 1920, Height: 1080}
+		pluginCfg.Audio = &media.AudioTrack{Codec: resolved.AudioCodec, Channels: 2, SampleRate: 48000}
+	} else {
+		// Non-WebRTC: pipeline already ran — populate from pipeline result
+		if !decision.NeedsTranscode {
+			pluginCfg.VideoCodecParams = pipelineResult.VideoCodecParams
 		}
-		if decision.Deinterlace && v.Interlaced {
-			v.Interlaced = false
+		if !decision.NeedsAudioTranscode {
+			pluginCfg.AudioCodecParams = pipelineResult.AudioCodecParams
 		}
-		pluginCfg.Video = &v
-	}
-	if info != nil && len(info.AudioTracks) > 0 {
-		a := info.AudioTracks[0]
-		if decision.NeedsAudioTranscode && string(decision.AudioCodec) != "" {
-			a.Codec = string(decision.AudioCodec)
-			a.Channels = 2
-			a.SampleRate = 48000
+		if len(pipelineResult.VideoExtradata) > 0 {
+			pluginCfg.VideoExtradata = pipelineResult.VideoExtradata
+		} else if !decision.NeedsTranscode && info != nil && info.Video != nil && len(info.Video.Extradata) > 0 {
+			pluginCfg.VideoExtradata = info.Video.Extradata
 		}
-		pluginCfg.Audio = &a
+		if len(pipelineResult.AudioExtradata) > 0 {
+			pluginCfg.AudioExtradata = pipelineResult.AudioExtradata
+		}
+		if info != nil && info.Video != nil {
+			v := *info.Video
+			if decision.NeedsTranscode && string(decision.VideoCodec) != "" {
+				v.Codec = string(decision.VideoCodec)
+				v.Extradata = nil
+			}
+			if decision.Deinterlace && v.Interlaced {
+				v.Interlaced = false
+			}
+			pluginCfg.Video = &v
+		}
+		if info != nil && len(info.AudioTracks) > 0 {
+			a := info.AudioTracks[0]
+			if decision.NeedsAudioTranscode && string(decision.AudioCodec) != "" {
+				a.Codec = string(decision.AudioCodec)
+				a.Channels = 2
+				a.SampleRate = 48000
+			}
+			pluginCfg.Audio = &a
+		}
 	}
 
 	plugin, err := deps.OutputReg.Create(delivery, pluginCfg)
@@ -306,6 +354,13 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	sess.FanOut.Add(plugin)
 	result.Plugin = plugin
 	result.Delivery = string(delivery)
+
+	// Wire SDP negotiation callback to WebRTC plugin
+	if isWebRTC {
+		if wp, ok := plugin.(*webrtcplugin.Plugin); ok {
+			wp.SetSDPNegotiator(sess.OnSDPOffer)
+		}
+	}
 
 	if sp, ok := plugin.(output.ServablePlugin); ok {
 		result.Servable = sp
@@ -371,57 +426,33 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		return result, nil
 	}
 
-	bitrate := 0
-	out := strategy.Output{
-		VideoCodec: "copy",
-		AudioCodec: "aac",
-		Container:  "mp4",
-	}
-
 	var detectedClient *client.Client
 	if deps.Detector != nil {
 		detectedClient = deps.Detector.Detect(port, headers)
-		if detectedClient != nil {
-			p := detectedClient.Profile
-			if p.VideoCodec != "" {
-				out.VideoCodec = p.VideoCodec
-			}
-			if p.AudioCodec != "" {
-				out.AudioCodec = p.AudioCodec
-			}
-			if p.Container != "" {
-				out.Container = p.Container
-			}
-			if p.HWAccel != "" {
-				out.HWAccel = p.HWAccel
-			}
-			if p.OutputHeight > 0 {
-				out.OutputHeight = p.OutputHeight
-			}
-			if p.Bitrate > 0 {
-				bitrate = p.Bitrate
-			}
-		}
 	}
 
-	var audioLanguage string
-	if deps.SettingsStore != nil {
-		if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" && out.HWAccel == "" {
-			out.HWAccel = hw
-		}
-		if mbd, err := deps.SettingsStore.Get(ctx, "default_max_bit_depth"); err == nil && mbd != "" {
-			if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
-				out.MaxBitDepth = v
-			}
-		}
-		if al, err := deps.SettingsStore.Get(ctx, "audio_language"); err == nil && al != "" {
-			audioLanguage = al
-		}
+	// Use codec.Resolve for recording playback too
+	codecInput := codec.Input{
+		Defaults:       codec.Preference{VideoCodec: "copy", AudioCodec: "aac", Container: "mp4"},
+		Settings:       gatherSettingsPreference(ctx, deps),
+		ClientProfile:  gatherClientPreference(detectedClient),
+		ClientOverride: gatherClientOverride(deps),
+	}
+	resolved := codec.Resolve(codecInput)
+	audioLanguage := resolveAudioLanguage(ctx, deps)
+
+	out := strategy.Output{
+		VideoCodec:   resolved.VideoCodec,
+		AudioCodec:   resolved.AudioCodec,
+		Container:    resolved.Container,
+		HWAccel:      resolved.HWAccel,
+		OutputHeight: resolved.OutputHeight,
+		MaxBitDepth:  resolved.MaxBitDepth,
 	}
 
 	in := strategy.Input{
-		VideoCodec: "h264",
-		AudioCodec: "aac",
+		VideoCodec: resolved.VideoCodec,
+		AudioCodec: resolved.AudioCodec,
 	}
 	decision := deps.Strategy(in, out)
 	result.Decision = decision
@@ -442,11 +473,11 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 		HWAccel:             decision.HWAccel,
 		DecodeHWAccel:       decodeHWAccel,
 		Deinterlace:         decision.Deinterlace,
-		OutputHeight:        out.OutputHeight,
-		MaxBitDepth:         out.MaxBitDepth,
+		OutputHeight:        resolved.OutputHeight,
+		MaxBitDepth:         resolved.MaxBitDepth,
 		EncoderName:         encoderName,
 		DecoderName:         decoderName,
-		Bitrate:             bitrate,
+		Bitrate:             resolved.Bitrate,
 	}
 
 	runner := deps.PipelineRunner
@@ -529,6 +560,81 @@ func PlayRecording(ctx context.Context, deps PlaybackDeps, recordingID, filePath
 
 func StopRecordingPlayback(deps PlaybackDeps, recordingID string) {
 	deps.SessionMgr.Stop("rec:" + recordingID)
+}
+
+// gatherSettingsPreference extracts codec preferences from the settings store.
+func gatherSettingsPreference(ctx context.Context, deps PlaybackDeps) codec.Preference {
+	p := codec.Preference{}
+	if deps.SettingsStore == nil {
+		return p
+	}
+	if hw, err := deps.SettingsStore.Get(ctx, "default_hwaccel"); err == nil && hw != "" {
+		p.HWAccel = hw
+	}
+	if mbd, err := deps.SettingsStore.Get(ctx, "default_max_bit_depth"); err == nil && mbd != "" {
+		if v, err := strconv.Atoi(mbd); err == nil && v > 0 {
+			p.MaxBitDepth = v
+		}
+	}
+	// default_video_codec: used as the transcode target when the strategy
+	// determines transcoding is needed but the profile doesn't specify a codec.
+	// Kept as-is (including "auto") — resolution of "auto" happens after all
+	// layers are merged in codec.Resolve.
+	if dvc, err := deps.SettingsStore.Get(ctx, "default_video_codec"); err == nil && dvc != "" && dvc != "copy" {
+		p.VideoCodec = dvc
+	}
+	return p
+}
+
+// gatherClientPreference extracts codec preferences from a detected client profile.
+func gatherClientPreference(c *client.Client) codec.Preference {
+	p := codec.Preference{}
+	if c == nil {
+		return p
+	}
+	prof := c.Profile
+	if prof.VideoCodec != "" {
+		p.VideoCodec = prof.VideoCodec
+	}
+	if prof.AudioCodec != "" {
+		p.AudioCodec = prof.AudioCodec
+	}
+	if prof.Container != "" {
+		p.Container = prof.Container
+	}
+	if prof.HWAccel != "" {
+		p.HWAccel = prof.HWAccel
+	}
+	if prof.OutputHeight > 0 {
+		p.OutputHeight = prof.OutputHeight
+	}
+	if prof.Bitrate > 0 {
+		p.Bitrate = prof.Bitrate
+	}
+	return p
+}
+
+// gatherClientOverride builds a Preference from explicit API-level codec overrides.
+func gatherClientOverride(deps PlaybackDeps) codec.Preference {
+	p := codec.Preference{}
+	if deps.VideoCodecOverride != "" {
+		p.VideoCodec = deps.VideoCodecOverride
+	}
+	if deps.AudioCodecOverride != "" {
+		p.AudioCodec = deps.AudioCodecOverride
+	}
+	return p
+}
+
+// resolveAudioLanguage reads the audio language setting.
+func resolveAudioLanguage(ctx context.Context, deps PlaybackDeps) string {
+	if deps.SettingsStore == nil {
+		return ""
+	}
+	if al, err := deps.SettingsStore.Get(ctx, "audio_language"); err == nil && al != "" {
+		return al
+	}
+	return ""
 }
 
 func resolveDecodeHWAccel(ctx context.Context, deps PlaybackDeps) string {

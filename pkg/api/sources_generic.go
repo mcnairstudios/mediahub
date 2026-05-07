@@ -70,8 +70,14 @@ func (s *Server) handleGenericCreateSource(w http.ResponseWriter, r *http.Reques
 			httputil.RespondError(w, http.StatusBadRequest, fmt.Sprintf("field %q is required", field.Key))
 			return
 		}
-		if val == "" && field.Default != "" {
-			val = field.Default
+		if val == "" && len(field.Default) > 0 {
+			// Default can be string, number, or array — coerce to string
+			var defStr string
+			if err := json.Unmarshal(field.Default, &defStr); err != nil {
+				// Not a JSON string — use raw representation (e.g. "50", "[...]")
+				defStr = string(field.Default)
+			}
+			val = defStr
 		}
 		if val != "" {
 			config[field.Key] = val

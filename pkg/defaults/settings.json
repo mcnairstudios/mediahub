@@ -1,7 +1,7 @@
 {
   "base_url": "",
   "default_hwaccel": "none",
-  "recording_video_codec": "copy",
+  "default_video_codec": "auto",
   "default_decode_hwaccel": "",
   "default_max_bit_depth": "",
   "encoder_h264": "",

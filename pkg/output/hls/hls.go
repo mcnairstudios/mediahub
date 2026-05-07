@@ -16,7 +16,9 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
+	"github.com/mcnairstudios/mediahub/pkg/av/bsf"
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
+	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/mux"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
@@ -32,6 +34,11 @@ type Plugin struct {
 	stopped    bool
 	mu         sync.Mutex
 	lastErr    error
+
+	// Deferred muxer creation: when encoder extradata isn't available at
+	// init time (e.g. VT H.265), defer muxer creation until the first
+	// keyframe provides extradata via BSF extraction.
+	deferredOpts *mux.HLSMuxOpts
 }
 
 func New(cfg output.PluginConfig) (*Plugin, error) {
@@ -79,6 +86,7 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		OutputDir:          segDir,
 		SegmentDurationSec: segDur,
 		SegmentType:        segType,
+		IsLive:             cfg.IsLive,
 	}
 
 	if hasVideo {
@@ -102,6 +110,12 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		hlsOpts.VideoWidth = cfg.Video.Width
 		hlsOpts.VideoHeight = cfg.Video.Height
 		hlsOpts.VideoFrameRate = 25
+	}
+
+	// Fallback: use encoder extradata from pluginCfg when Video.Extradata is empty
+	// (transcoding path: orchestrator sets VideoExtradata from bridge encoder)
+	if len(hlsOpts.VideoExtradata) == 0 && len(cfg.VideoExtradata) > 0 {
+		hlsOpts.VideoExtradata = cfg.VideoExtradata
 	}
 
 	if cfg.Video != nil && cfg.Video.FramerateN > 0 && cfg.Video.FramerateD > 0 {
@@ -141,11 +155,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		hlsOpts.AudioFrameSize = 1024
 	}
 
-	muxer, err := mux.NewHLSMuxer(hlsOpts)
-	if err != nil {
-		return nil, fmt.Errorf("hls: create muxer: %w", err)
-	}
-
 	videoTB := astiav.NewRational(1, 90000)
 	audioTB := astiav.NewRational(1, 48000)
 	if cfg.Audio != nil && cfg.Audio.SampleRate > 0 {
@@ -153,7 +162,6 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 
 	p := &Plugin{
-		muxer:    muxer,
 		segDir:   segDir,
 		videoTB:  videoTB,
 		audioTB:  audioTB,
@@ -162,7 +170,78 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	p.generation.Store(1)
 
+	// Defer muxer creation if video extradata is missing (VT H.265 encoder
+	// doesn't provide extradata at init time — needs first keyframe).
+	needsDeferred := len(hlsOpts.VideoExtradata) == 0 &&
+		hlsOpts.VideoCodecID != astiav.CodecIDNone &&
+		(hlsOpts.VideoCodecID == astiav.CodecIDHevc || hlsOpts.VideoCodecID == astiav.CodecIDH264)
+
+	if needsDeferred {
+		saved := hlsOpts
+		p.deferredOpts = &saved
+		log.Printf("hls: deferring muxer creation until first keyframe provides extradata (codec=%s)", hlsOpts.VideoCodecID)
+	} else {
+		muxer, err := mux.NewHLSMuxer(hlsOpts)
+		if err != nil {
+			return nil, fmt.Errorf("hls: create muxer: %w", err)
+		}
+		p.muxer = muxer
+	}
+
 	return p, nil
+}
+
+func (p *Plugin) initDeferredMuxer(keyframeData []byte) error {
+	opts := p.deferredOpts
+	p.deferredOpts = nil
+
+	codecName := "hevc"
+	if opts.VideoCodecID == astiav.CodecIDH264 {
+		codecName = "h264"
+	}
+
+	// Try BSF extraction first (more reliable for Annex-B → hvcC/avcC conversion)
+	var converted []byte
+	ext, bsfErr := bsf.NewExtraDataExtractor(opts.VideoCodecID, p.videoTB)
+	if bsfErr == nil {
+		defer ext.Close()
+		pkt := astiav.AllocPacket()
+		if pkt != nil {
+			defer pkt.Free()
+			if err := pkt.FromData(keyframeData); err == nil {
+				pkt.SetPts(0)
+				pkt.SetDts(0)
+				pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
+				annexB, err := ext.ProcessPacket(pkt)
+				if err == nil && len(annexB) > 0 {
+					converted, _ = extradata.ToCodecData(codecName, annexB)
+				}
+			}
+		}
+	}
+
+	// Fallback: try direct extraction from keyframe data
+	if len(converted) == 0 {
+		var err error
+		converted, err = extradata.ToCodecData(codecName, keyframeData)
+		if err != nil {
+			return fmt.Errorf("extract extradata from keyframe: %w", err)
+		}
+	}
+
+	if len(converted) == 0 {
+		return fmt.Errorf("no extradata found in first %s keyframe", codecName)
+	}
+
+	opts.VideoExtradata = converted
+	log.Printf("hls: extracted extradata from first keyframe (%s, %d bytes), creating muxer", codecName, len(converted))
+
+	muxer, err := mux.NewHLSMuxer(*opts)
+	if err != nil {
+		return fmt.Errorf("hls: create deferred muxer: %w", err)
+	}
+	p.muxer = muxer
+	return nil
 }
 
 func (p *Plugin) Mode() output.DeliveryMode {
@@ -179,7 +258,19 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped || p.muxer == nil || !p.hasVideo {
+	if p.stopped || !p.hasVideo {
+		return nil
+	}
+
+	// Deferred muxer creation: extract extradata from first keyframe
+	if p.deferredOpts != nil && keyframe {
+		if err := p.initDeferredMuxer(data); err != nil {
+			log.Printf("hls: deferred muxer init failed: %v", err)
+			return nil
+		}
+	}
+
+	if p.muxer == nil {
 		return nil
 	}
 
@@ -239,11 +330,7 @@ func (p *Plugin) ResetForSeek() {
 	if p.stopped {
 		return
 	}
-
-	p.generation.Add(1)
-	if p.muxer != nil {
-		p.muxer.Reset() //nolint:errcheck
-	}
+	// HLS muxer cannot be reset mid-stream; segments continue.
 }
 
 func (p *Plugin) Stop() {
@@ -294,7 +381,7 @@ func (p *Plugin) WaitReady(ctx context.Context) error {
 		defer cancel()
 	}
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -302,7 +389,11 @@ func (p *Plugin) WaitReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if _, err := os.Stat(playlistPath); err == nil {
+			data, err := os.ReadFile(playlistPath)
+			if err != nil {
+				continue
+			}
+			if strings.Contains(string(data), "#EXTINF:") {
 				return nil
 			}
 		}
@@ -335,23 +426,35 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	playlistPath := filepath.Join(p.segDir, "playlist.m3u8")
 
-	timeout := 30 * time.Second
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := p.WaitReady(ctx); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		return
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	var data []byte
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("hls: playlist not ready: %v", ctx.Err())
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		case <-ticker.C:
+			d, err := os.ReadFile(playlistPath)
+			if err != nil {
+				continue
+			}
+			if strings.Contains(string(d), "#EXTINF:") {
+				data = d
+				goto ready
+			}
+		}
 	}
 
-	playlistPath := filepath.Join(p.segDir, "playlist.m3u8")
-	data, err := os.ReadFile(playlistPath)
-	if err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		return
-	}
+ready:
+	log.Printf("hls: serve playlist (%d bytes)", len(data))
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store")

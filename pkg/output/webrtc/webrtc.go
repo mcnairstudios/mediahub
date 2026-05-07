@@ -34,6 +34,15 @@ const (
 	hevcNALUTypeAPTr = 48
 )
 
+// bufferedKeyframe holds the most recent keyframe so it can be sent
+// immediately when a new WebRTC peer connects, avoiding the race where
+// the encoder produces a keyframe before the peer is ready.
+type bufferedKeyframe struct {
+	data []byte
+	pts  int64
+	dts  int64
+}
+
 type Plugin struct {
 	cfg output.PluginConfig
 	log zerolog.Logger
@@ -58,6 +67,14 @@ type Plugin struct {
 	ptsBaseVideo int64
 	ptsBaseAudio int64
 	ptsBaseSet   bool
+
+	lastKeyframe *bufferedKeyframe
+
+	// onSDPNegotiate is called with the browser's SDP offer before the first
+	// peer connection. It starts the deferred pipeline and returns the
+	// negotiated video codec. Nil means pipeline already running.
+	onSDPNegotiate func(sdp string) (string, error)
+	sdpNegotiated  bool
 
 	generation   atomic.Int64
 	stopped      atomic.Bool
@@ -97,6 +114,15 @@ func New(cfg output.PluginConfig) (output.OutputPlugin, error) {
 	return p, nil
 }
 
+// SetSDPNegotiator registers a callback that is invoked with the browser's
+// SDP offer on the first WHEP connection. The callback should start the
+// deferred pipeline and return the negotiated video codec name.
+func (p *Plugin) SetSDPNegotiator(fn func(sdp string) (string, error)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onSDPNegotiate = fn
+}
+
 func (p *Plugin) Mode() output.DeliveryMode {
 	return output.DeliveryWebRTC
 }
@@ -107,6 +133,14 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error 
 	}
 
 	p.mu.Lock()
+
+	// Buffer every keyframe so we can replay it when a new peer connects.
+	if keyframe {
+		buf := make([]byte, len(data))
+		copy(buf, data)
+		p.lastKeyframe = &bufferedKeyframe{data: buf, pts: pts, dts: dts}
+	}
+
 	track := p.videoTrack
 	if track == nil {
 		p.mu.Unlock()
@@ -123,6 +157,15 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error 
 		p.log.Info().Int("data_len", len(data)).Msg("webrtc: got first keyframe")
 	}
 
+	p.sendVideoLocked(data, pts, track)
+
+	p.mu.Unlock()
+	return nil
+}
+
+// sendVideoLocked packetizes and sends video data over the given track.
+// Caller must hold p.mu.
+func (p *Plugin) sendVideoLocked(data []byte, pts int64, track *webrtc.TrackLocalStaticRTP) {
 	if !p.ptsBaseSet {
 		p.ptsBaseVideo = pts
 		p.ptsBaseAudio = pts
@@ -132,7 +175,6 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error 
 
 	relativePTS := pts - p.ptsBaseVideo
 	rtpTS := nanosToRTP(relativePTS, videoClockRate)
-
 
 	nalus := splitNALUs(data)
 	for i, nalu := range nalus {
@@ -151,15 +193,11 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, _ int64, keyframe bool) error 
 		for _, pkt := range packets {
 			p.videoSeq = pkt.Header.SequenceNumber + 1
 			if err := track.WriteRTP(pkt); err != nil {
-				p.mu.Unlock()
-				return nil
+				return
 			}
 			p.bytesWritten += int64(len(pkt.Payload))
 		}
 	}
-
-	p.mu.Unlock()
-	return nil
 }
 
 func (p *Plugin) PushAudio(data []byte, pts, dts, _ int64) error {
@@ -227,6 +265,8 @@ func (p *Plugin) ResetForSeek() {
 	p.ptsBaseSet = false
 	p.lastVideoPTS = 0
 	p.lastAudioPTS = 0
+	p.lastKeyframe = nil
+	p.gotKeyframe = false
 	p.mu.Unlock()
 	p.generation.Add(1)
 }
@@ -243,6 +283,7 @@ func (p *Plugin) Stop() {
 	}
 	p.videoTrack = nil
 	p.audioTrack = nil
+	p.lastKeyframe = nil
 }
 
 func (p *Plugin) Status() output.PluginStatus {
@@ -298,10 +339,14 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) videoMimeType() string {
-	if p.videoCodec == "hevc" || p.videoCodec == "h265" {
+	switch p.videoCodec {
+	case "hevc", "h265":
 		return "video/H265"
+	case "av1":
+		return "video/AV1"
+	default:
+		return webrtc.MimeTypeH264
 	}
-	return webrtc.MimeTypeH264
 }
 
 func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +354,30 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "failed to read offer", http.StatusBadRequest)
 		return
+	}
+
+	// SDP negotiation: on first WHEP offer, parse the browser's SDP to
+	// determine which video codecs it supports, then start the pipeline
+	// with the best matching codec.
+	p.mu.Lock()
+	negotiate := p.onSDPNegotiate
+	negotiated := p.sdpNegotiated
+	p.mu.Unlock()
+
+	if negotiate != nil && !negotiated {
+		p.log.Info().Str("sdp_preview", string(body[:min(len(body), 500)])).Msg("webrtc: received WHEP offer SDP")
+		codec, err := negotiate(string(body))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("SDP negotiation failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		p.mu.Lock()
+		if codec != "" {
+			p.videoCodec = codec
+		}
+		p.sdpNegotiated = true
+		p.mu.Unlock()
+		p.log.Info().Str("negotiated_codec", codec).Msg("webrtc: SDP negotiation complete")
 	}
 
 	config := webrtc.Configuration{
@@ -404,6 +473,17 @@ func (p *Plugin) handleWHEPOffer(w http.ResponseWriter, r *http.Request) {
 	p.ptsBaseSet = false
 	p.lastVideoPTS = 0
 	p.lastAudioPTS = 0
+	p.gotKeyframe = false
+
+	// Flush the buffered keyframe immediately so the new peer can start
+	// decoding without waiting for the next keyframe from the encoder.
+	if videoTrack != nil && p.lastKeyframe != nil {
+		kf := p.lastKeyframe
+		p.gotKeyframe = true
+		p.log.Info().Int("data_len", len(kf.data)).Msg("webrtc: sending buffered keyframe to new peer")
+		p.sendVideoLocked(kf.data, kf.pts, videoTrack)
+	}
+
 	p.ready.Store(true)
 	p.mu.Unlock()
 

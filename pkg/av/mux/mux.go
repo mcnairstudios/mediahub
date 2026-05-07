@@ -173,6 +173,19 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 		cp.SetMediaType(astiav.MediaTypeVideo)
 		cp.SetWidth(width)
 		cp.SetHeight(height)
+		// Set profile/level for clean codec strings in fMP4 init segments
+		if codecID == astiav.CodecIDHevc {
+			cp.SetProfile(astiav.ProfileHevcMain)
+			if height >= 2160 {
+				cp.SetLevel(153) // 5.1
+			} else if height >= 1080 {
+				cp.SetLevel(120) // 4.0
+			} else {
+				cp.SetLevel(93) // 3.1
+			}
+		} else if codecID == astiav.CodecIDH264 {
+			cp.SetProfile(astiav.ProfileH264Main)
+		}
 	} else {
 		cp.SetMediaType(astiav.MediaTypeAudio)
 		if sampleRate > 0 {
@@ -190,6 +203,7 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 		}
 		if codecID == astiav.CodecIDAac {
 			cp.SetFrameSize(1024)
+			cp.SetProfile(astiav.ProfileAacLow) // mp4a.40.2
 		}
 	}
 	s.SetTimeBase(timeBase)

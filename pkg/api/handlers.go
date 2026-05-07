@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -23,7 +24,9 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/orchestrator"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
+	"github.com/mcnairstudios/mediahub/pkg/session"
 	"github.com/mcnairstudios/mediahub/pkg/source"
+	hdhrsource "github.com/mcnairstudios/mediahub/pkg/source/hdhr"
 	"github.com/mcnairstudios/mediahub/pkg/source/satip/scan"
 )
 
@@ -158,7 +161,7 @@ func (s *Server) resolveChannelLogos(channels []channel.Channel) {
 var apiSettableKeys = map[string]bool{
 	"base_url":               true,
 	"default_hwaccel":        true,
-	"recording_video_codec":  true,
+	"default_video_codec":    true,
 	"default_decode_hwaccel": true,
 	"encoder_h264":           true,
 	"encoder_h265":           true,
@@ -230,9 +233,9 @@ func validateSettingValue(key, value string) error {
 				return fmt.Errorf("default_max_bit_depth must be a positive integer")
 			}
 		}
-	case "recording_video_codec":
-		if !validVideoCodecValues[value] {
-			return fmt.Errorf("recording_video_codec must be one of: h264, h265, hevc, av1, copy, or empty")
+	case "default_video_codec":
+		if value != "" && value != "auto" && !validVideoCodecValues[value] {
+			return fmt.Errorf("default_video_codec must be one of: auto, h264, h265, hevc, av1, or empty")
 		}
 	case "audio_language", "subtitle_language":
 		if value != "" && !isoLangPattern.MatchString(value) {
@@ -340,13 +343,21 @@ func (s *Server) handleStartPlayback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Delivery string `json:"delivery"`
+		Delivery   string `json:"delivery"`
+		VideoCodec string `json:"video_codec"`
+		AudioCodec string `json:"audio_codec"`
 	}
 	_ = httputil.DecodeJSON(r, &body)
 
 	deps := s.playbackDeps()
 	if body.Delivery != "" {
 		deps.DeliveryOverride = body.Delivery
+	}
+	if body.VideoCodec != "" {
+		deps.VideoCodecOverride = body.VideoCodec
+	}
+	if body.AudioCodec != "" {
+		deps.AudioCodecOverride = body.AudioCodec
 	}
 
 	if profileName := r.URL.Query().Get("profile"); profileName != "" {
@@ -1147,7 +1158,6 @@ func (s *Server) handleSignalInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only SAT>IP streams have RTSP signal info
 	if s.deps.StreamStore == nil {
 		httputil.RespondError(w, http.StatusNotFound, "signal info not available")
 		return
@@ -1157,12 +1167,18 @@ func (s *Server) handleSignalInfo(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusNotFound, "stream not found")
 		return
 	}
-	if stream.SourceType != "satip" {
-		httputil.RespondError(w, http.StatusNotFound, "signal info only available for SAT>IP streams")
-		return
-	}
 
-	// The session StreamURL is the RTSP URL for SAT>IP
+	switch stream.SourceType {
+	case "satip":
+		s.handleSATIPSignal(w, sess)
+	case "hdhr":
+		s.handleHDHRSignal(w, r, stream)
+	default:
+		httputil.RespondError(w, http.StatusNotFound, "signal info only available for SAT>IP and HDHR streams")
+	}
+}
+
+func (s *Server) handleSATIPSignal(w http.ResponseWriter, sess *session.Session) {
 	rtspURL := sess.StreamURL
 	if rtspURL == "" {
 		httputil.RespondError(w, http.StatusNotFound, "no stream URL available")
@@ -1197,6 +1213,182 @@ func (s *Server) handleSignalInfo(w http.ResponseWriter, r *http.Request) {
 		"active":       info.Active,
 		"server":       info.Server,
 	})
+}
+
+func (s *Server) handleHDHRSignal(w http.ResponseWriter, r *http.Request, stream *media.Stream) {
+	if s.deps.SourceConfigStore == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source config not available")
+		return
+	}
+	sc, err := s.deps.SourceConfigStore.Get(r.Context(), stream.SourceID)
+	if err != nil || sc == nil {
+		httputil.RespondError(w, http.StatusNotFound, "source config not found")
+		return
+	}
+
+	var devices []hdhrsource.Device
+	if devicesJSON := sc.Config["devices"]; devicesJSON != "" {
+		if jsonErr := json.Unmarshal([]byte(devicesJSON), &devices); jsonErr != nil {
+			httputil.RespondError(w, http.StatusInternalServerError, "failed to parse HDHR devices config")
+			return
+		}
+	}
+	if len(devices) == 0 {
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{"available": false})
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, device := range devices {
+		baseURL := normalizeHDHRHost(device.Host)
+		info, err := hdhrsource.QueryDeviceSignal(client, baseURL, device.TunerCount, 5*time.Second)
+		if err != nil {
+			continue
+		}
+		if info.Available {
+			httputil.RespondJSON(w, http.StatusOK, map[string]any{
+				"available":   true,
+				"lock":        info.Lock,
+				"level_pct":   info.LevelPct,
+				"quality_pct": info.QualityPct,
+				"symbol_pct":  info.SymbolPct,
+				"freq_mhz":    info.FreqMHz,
+				"msys":        info.Msys,
+				"tuner":       info.Tuner,
+			})
+			return
+		}
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{"available": false})
+}
+
+func normalizeHDHRHost(host string) string {
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		return strings.TrimRight(host, "/")
+	}
+	return "http://" + strings.TrimRight(host, "/")
+}
+
+func (s *Server) handleGetTracks(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "stream ID required")
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		httputil.RespondError(w, http.StatusNotFound, "no active session")
+		return
+	}
+
+	info := sess.ProbeInfo()
+	if info == nil {
+		httputil.RespondJSON(w, http.StatusOK, map[string]any{
+			"audio_tracks": []any{},
+		})
+		return
+	}
+
+	d := sess.Demuxer()
+
+	type trackResp struct {
+		Index       int    `json:"index"`
+		Language    string `json:"language"`
+		Codec       string `json:"codec"`
+		Channels    int    `json:"channels"`
+		SampleRate  int    `json:"sample_rate"`
+		BitRate     int    `json:"bit_rate,omitempty"`
+		Description string `json:"description"`
+		IsDefault   bool   `json:"is_default"`
+		IsAD        bool   `json:"is_ad"`
+		IsActive    bool   `json:"is_active"`
+	}
+
+	tracks := make([]trackResp, 0, len(info.AudioTracks))
+	for i, at := range info.AudioTracks {
+		desc := at.Language
+		if desc == "" {
+			desc = "Track " + strconv.Itoa(i+1)
+		}
+		if at.IsAD {
+			desc += " (AD)"
+		}
+		if at.Channels > 0 {
+			switch at.Channels {
+			case 1:
+				desc += " - Mono"
+			case 2:
+				desc += " - Stereo"
+			case 6:
+				desc += " - 5.1"
+			case 8:
+				desc += " - 7.1"
+			default:
+				desc += " - " + strconv.Itoa(at.Channels) + "ch"
+			}
+		}
+
+		isActive := false
+		if d != nil {
+			isActive = at.Index == d.AudioIndex()
+		} else {
+			isActive = i == 0
+		}
+
+		tracks = append(tracks, trackResp{
+			Index:       at.Index,
+			Language:    at.Language,
+			Codec:       at.Codec,
+			Channels:    at.Channels,
+			SampleRate:  at.SampleRate,
+			BitRate:     at.BitRate,
+			Description: desc,
+			IsDefault:   i == 0,
+			IsAD:        at.IsAD,
+			IsActive:    isActive,
+		})
+	}
+
+	httputil.RespondJSON(w, http.StatusOK, map[string]any{
+		"audio_tracks": tracks,
+	})
+}
+
+func (s *Server) handleSwitchAudioTrack(w http.ResponseWriter, r *http.Request) {
+	streamID := r.PathValue("streamID")
+	if streamID == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "stream ID required")
+		return
+	}
+
+	var req struct {
+		Track int `json:"track"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, errInvalidBody)
+		return
+	}
+
+	sess := s.deps.SessionMgr.Get(streamID)
+	if sess == nil {
+		httputil.RespondError(w, http.StatusNotFound, "no active session")
+		return
+	}
+
+	d := sess.Demuxer()
+	if d == nil {
+		httputil.RespondError(w, http.StatusConflict, "session has no demuxer (subprocess mode)")
+		return
+	}
+
+	if err := d.SetAudioTrack(req.Track); err != nil {
+		httputil.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func clientNameFromUA(ua string) string {

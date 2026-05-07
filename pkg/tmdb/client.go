@@ -592,6 +592,78 @@ func cleanVODName(name string) (clean string, year string) {
 	return strings.TrimSpace(cleaned), year
 }
 
+// SearchResult is a lightweight search result returned by SearchResults.
+type SearchResult struct {
+	ID           int     `json:"id"`
+	Title        string  `json:"title"`
+	Overview     string  `json:"overview"`
+	PosterPath   string  `json:"poster_path"`
+	ReleaseDate  string  `json:"release_date"`
+	VoteAverage  float64 `json:"vote_average"`
+}
+
+// SearchResults searches TMDB and returns multiple results for user selection.
+func (c *Client) SearchResults(query string, mediaType string) ([]SearchResult, error) {
+	key := c.apiKey()
+	if key == "" {
+		return nil, fmt.Errorf("no TMDB API key configured")
+	}
+
+	clean, yearStr := cleanVODName(query)
+
+	var u string
+	switch mediaType {
+	case "tv", "series":
+		u = "https://api.themoviedb.org/3/search/tv?api_key=" + url.QueryEscape(key) +
+			"&query=" + url.QueryEscape(clean) + "&language=en-GB"
+		if yearStr != "" {
+			u += "&first_air_date_year=" + yearStr
+		}
+	default:
+		u = "https://api.themoviedb.org/3/search/movie?api_key=" + url.QueryEscape(key) +
+			"&query=" + url.QueryEscape(clean) + "&language=en-GB"
+		if yearStr != "" {
+			u += "&year=" + yearStr
+		}
+	}
+
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("search request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var raw searchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode search: %w", err)
+	}
+
+	var results []SearchResult
+	for _, r := range raw.Results {
+		title := r.Title
+		if title == "" {
+			title = r.Name
+		}
+		releaseDate := r.ReleaseDate
+		if releaseDate == "" {
+			releaseDate = r.FirstAirDate
+		}
+		results = append(results, SearchResult{
+			ID:          r.ID,
+			Title:       title,
+			Overview:    r.Overview,
+			PosterPath:  r.PosterPath,
+			ReleaseDate: releaseDate,
+			VoteAverage: r.VoteAverage,
+		})
+		if len(results) >= 20 {
+			break
+		}
+	}
+
+	return results, nil
+}
+
 func extractMovieCertification(rd releaseDates, countries ...string) string {
 	for _, country := range countries {
 		for _, r := range rd.Results {

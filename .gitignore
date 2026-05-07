@@ -19,3 +19,6 @@
 # Test
 *.test
 coverage.out
+
+# Rust build artifacts
+plugins/*/target/

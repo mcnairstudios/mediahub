@@ -200,6 +200,8 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 	}
 
 	sess.AddCloser(&demuxCloser{d: d})
+	sess.SetDemuxer(d)
+	sess.SetProbeInfo(info)
 
 	sess.SetSeekFunc(func(posMs int64) {
 		d.RequestSeek(posMs)
@@ -255,6 +257,15 @@ func (m *Manager) RunPipeline(sess *Session, cfg PipelineConfig) (*PipelineResul
 		videoExtradata = b.VideoEncoderExtradata()
 		audioExtradata = b.AudioEncoderExtradata()
 	}
+
+	// Wire demuxer onSeek callback to reset pipeline state (bridge + output plugins)
+	// after a seek completes. This runs inside the demux read loop, before new
+	// packets are delivered, ensuring plugins flush stale buffers.
+	d.SetOnSeek(func() {
+		if sr, ok := sink.(interface{ ResetForSeek() }); ok {
+			sr.ResetForSeek()
+		}
+	})
 
 	log.Info().Str("stream_id", cfg.StreamID).Msg("pipeline: demuxloop starting")
 
@@ -441,6 +452,13 @@ func (m *Manager) openDemuxAndSink(sess *Session, cfg PipelineConfig, log zerolo
 		sess.AddCloser(bridgeCloser{b: b})
 		sink = b
 	}
+
+	// Wire demuxer onSeek callback for retried pipelines too.
+	d.SetOnSeek(func() {
+		if sr, ok := sink.(interface{ ResetForSeek() }); ok {
+			sr.ResetForSeek()
+		}
+	})
 
 	return d, sink, nil
 }

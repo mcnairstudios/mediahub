@@ -572,7 +572,10 @@ func (d *Demuxer) SeekTo(posMs int64) error {
 	if err := d.fc.SeekFrame(streamIdx, ts, flags); err != nil {
 		return fmt.Errorf("demux: seek to %d ms: %w", posMs, err)
 	}
-	d.basePTS = 0
+	// Reset basePTS to -1 so the first packet after seek becomes the new base.
+	// This makes PTS start from 0 after seek, which is required because output
+	// plugins have been reset and expect a fresh timeline.
+	d.basePTS = -1
 	d.audioPTSInited = false
 	d.audioFrameCount = 0
 	return nil
@@ -607,6 +610,12 @@ func (d *Demuxer) VideoCodecParameters() *astiav.CodecParameters {
 		return nil
 	}
 	return s.CodecParameters()
+}
+
+func (d *Demuxer) AudioIndex() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.audioIdx
 }
 
 func (d *Demuxer) AudioCodecParameters() *astiav.CodecParameters {

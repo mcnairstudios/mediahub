@@ -21,6 +21,12 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/store"
 )
 
+// jsonDefault wraps a string as a JSON string value for ConfigField.Default.
+func jsonDefault(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
+}
+
 type sourceDeps struct {
 	SourceConfigStore sourceconfig.Store
 	StreamStore       store.StreamStore
@@ -219,7 +225,7 @@ func registerBuiltinDescriptors(reg *source.Registry) {
 				{Key: "password", Label: "Password", Type: source.FieldPassword},
 				{Key: "use_wireguard", Label: "Use WireGuard", Type: source.FieldBool},
 				{Key: "wg_profile_id", Label: "WireGuard Profile", Type: source.FieldSelect},
-				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: "24h", Options: []source.Option{
+				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: jsonDefault("24h"), Options: []source.Option{
 					{Value: "1h", Label: "Every hour"},
 					{Value: "6h", Label: "Every 6 hours"},
 					{Value: "12h", Label: "Every 12 hours"},
@@ -242,8 +248,8 @@ func registerBuiltinDescriptors(reg *source.Registry) {
 				{Key: "password", Label: "Password", Type: source.FieldPassword, Required: true},
 				{Key: "use_wireguard", Label: "Use WireGuard", Type: source.FieldBool},
 				{Key: "wg_profile_id", Label: "WireGuard Profile", Type: source.FieldSelect},
-				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: "0", HelpText: "0 = unlimited"},
-				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: "24h", Options: []source.Option{
+				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: jsonDefault("0"), HelpText: "0 = unlimited"},
+				{Key: "refresh_interval", Label: "Refresh Interval", Type: source.FieldSelect, Default: jsonDefault("24h"), Options: []source.Option{
 					{Value: "1h", Label: "Every hour"},
 					{Value: "6h", Label: "Every 6 hours"},
 					{Value: "12h", Label: "Every 12 hours"},
@@ -289,10 +295,10 @@ func registerBuiltinDescriptors(reg *source.Registry) {
 			Description: "Connect to a SAT>IP DVB tuner for satellite, cable, or terrestrial TV",
 			ConfigFields: []source.ConfigField{
 				{Key: "host", Label: "Host", Type: source.FieldText, Required: true, Placeholder: "192.168.1.100"},
-				{Key: "http_port", Label: "HTTP Port", Type: source.FieldNumber, Default: "8875"},
-				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: "0", HelpText: "0 = unlimited"},
+				{Key: "http_port", Label: "HTTP Port", Type: source.FieldNumber, Default: jsonDefault("8875")},
+				{Key: "max_streams", Label: "Max Streams", Type: source.FieldNumber, Default: jsonDefault("0"), HelpText: "0 = unlimited"},
 				{Key: "transmitter_file", Label: "Transmitter File", Type: source.FieldText, HelpText: "Path to transmitter definition file"},
-				{Key: "diseqc_source", Label: "DiSEqC Source", Type: source.FieldNumber, Default: "0"},
+				{Key: "diseqc_source", Label: "DiSEqC Source", Type: source.FieldNumber, Default: jsonDefault("0")},
 			},
 		},
 		// Demo, Trailers, Space Launches, and Radio Garden are WASM plugins.

@@ -14,6 +14,7 @@ import (
 	"github.com/mcnairstudios/mediahub/pkg/httputil"
 	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/recording"
+	"github.com/mcnairstudios/mediahub/pkg/source"
 	"github.com/mcnairstudios/mediahub/pkg/xmltv"
 )
 
@@ -577,6 +578,10 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	configs, err := s.deps.SourceConfigStore.List(r.Context())
 	if err == nil {
 		totalStreams := 0
+		healthyCount := 0
+		staleCount := 0
+		errorCount := 0
+		disabledCount := 0
 		sourceBreakdown := make([]map[string]any, 0, len(configs))
 		for _, cfg := range configs {
 			count := 0
@@ -589,16 +594,75 @@ func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			totalStreams += count
-			sourceBreakdown = append(sourceBreakdown, map[string]any{
+
+			entry := map[string]any{
 				"id":           cfg.ID,
 				"name":         cfg.Name,
 				"type":         cfg.Type,
 				"is_enabled":   cfg.IsEnabled,
 				"stream_count": count,
-			})
+			}
+
+			// Compute health status per source
+			health := "healthy"
+			if !cfg.IsEnabled {
+				health = "disabled"
+				disabledCount++
+			} else {
+				var lastRefreshed string
+				var lastError string
+				src, serr := s.deps.SourceReg.Create(r.Context(), source.SourceType(cfg.Type), cfg.ID)
+				if serr == nil {
+					info := src.Info(r.Context())
+					if info.LastRefreshed != nil {
+						lastRefreshed = info.LastRefreshed.Format(time.RFC3339)
+						entry["last_refreshed"] = lastRefreshed
+						// Stale if last refresh > 1 hour ago
+						if time.Since(*info.LastRefreshed) > time.Hour {
+							health = "stale"
+						}
+					} else {
+						// Never refreshed
+						health = "stale"
+					}
+					lastError = info.LastError
+					if lastError != "" {
+						entry["last_error"] = lastError
+						health = "error"
+					}
+				}
+				if lastRefreshed == "" {
+					if lr := cfg.Config["last_refreshed"]; lr != "" {
+						entry["last_refreshed"] = lr
+						if t, terr := time.Parse(time.RFC3339, lr); terr == nil {
+							if time.Since(t) > time.Hour {
+								health = "stale"
+							}
+						}
+					}
+				}
+
+				switch health {
+				case "healthy":
+					healthyCount++
+				case "stale":
+					staleCount++
+				case "error":
+					errorCount++
+				}
+			}
+			entry["health"] = health
+			sourceBreakdown = append(sourceBreakdown, entry)
 		}
 		stats["total_streams"] = totalStreams
 		stats["sources"] = sourceBreakdown
+		stats["source_health"] = map[string]any{
+			"total":    len(configs),
+			"healthy":  healthyCount,
+			"stale":    staleCount,
+			"error":    errorCount,
+			"disabled": disabledCount,
+		}
 	}
 
 	channels, err := s.deps.ChannelStore.List(r.Context())

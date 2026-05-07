@@ -170,6 +170,21 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 
 	if opts.Bitrate > 0 {
 		cc.SetBitRate(int64(opts.Bitrate) * 1000)
+	} else {
+		// Default bitrate based on resolution to prevent uncapped encoding
+		defaultBitrate := int64(5000) // 5 Mbps for 1080p
+		if opts.Height >= 2160 {
+			defaultBitrate = 15000
+		} else if opts.Height >= 1080 {
+			defaultBitrate = 5000
+		} else if opts.Height >= 720 {
+			defaultBitrate = 3000
+		} else if opts.Height >= 480 {
+			defaultBitrate = 1500
+		} else {
+			defaultBitrate = 800
+		}
+		cc.SetBitRate(defaultBitrate * 1000)
 	}
 
 	fps := opts.Framerate

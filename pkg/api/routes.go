@@ -68,6 +68,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/play/{streamID}/seek", s.authenticated(s.handleSeek))
 	s.mux.Handle("POST /api/play/{streamID}/record", s.authenticated(s.handleStartRecording))
 	s.mux.Handle("DELETE /api/play/{streamID}/record", s.authenticated(s.handleStopRecording))
+	s.mux.Handle("GET /api/play/{streamID}/tracks", s.authenticated(s.handleGetTracks))
+	s.mux.Handle("POST /api/play/{streamID}/tracks/audio", s.authenticated(s.handleSwitchAudioTrack))
 	s.mux.Handle("GET /api/play/{streamID}/signal", s.authenticated(s.handleSignalInfo))
 	s.mux.Handle("GET /api/play/{streamID}/subtitles", s.authenticated(s.handleSubtitles))
 	s.mux.Handle("GET /api/play/{streamID}/hls/{path...}", s.authenticated(s.handlePlaybackServe))
@@ -79,6 +81,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/play/{streamID}/stream", s.authenticated(s.handleStreamServe))
 
 	s.mux.Handle("GET /api/sources", s.authenticated(s.handleListSources))
+	s.mux.Handle("GET /api/sources/health", s.authenticated(s.handleSourceHealth))
 	s.mux.Handle("POST /api/sources/m3u", s.adminOnly(s.handleCreateM3USource))
 	s.mux.Handle("PUT /api/sources/m3u/{id}", s.adminOnly(s.handleUpdateM3USource))
 	s.mux.Handle("DELETE /api/sources/m3u/{id}", s.adminOnly(s.handleDeleteM3USource))
@@ -179,6 +182,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tmdb/sync", s.authenticated(s.handleTMDBSyncStatus))
 	s.mux.Handle("POST /api/tmdb/resync", s.adminOnly(s.handleTMDBResync))
 	s.mux.Handle("GET /api/tmdb/recent", s.authenticated(s.handleTMDBRecent))
+	s.mux.Handle("GET /api/tmdb/search", s.authenticated(s.handleTMDBSearch))
+	s.mux.Handle("POST /api/streams/{streamID}/tmdb-match", s.adminOnly(s.handleTMDBMatch))
 
 	s.mux.Handle("GET /api/logos", s.authenticated(s.handleListLogos))
 	s.mux.Handle("POST /api/logos/refresh-from-epg", s.adminOnly(s.handleRefreshLogosFromEPG))

@@ -52,3 +52,18 @@ type ServablePlugin interface {
 	Generation() int64
 	WaitReady(ctx context.Context) error
 }
+
+// CodecConstrainer is an optional interface that output plugins can implement
+// to declare hard codec constraints for their delivery mode. The orchestrator
+// uses codec.DeliveryConstraints() for static lookup since plugins are created
+// after codec resolution, but this interface can be used for validation or
+// future dynamic constraint discovery.
+//
+// CodecConstraints returns a map with optional keys:
+//   - "required_audio_codec": string (e.g. "opus")
+//   - "force_transcode": bool
+//   - "disable_decode_hw": bool
+//   - "allowed_video_codecs": map[string]bool
+type CodecConstrainer interface {
+	CodecConstraints() map[string]any
+}

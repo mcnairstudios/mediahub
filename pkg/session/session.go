@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mcnairstudios/mediahub/pkg/av/demux"
 	"github.com/mcnairstudios/mediahub/pkg/av/subtitle"
+	"github.com/mcnairstudios/mediahub/pkg/media"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
 
@@ -25,6 +27,9 @@ type Session struct {
 
 	Subtitles *subtitle.Collector
 
+	demuxer   *demux.Demuxer
+	probeInfo *media.ProbeResult
+
 	mu       sync.Mutex
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -35,6 +40,10 @@ type Session struct {
 	closers  []io.Closer
 	err      error
 	finished bool
+
+	// WebRTC SDP negotiation: pipeline deferred until WHEP offer arrives
+	onSDPOffer       func(sdp string) (negotiatedCodec string, err error)
+	pipelineDeferred bool
 }
 
 func newSession(ctx context.Context, cancel context.CancelFunc, streamID, streamURL, streamName, outputDir string) *Session {
@@ -166,6 +175,58 @@ func (s *Session) IsFinished() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.finished
+}
+
+func (s *Session) SetDemuxer(d *demux.Demuxer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.demuxer = d
+}
+
+func (s *Session) Demuxer() *demux.Demuxer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.demuxer
+}
+
+func (s *Session) SetProbeInfo(info *media.ProbeResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.probeInfo = info
+}
+
+func (s *Session) ProbeInfo() *media.ProbeResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.probeInfo
+}
+
+// SetOnSDPOffer registers a callback invoked when the browser sends a WHEP
+// offer. The callback receives the raw SDP, starts the pipeline with the
+// negotiated codec, and returns the chosen video codec name.
+func (s *Session) SetOnSDPOffer(fn func(sdp string) (string, error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onSDPOffer = fn
+	s.pipelineDeferred = true
+}
+
+// OnSDPOffer invokes the registered SDP callback. Returns ("", nil) if none set.
+func (s *Session) OnSDPOffer(sdp string) (string, error) {
+	s.mu.Lock()
+	fn := s.onSDPOffer
+	s.mu.Unlock()
+	if fn == nil {
+		return "", nil
+	}
+	return fn(sdp)
+}
+
+// IsPipelineDeferred returns true if the pipeline start is deferred (WebRTC).
+func (s *Session) IsPipelineDeferred() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pipelineDeferred
 }
 
 func generateID() string {

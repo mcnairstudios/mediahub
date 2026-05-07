@@ -337,10 +337,11 @@ func updateTMDBIndex(b *bbolt.Bucket, stream media.Stream) {
 			mediaType = "series"
 		}
 		val, _ := json.Marshal(struct {
-			Name      string `json:"n"`
-			Year      string `json:"y,omitempty"`
-			MediaType string `json:"t"`
-		}{Name: name, Year: stream.Year, MediaType: mediaType})
+			Name       string `json:"n"`
+			Year       string `json:"y,omitempty"`
+			MediaType  string `json:"t"`
+			SourceType string `json:"s,omitempty"`
+		}{Name: name, Year: stream.Year, MediaType: mediaType, SourceType: stream.SourceType})
 		b.Put(key, val) //nolint:errcheck
 	} else {
 		b.Delete(key) //nolint:errcheck
@@ -353,33 +354,55 @@ func deleteTMDBIndex(b *bbolt.Bucket, streamID string) {
 }
 
 // TMDBPendingBatch returns up to `limit` streams awaiting TMDB resolution.
+// It prioritises tvproxy-streams (tvpstreams) entries first, then all others.
 func (s *StreamStore) TMDBPendingBatch(_ context.Context, limit int) ([]media.TMDBPendingEntry, error) {
-	var result []media.TMDBPendingEntry
+	var priority []media.TMDBPendingEntry
+	var rest []media.TMDBPendingEntry
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStreams)
 		c := b.Cursor()
 		for k, v := c.Seek(prefixTMDBPending); k != nil && bytes.HasPrefix(k, prefixTMDBPending); k, v = c.Next() {
 			streamID := string(k[len(prefixTMDBPending):])
 			var entry struct {
-				Name      string `json:"n"`
-				Year      string `json:"y,omitempty"`
-				MediaType string `json:"t"`
+				Name       string `json:"n"`
+				Year       string `json:"y,omitempty"`
+				MediaType  string `json:"t"`
+				SourceType string `json:"s,omitempty"`
 			}
 			if json.Unmarshal(v, &entry) != nil {
 				continue
 			}
-			result = append(result, media.TMDBPendingEntry{
-				StreamID:  streamID,
-				Name:      entry.Name,
-				Year:      entry.Year,
-				MediaType: entry.MediaType,
-			})
-			if len(result) >= limit {
+			e := media.TMDBPendingEntry{
+				StreamID:   streamID,
+				Name:       entry.Name,
+				Year:       entry.Year,
+				MediaType:  entry.MediaType,
+				SourceType: entry.SourceType,
+			}
+			if entry.SourceType == "tvpstreams" {
+				priority = append(priority, e)
+			} else {
+				rest = append(rest, e)
+			}
+			// Read enough to fill the batch from priority alone, but scan more
+			// in case there are priority entries later in the cursor.
+			if len(priority) >= limit && len(rest) >= limit {
 				break
 			}
 		}
 		return nil
 	})
+	// Return priority entries first, then fill remaining with rest.
+	result := priority
+	if len(result) < limit {
+		remaining := limit - len(result)
+		if remaining > len(rest) {
+			remaining = len(rest)
+		}
+		result = append(result, rest[:remaining]...)
+	} else {
+		result = result[:limit]
+	}
 	return result, err
 }
 

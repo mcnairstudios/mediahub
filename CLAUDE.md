@@ -181,7 +181,7 @@ type PacketSink interface {
 - **Record plugin codec tags**: MPEG-TS codec tags (tag [27]) don't work in MP4 — clear with `SetCodecTag(0)`
 - **Strategy unknown input**: Even with unknown source codec, explicit output codec means transcode
 - **Session stop race**: If `waitFinished` times out before `av_read_frame` returns, freeing the demuxer causes SEGV
-- **First keyframe race (WebRTC)**: Pipeline may encode keyframe before WebRTC peer connects — keyframe dropped, browser only sees P-frames. Known issue, needs keyframe buffering.
+- **First keyframe race (WebRTC)**: FIXED — WebRTC plugin buffers the last keyframe and replays it immediately when a new peer connects via `handleWHEPOffer`.
 - **Audio-only streams**: Record, MSE, and other plugins support audio-only (no video stream). MSE `WaitReady` checks for either video or audio init segment.
 - **TMDB pending index**: Bolt StreamStore maintains a `tmdb:unresolved:` prefix index for streams awaiting TMDB metadata. Methods: `TMDBPendingBatch`, `TMDBPendingCount`, `TMDBPendingRemove`, `TMDBPendingReconcile`. These are bolt-specific, not on the StreamStore interface.
 - **YouTube resolver**: `pkg/youtube` resolves YouTube watch URLs to direct streamable URLs at pipeline open time. Source plugins store canonical YouTube URLs; resolution is deferred.
