@@ -22,3 +22,5 @@ coverage.out
 
 # Rust build artifacts
 plugins/*/target/
+wasm-plugins/*/target/
+plugins/*/target/
