@@ -360,6 +360,310 @@
     return _capabilities;
   }
 
+  // --- video.js Component registrations ---
+  function registerVjsComponents() {
+    if (typeof videojs === 'undefined') return;
+    var Button = videojs.getComponent('Button');
+    var MenuButton = videojs.getComponent('MenuButton');
+    var MenuItem = videojs.getComponent('MenuItem');
+    var Component = videojs.getComponent('Component');
+
+    // --- Stats Button ---
+    var StatsButton = videojs.extend(Button, {
+      constructor: function(player, options) {
+        Button.call(this, player, options);
+        this.controlText('Toggle Stats');
+      },
+      handleClick: function() {
+        var overlay = this.player().getChild('StatsOverlay');
+        if (overlay) overlay.toggle();
+      },
+      buildCSSClass: function() {
+        return 'vjs-stats-button ' + Button.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('StatsButton', StatsButton);
+
+    // --- Stats Overlay ---
+    var StatsOverlay = videojs.extend(Component, {
+      constructor: function(player, options) {
+        Component.call(this, player, options);
+        this.addClass('vjs-stats-overlay');
+        this._visible = false;
+      },
+      createEl: function() {
+        return videojs.dom.createEl('div', { className: 'vjs-stats-overlay' });
+      },
+      toggle: function() {
+        this._visible = !this._visible;
+        if (this._visible) {
+          this.addClass('vjs-stats-visible');
+        } else {
+          this.removeClass('vjs-stats-visible');
+        }
+      },
+      show: function() {
+        this._visible = true;
+        this.addClass('vjs-stats-visible');
+      },
+      hide: function() {
+        this._visible = false;
+        this.removeClass('vjs-stats-visible');
+      },
+      isVisible: function() {
+        return this._visible;
+      },
+      updateContent: function(html) {
+        this.el().innerHTML = html;
+      }
+    });
+    videojs.registerComponent('StatsOverlay', StatsOverlay);
+
+    // --- Keyboard Help Overlay ---
+    var KbHelpOverlay = videojs.extend(Component, {
+      constructor: function(player, options) {
+        Component.call(this, player, options);
+        this.addClass('vjs-kb-help-overlay');
+        this._visible = false;
+        var self = this;
+        this.on('click', function(e) {
+          if (e.target === self.el()) self.hide();
+        });
+      },
+      createEl: function() {
+        var el = videojs.dom.createEl('div', { className: 'vjs-kb-help-overlay' });
+        el.innerHTML =
+          '<div class="vjs-kb-help-inner">' +
+            '<div class="vjs-kb-help-title">Keyboard Shortcuts</div>' +
+            '<div class="vjs-kb-help-grid">' +
+              '<div class="vjs-kb-help-section">Playback</div>' +
+              '<span class="vjs-kb-help-key">Space</span><span class="vjs-kb-help-desc">Play / Pause</span>' +
+              '<span class="vjs-kb-help-key">M</span><span class="vjs-kb-help-desc">Toggle mute</span>' +
+              '<span class="vjs-kb-help-key">\u2191</span><span class="vjs-kb-help-desc">Volume up 10%</span>' +
+              '<span class="vjs-kb-help-key">\u2193</span><span class="vjs-kb-help-desc">Volume down 10%</span>' +
+              '<div class="vjs-kb-help-section">Seeking (VOD only)</div>' +
+              '<span class="vjs-kb-help-key">\u2190</span><span class="vjs-kb-help-desc">Seek back 10 seconds</span>' +
+              '<span class="vjs-kb-help-key">\u2192</span><span class="vjs-kb-help-desc">Seek forward 10 seconds</span>' +
+              '<span class="vjs-kb-help-key">0 - 9</span><span class="vjs-kb-help-desc">Seek to 0% - 90% of duration</span>' +
+              '<div class="vjs-kb-help-section">Display</div>' +
+              '<span class="vjs-kb-help-key">F</span><span class="vjs-kb-help-desc">Toggle fullscreen</span>' +
+              '<span class="vjs-kb-help-key">I</span><span class="vjs-kb-help-desc">Toggle stats overlay</span>' +
+              '<span class="vjs-kb-help-key">?</span><span class="vjs-kb-help-desc">Show / hide this help</span>' +
+              '<span class="vjs-kb-help-key">Esc</span><span class="vjs-kb-help-desc">Exit fullscreen or close player</span>' +
+            '</div>' +
+          '</div>';
+        return el;
+      },
+      toggle: function() {
+        this._visible = !this._visible;
+        if (this._visible) this.addClass('vjs-help-visible');
+        else this.removeClass('vjs-help-visible');
+      },
+      show: function() { this._visible = true; this.addClass('vjs-help-visible'); },
+      hide: function() { this._visible = false; this.removeClass('vjs-help-visible'); },
+      isVisible: function() { return this._visible; }
+    });
+    videojs.registerComponent('KbHelpOverlay', KbHelpOverlay);
+
+    // --- Help Button ---
+    var HelpButton = videojs.extend(Button, {
+      constructor: function(player, options) {
+        Button.call(this, player, options);
+        this.controlText('Keyboard Shortcuts');
+      },
+      handleClick: function() {
+        var overlay = this.player().getChild('KbHelpOverlay');
+        if (overlay) overlay.toggle();
+      },
+      buildCSSClass: function() {
+        return 'vjs-help-button ' + Button.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('HelpButton', HelpButton);
+
+    // --- Record Button ---
+    var RecordButton = videojs.extend(Button, {
+      constructor: function(player, options) {
+        Button.call(this, player, options);
+        this.controlText('Record');
+        this._recording = false;
+        this._streamID = options.streamID || null;
+      },
+      handleClick: function() {
+        var self = this;
+        if (!this._streamID) return;
+        if (this._recording) {
+          api.del('/api/play/' + this._streamID + '/record').catch(function() {});
+          this.removeClass('vjs-recording');
+          this._recording = false;
+          toast('Recording stopped');
+        } else {
+          api.post('/api/play/' + this._streamID + '/record', { title: 'Manual Recording' })
+            .then(function(resp) {
+              if (resp && resp.ok) {
+                self.addClass('vjs-recording');
+                self._recording = true;
+                toast('Recording started');
+              } else {
+                toast('Failed to start recording', 'error');
+              }
+            })
+            .catch(function() { toast('Failed to start recording', 'error'); });
+        }
+      },
+      buildCSSClass: function() {
+        return 'vjs-record-button ' + Button.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('RecordButton', RecordButton);
+
+    // --- Close Button ---
+    var CloseButton = videojs.extend(Button, {
+      constructor: function(player, options) {
+        Button.call(this, player, options);
+        this.controlText('Close');
+      },
+      handleClick: function() {
+        closePlayerOverlay();
+      },
+      buildCSSClass: function() {
+        return 'vjs-close-button ' + Button.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('CloseButton', CloseButton);
+
+    // --- Title Bar (top overlay with stream name and status) ---
+    var TitleBar = videojs.extend(Component, {
+      constructor: function(player, options) {
+        Component.call(this, player, options);
+        this.addClass('vjs-title-bar');
+        this._titleEl = this.el().querySelector('.vjs-title-text');
+        this._statusEl = this.el().querySelector('.vjs-status-badge');
+      },
+      createEl: function() {
+        var el = videojs.dom.createEl('div', { className: 'vjs-title-bar' });
+        el.innerHTML = '<span class="vjs-title-text"></span><span class="vjs-status-badge">Idle</span>';
+        return el;
+      },
+      setTitle: function(text) {
+        var t = this.el().querySelector('.vjs-title-text');
+        if (t) t.textContent = text;
+      },
+      setStatus: function(text, color) {
+        var s = this.el().querySelector('.vjs-status-badge');
+        if (s) { s.textContent = text; if (color) s.style.color = color; }
+      }
+    });
+    videojs.registerComponent('TitleBar', TitleBar);
+
+    // --- Delivery Menu Button ---
+    var DeliveryMenuButton = videojs.extend(MenuButton, {
+      constructor: function(player, options) {
+        this._deliveryItems = options.deliveryItems || [];
+        this._currentDelivery = options.currentDelivery || '';
+        this._streamID = options.streamID || '';
+        MenuButton.call(this, player, options);
+        this.controlText('Delivery Mode');
+        this.addClass('vjs-delivery-button');
+      },
+      createItems: function() {
+        var items = [];
+        var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
+        var self = this;
+        for (var i = 0; i < this._deliveryItems.length; i++) {
+          var mode = this._deliveryItems[i];
+          var item = new MenuItem(this.player(), {
+            label: labels[mode] || mode,
+            selectable: true,
+            selected: mode === this._currentDelivery
+          });
+          item._deliveryMode = mode;
+          item.on('click', (function(m) {
+            return function() {
+              if (m === playerState.delivery) return;
+              playerState.deliveryOverride = m;
+              if (playerState.activePlayer) playerState.activePlayer.stop();
+              if (playerState.currentStreamID) {
+                api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+              }
+              initPlayer(self._streamID);
+            };
+          })(mode));
+          items.push(item);
+        }
+        return items;
+      },
+      buildCSSClass: function() {
+        return 'vjs-delivery-button ' + MenuButton.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('DeliveryMenuButton', DeliveryMenuButton);
+
+    // --- Audio Track Menu Button ---
+    var AudioTrackMenuButton = videojs.extend(MenuButton, {
+      constructor: function(player, options) {
+        this._tracks = options.audioTracks || [];
+        this._streamID = options.streamID || '';
+        MenuButton.call(this, player, options);
+        this.controlText('Audio Tracks');
+        this.addClass('vjs-audio-track-button');
+        if (this._tracks.length < 2) this.hide();
+      },
+      createItems: function() {
+        var items = [];
+        var self = this;
+        for (var i = 0; i < this._tracks.length; i++) {
+          var t = this._tracks[i];
+          var langName = t.language ? t.language.toUpperCase() : '';
+          var label = langName || ('Track ' + (i + 1));
+          if (t.is_ad) label += ' (AD)';
+          var chLabel = '';
+          if (t.channels === 1) chLabel = 'Mono';
+          else if (t.channels === 2) chLabel = 'Stereo';
+          else if (t.channels === 6) chLabel = '5.1';
+          else if (t.channels === 8) chLabel = '7.1';
+          else if (t.channels > 0) chLabel = t.channels + 'ch';
+          var codecLabel = (t.codec || '').toUpperCase();
+          var meta = [chLabel, codecLabel].filter(Boolean).join(' / ');
+          if (meta) label += ' (' + meta + ')';
+          var item = new MenuItem(this.player(), {
+            label: label,
+            selectable: true,
+            selected: !!t.is_active
+          });
+          item._trackIndex = t.index;
+          item.on('click', (function(idx, menuBtn) {
+            return function() {
+              api.post('/api/play/' + menuBtn._streamID + '/tracks/audio', { track: idx })
+                .then(function(resp) {
+                  if (resp.ok) {
+                    var children = menuBtn.menu.children();
+                    for (var c = 0; c < children.length; c++) {
+                      if (children[c]._trackIndex !== undefined) {
+                        children[c].selected(children[c]._trackIndex === idx);
+                      }
+                    }
+                  } else {
+                    resp.json().then(function(d) { toast('Failed to switch audio: ' + (d.error || 'unknown'), 'error'); }).catch(function() {});
+                  }
+                })
+                .catch(function() { toast('Failed to switch audio track', 'error'); });
+            };
+          })(t.index, self));
+          items.push(item);
+        }
+        return items;
+      },
+      buildCSSClass: function() {
+        return 'vjs-audio-track-button ' + MenuButton.prototype.buildCSSClass.call(this);
+      }
+    });
+    videojs.registerComponent('AudioTrackMenuButton', AudioTrackMenuButton);
+  }
+
+  // Register components when video.js is available
+  registerVjsComponents();
+
   function toast(msg, type) {
     var el = document.getElementById('toast');
     if (!el) {
@@ -472,6 +776,7 @@
 
   var playerState = {
     hlsInstance: null,
+    vjsPlayer: null,
     videoEl: null,
     bufferWatchInterval: null,
     statsInterval: null,
@@ -483,6 +788,7 @@
     retryTimeout: null,
     hlsUrl: null,
     delivery: null,
+    _streamName: null,
 
     recordingID: null,
 
@@ -503,6 +809,11 @@
       this.sourceType = null;
       if (this.retryTimeout) { clearTimeout(this.retryTimeout); this.retryTimeout = null; }
       if (this.activePlayer) { this.activePlayer.stop(); this.activePlayer = null; }
+      // Dispose video.js player if it was not already disposed by activePlayer.stop()
+      if (this.vjsPlayer) {
+        try { this.vjsPlayer.dispose(); } catch(e) {}
+        this.vjsPlayer = null;
+      }
       if (this.recordingID) {
         api.del('/api/recordings/completed/' + this.recordingID + '/play').catch(function() {});
         this.recordingID = null;
@@ -520,6 +831,7 @@
       this.retryCount = 0;
       this.hlsUrl = null;
       this.delivery = null;
+      this._streamName = null;
     }
   };
 
@@ -2747,69 +3059,23 @@
 
     modal.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video id="video-el" autoplay playsinline></video>' +
+        '<video id="video-el" class="video-js vjs-default-skin vjs-big-play-centered" autoplay playsinline></video>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
-        '</div>' +
-        '<div class="player-float-bar" id="player-float-bar">' +
-          '<span class="player-title" id="player-title">' + esc(name) + '</span>' +
-          '<span class="player-status" id="player-status">Idle</span>' +
-          '<button class="player-icon-btn" id="record-btn" title="Record">\u23FA</button>' +
-          '<button class="player-icon-btn" id="stats-btn" title="Stats (S)">\u2139</button>' +
-          '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
-        '</div>' +
-        '<div class="stats-overlay" id="stats-overlay"></div>' +
-        '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
-          '<div class="player-seek-row" id="player-seek-row">' +
-            '<div class="player-seek-track">' +
-              '<div class="player-seek-buffered" id="seek-buffered"></div>' +
-              '<div class="player-seek-played" id="seek-played"></div>' +
-            '</div>' +
-            '<div class="player-seek-thumb" id="seek-thumb"></div>' +
-          '</div>' +
-          '<div class="player-ctrl-btns">' +
-            '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
-            '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
-            '<div style="flex:1"></div>' +
-            '<div style="position:relative;display:inline-flex;align-items:center" id="audio-track-container">' +
-              '<button class="player-ctrl-btn" id="audio-track-btn" title="Audio tracks" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></button>' +
-              '<div id="audio-track-menu" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;background:rgba(20,20,20,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:6px;min-width:220px;max-height:240px;overflow-y:auto;z-index:100;padding:4px 0"></div>' +
-            '</div>' +
-            '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
-            '<button class="player-ctrl-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">?</button>' +
-            '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="kb-help-overlay" id="kb-help-overlay">' +
-          '<div class="kb-help-inner">' +
-            '<div class="kb-help-title">Keyboard Shortcuts</div>' +
-            '<div class="kb-help-grid">' +
-              '<div class="kb-help-section">Playback</div>' +
-              '<span class="kb-help-key">Space</span><span class="kb-help-desc">Play / Pause</span>' +
-              '<span class="kb-help-key">M</span><span class="kb-help-desc">Toggle mute</span>' +
-              '<span class="kb-help-key">\u2191</span><span class="kb-help-desc">Volume up 10%</span>' +
-              '<span class="kb-help-key">\u2193</span><span class="kb-help-desc">Volume down 10%</span>' +
-              '<div class="kb-help-section">Seeking (VOD only)</div>' +
-              '<span class="kb-help-key">\u2190</span><span class="kb-help-desc">Seek back 10 seconds</span>' +
-              '<span class="kb-help-key">\u2192</span><span class="kb-help-desc">Seek forward 10 seconds</span>' +
-              '<span class="kb-help-key">0 - 9</span><span class="kb-help-desc">Seek to 0% - 90% of duration</span>' +
-              '<div class="kb-help-section">Display</div>' +
-              '<span class="kb-help-key">F</span><span class="kb-help-desc">Toggle fullscreen</span>' +
-              '<span class="kb-help-key">I</span><span class="kb-help-desc">Toggle stats overlay</span>' +
-              '<span class="kb-help-key">?</span><span class="kb-help-desc">Show / hide this help</span>' +
-              '<span class="kb-help-key">Esc</span><span class="kb-help-desc">Exit fullscreen or close player</span>' +
-            '</div>' +
-          '</div>' +
         '</div>' +
       '</div>';
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
+    // Store name for title bar
+    playerState._streamName = name;
+
     overlay.addEventListener('click', function(e) {
       if (e.target === overlay) closePlayerOverlay();
     });
 
+    // Fallback Escape handler for when bindPlayerControls hasn't been set up yet
     var escHandler = function(e) {
       if (!document.getElementById('player-overlay')) {
         document.removeEventListener('keydown', escHandler);
@@ -2840,62 +3106,13 @@
 
     pageEl.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video id="video-el" autoplay playsinline></video>' +
+        '<video id="video-el" class="video-js vjs-default-skin vjs-big-play-centered" autoplay playsinline></video>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
-        '<div class="player-float-bar" id="player-float-bar">' +
-          '<span class="player-title" id="player-title">' + esc(name) + '</span>' +
-          '<span class="player-status" id="player-status">Idle</span>' +
-          '<button class="player-icon-btn" id="record-btn" title="Record">\u23FA</button>' +
-          '<button class="player-icon-btn" id="stats-btn" title="Stats (S)">\u2139</button>' +
-          '<button class="player-icon-btn" id="stop-btn" title="Close">\u2715</button>' +
-        '</div>' +
-        '<div class="stats-overlay" id="stats-overlay"></div>' +
-        '<div class="player-ctrl-bar" id="player-ctrl-bar">' +
-          '<div class="player-seek-row" id="player-seek-row">' +
-            '<div class="player-seek-track">' +
-              '<div class="player-seek-buffered" id="seek-buffered"></div>' +
-              '<div class="player-seek-played" id="seek-played"></div>' +
-            '</div>' +
-            '<div class="player-seek-thumb" id="seek-thumb"></div>' +
-          '</div>' +
-          '<div class="player-ctrl-btns">' +
-            '<button class="player-ctrl-btn" id="play-pause-btn">\u25B6</button>' +
-            '<span class="player-time" id="player-time">0:00 / 0:00</span>' +
-            '<div style="flex:1"></div>' +
-            '<div style="position:relative;display:inline-flex;align-items:center" id="audio-track-container">' +
-              '<button class="player-ctrl-btn" id="audio-track-btn" title="Audio tracks" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></button>' +
-              '<div id="audio-track-menu" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:8px;background:rgba(20,20,20,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:6px;min-width:220px;max-height:240px;overflow-y:auto;z-index:100;padding:4px 0"></div>' +
-            '</div>' +
-            '<button class="player-ctrl-btn" id="vol-btn">\uD83D\uDD0A</button>' +
-            '<button class="player-ctrl-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">?</button>' +
-            '<button class="player-ctrl-btn" id="fs-btn">\u26F6</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="kb-help-overlay" id="kb-help-overlay">' +
-          '<div class="kb-help-inner">' +
-            '<div class="kb-help-title">Keyboard Shortcuts</div>' +
-            '<div class="kb-help-grid">' +
-              '<div class="kb-help-section">Playback</div>' +
-              '<span class="kb-help-key">Space</span><span class="kb-help-desc">Play / Pause</span>' +
-              '<span class="kb-help-key">M</span><span class="kb-help-desc">Toggle mute</span>' +
-              '<span class="kb-help-key">\u2191</span><span class="kb-help-desc">Volume up 10%</span>' +
-              '<span class="kb-help-key">\u2193</span><span class="kb-help-desc">Volume down 10%</span>' +
-              '<div class="kb-help-section">Seeking (VOD only)</div>' +
-              '<span class="kb-help-key">\u2190</span><span class="kb-help-desc">Seek back 10 seconds</span>' +
-              '<span class="kb-help-key">\u2192</span><span class="kb-help-desc">Seek forward 10 seconds</span>' +
-              '<span class="kb-help-key">0 - 9</span><span class="kb-help-desc">Seek to 0% - 90% of duration</span>' +
-              '<div class="kb-help-section">Display</div>' +
-              '<span class="kb-help-key">F</span><span class="kb-help-desc">Toggle fullscreen</span>' +
-              '<span class="kb-help-key">I</span><span class="kb-help-desc">Toggle stats overlay</span>' +
-              '<span class="kb-help-key">?</span><span class="kb-help-desc">Show / hide this help</span>' +
-              '<span class="kb-help-key">Esc</span><span class="kb-help-desc">Exit fullscreen or close player</span>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
       '</div>';
 
+    playerState._streamName = name;
     initPlayer(streamID);
   }
 
@@ -2904,14 +3121,8 @@
     if (!videoEl) return;
     playerState.videoEl = videoEl;
 
-    var statusEl = document.getElementById('player-status');
     var spinner = document.getElementById('player-spinner');
-    if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Buffering...'; }
     if (spinner) spinner.style.display = 'flex';
-
-    videoEl.addEventListener('playing', function() { if (spinner) spinner.style.display = 'none'; if (statusEl) { statusEl.textContent = 'Playing'; statusEl.style.color = '#34d399'; } });
-    videoEl.addEventListener('waiting', function() { if (spinner) spinner.style.display = 'flex'; if (statusEl) { statusEl.textContent = 'Buffering...'; statusEl.style.color = '#ffa726'; } });
-    videoEl.addEventListener('seeked', function() { if (spinner) spinner.style.display = 'none'; });
 
     var isRecording = streamID.indexOf('rec:') === 0;
     var recID = isRecording ? streamID.substring(4) : null;
@@ -2926,7 +3137,6 @@
       }
       if (!resp.ok) {
         var errData = await resp.json().catch(function() { return {}; });
-        if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Failed'; }
         if (spinner) spinner.style.display = 'none';
         toast('Failed to start playback: ' + (errData.error || resp.statusText), 'error');
         return;
@@ -2941,8 +3151,6 @@
       playerState.probeInfo = data.probe_info || {};
       playerState.deliverySwitchable = !!data.delivery_switchable;
       playerState.sourceType = data.source_type || null;
-
-      showDeliverySwitcher(delivery, streamID);
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
@@ -2962,7 +3170,6 @@
       playerState.activePlayer = instance;
       instance.start(endpoints, streamID);
     } catch (e) {
-      if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
       if (spinner) spinner.style.display = 'none';
       toast('Playback error: ' + e.message, 'error');
       return;
@@ -2981,46 +3188,45 @@
     }
   }
 
+  // showDeliverySwitcher now adds a video.js MenuButton component to the control bar
   function showDeliverySwitcher(currentDelivery, streamID) {
-    var floatBar = document.getElementById('player-float-bar');
-    if (!floatBar) return;
-    var existing = document.getElementById('delivery-switcher');
-    if (existing) existing.remove();
-
+    if (typeof videojs === 'undefined' || !playerState.vjsPlayer) return;
     var available = PlayerRegistry.available();
     if (available.length <= 1) return;
-
-    var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
-    var sel = document.createElement('select');
-    sel.id = 'delivery-switcher';
-    sel.className = 'delivery-switcher';
-    sel.style.cssText = 'background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;margin-left:8px;pointer-events:auto;';
-    for (var i = 0; i < available.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = available[i];
-      opt.textContent = labels[available[i]] || available[i];
-      if (available[i] === currentDelivery) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.addEventListener('click', function(e) { e.stopPropagation(); });
-    sel.addEventListener('mousedown', function(e) { e.stopPropagation(); });
-    sel.addEventListener('change', async function(e) {
-      e.stopPropagation();
-      var newDelivery = sel.value;
-      if (newDelivery === playerState.delivery) return;
-      playerState.deliveryOverride = newDelivery;
-      if (playerState.activePlayer) playerState.activePlayer.stop();
-      if (playerState.currentStreamID) {
-        await api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
-      }
-      initPlayer(streamID);
+    var controlBar = playerState.vjsPlayer.getChild('controlBar');
+    if (!controlBar) return;
+    // Remove existing delivery button
+    var existing = controlBar.getChild('DeliveryMenuButton');
+    if (existing) controlBar.removeChild(existing);
+    controlBar.addChild('DeliveryMenuButton', {
+      deliveryItems: available,
+      currentDelivery: currentDelivery,
+      streamID: streamID
     });
-    var stopBtn = document.getElementById('stop-btn');
-    if (stopBtn) {
-      floatBar.insertBefore(sel, stopBtn);
-    } else {
-      floatBar.appendChild(sel);
+  }
+
+  // Shared video.js player options with auth token injection
+  function vjsBaseOptions() {
+    var opts = {
+      controls: true,
+      autoplay: true,
+      fluid: false,
+      responsive: true,
+      preload: 'auto',
+      playbackRates: [0.5, 1, 1.5, 2]
+    };
+    if (api.token) {
+      opts.html5 = {
+        vhs: {
+          xhr: {
+            beforeSend: function(xhr) {
+              xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
+            }
+          }
+        }
+      };
     }
+    return opts;
   }
 
   var HLSPlayer = {
@@ -3040,32 +3246,9 @@
           playerState.hlsInstance = null;
 
           if (typeof videojs !== 'undefined') {
-            // Ensure the video element has an id for video.js
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
-            // Configure VHS xhr to inject auth token
-            if (typeof videojs.Vhs !== 'undefined' && videojs.Vhs.xhr) {
-              videojs.Vhs.xhr.beforeRequest = function(options) {
-                if (api.token) {
-                  if (!options.headers) options.headers = {};
-                  options.headers['Authorization'] = 'Bearer ' + api.token;
-                }
-                return options;
-              };
-            }
-
-            vjsPlayer = videojs(videoEl, {
-              controls: false,
-              autoplay: true,
-              preload: 'auto',
-              html5: {
-                vhs: {
-                  overrideNative: true,
-                  enableLowInitialPlaylist: false
-                }
-              }
-            });
-
+            vjsPlayer = videojs(videoEl, vjsBaseOptions());
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
             vjsPlayer.ready(function() {
@@ -3079,6 +3262,7 @@
             });
 
             playerState.hlsInstance = vjsPlayer;
+            playerState.vjsPlayer = vjsPlayer;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
             videoEl.src = url;
             videoEl.play().catch(function() {});
@@ -3092,6 +3276,7 @@
             vjsPlayer = null;
           }
           playerState.hlsInstance = null;
+          playerState.vjsPlayer = null;
         },
         retry: function() {
           if (lastUrl && videoEl) {
@@ -3105,31 +3290,18 @@
 
   function handleRetry() {
     if (!playerState.currentStreamID) return;
-    var statusEl = document.getElementById('player-status');
+    var titleBar = playerState.vjsPlayer ? playerState.vjsPlayer.getChild('TitleBar') : null;
 
     if (playerState.retryCount >= MAX_RETRIES) {
-      if (statusEl) {
-        statusEl.style.color = '#ff6b6b';
-        statusEl.innerHTML = '';
-        statusEl.textContent = 'Errored ';
-        var retryLink = document.createElement('a');
-        retryLink.textContent = 'Retry';
-        retryLink.href = '#';
-        retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
-        retryLink.onclick = function(e) {
-          e.preventDefault();
-          playerState.retryCount = 0;
-          handleRetry();
-        };
-        statusEl.appendChild(retryLink);
+      if (titleBar) {
+        titleBar.setStatus('Errored', '#ff6b6b');
       }
       return;
     }
 
     playerState.retryCount++;
-    if (statusEl) {
-      statusEl.style.color = '#ffa726';
-      statusEl.textContent = 'Retrying... (' + playerState.retryCount + '/' + MAX_RETRIES + ')';
+    if (titleBar) {
+      titleBar.setStatus('Retrying... (' + playerState.retryCount + '/' + MAX_RETRIES + ')', '#ffa726');
     }
 
     var delay = Math.min(2000 * playerState.retryCount, 6000);
@@ -3249,8 +3421,6 @@
         };
         playerState.mseState = mseState;
 
-        var statusEl = document.getElementById('player-status');
-
         function authHeaders() {
           return { 'Authorization': 'Bearer ' + api.token };
         }
@@ -3278,24 +3448,12 @@
               mseState.appending[track] = false;
               var errMsg = e.message || String(e);
               if (errMsg.indexOf('append') >= 0 || errMsg.indexOf('CHUNK_DEMUXER') >= 0 || errMsg.indexOf('error') >= 0) {
-                var pStatus = document.getElementById('player-status');
-                if (pStatus) {
-                  pStatus.style.color = '#ff6b6b';
-                  pStatus.innerHTML = '';
-                  pStatus.textContent = 'Playback error ';
-                  var retryLink = document.createElement('a');
-                  retryLink.textContent = 'Retry';
-                  retryLink.href = '#';
-                  retryLink.style.cssText = 'color:#4fc3f7;cursor:pointer;text-decoration:underline;';
-                  retryLink.onclick = function(ev) {
-                    ev.preventDefault();
-                    playerState.retryCount = 0;
-                    handleRetry();
-                  };
-                  pStatus.appendChild(retryLink);
-                }
+                var titleBar = playerState.vjsPlayer ? playerState.vjsPlayer.getChild('TitleBar') : null;
+                if (titleBar) titleBar.setStatus('Playback error', '#ff6b6b');
                 var pSpinner = document.getElementById('player-spinner');
                 if (pSpinner) pSpinner.style.display = 'none';
+                playerState.retryCount = 0;
+                handleRetry();
               }
             });
           }
@@ -3310,7 +3468,8 @@
               if (r.ok) return r.arrayBuffer();
               if ((r.status === 503 || r.status === 404) && attempt < maxRetries) {
                 attempt++;
-                if (statusEl) statusEl.textContent = 'Waiting for pipeline... (' + attempt + '/' + maxRetries + ')';
+                var tb = playerState.vjsPlayer ? playerState.vjsPlayer.getChild('TitleBar') : null;
+                if (tb) tb.setStatus('Waiting for pipeline... (' + attempt + '/' + maxRetries + ')', '#ffa726');
                 return new Promise(function(resolve) { setTimeout(resolve, delayMs); }).then(tryFetch);
               }
               throw new Error('HTTP ' + r.status);
@@ -3514,36 +3673,13 @@
           var url = (endpoints && endpoints.manifest) || ('/api/play/' + streamID + '/dash/manifest.mpd');
           if (vjsPlayer) { vjsPlayer.dispose(); vjsPlayer = null; }
 
-          console.log('[DASH] videojs available:', typeof videojs !== 'undefined');
           if (typeof videojs !== 'undefined') {
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
-            // Configure VHS xhr to inject auth token
-            if (typeof videojs.Vhs !== 'undefined' && videojs.Vhs.xhr) {
-              videojs.Vhs.xhr.beforeRequest = function(options) {
-                if (api.token) {
-                  if (!options.headers) options.headers = {};
-                  options.headers['Authorization'] = 'Bearer ' + api.token;
-                }
-                return options;
-              };
-            }
-
-            vjsPlayer = videojs(videoEl, {
-              controls: false,
-              autoplay: true,
-              preload: 'auto',
-              html5: {
-                vhs: {
-                  overrideNative: true
-                }
-              }
-            });
-
+            vjsPlayer = videojs(videoEl, vjsBaseOptions());
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
             vjsPlayer.ready(function() {
-              console.log('[DASH] video.js player ready');
               vjsPlayer.play().catch(function() {});
             });
 
@@ -3552,6 +3688,8 @@
               console.error('[DASH] video.js error:', err && err.message);
               handleRetry();
             });
+
+            playerState.vjsPlayer = vjsPlayer;
           }
         },
         stop: function() {
@@ -3559,12 +3697,14 @@
             try { vjsPlayer.dispose(); } catch(e) { console.warn('[DASH] dispose error:', e); }
             vjsPlayer = null;
           }
+          playerState.vjsPlayer = null;
         },
         retry: function() {
           if (vjsPlayer) {
             try { vjsPlayer.dispose(); } catch(e) {}
             vjsPlayer = null;
           }
+          playerState.vjsPlayer = null;
           if (lastStreamID) { this.start(lastEndpoints, lastStreamID); }
         }
       };
@@ -3731,15 +3871,17 @@
     if (playerState.statsInterval) clearInterval(playerState.statsInterval);
     if (playerState.signalInterval) clearInterval(playerState.signalInterval);
     playerState.statsInterval = setInterval(function() {
-      var overlay = document.getElementById('stats-overlay');
-      if (!overlay || !overlay.classList.contains('visible')) return;
+      var vjsP = playerState.vjsPlayer;
+      var overlay = vjsP ? vjsP.getChild('StatsOverlay') : null;
+      if (!overlay || !overlay.isVisible()) return;
       updateStats(videoEl, overlay);
     }, 500);
     // Poll signal info every 5 seconds for satip sources when stats visible
     if (playerState.sourceType === 'satip' || playerState.sourceType === 'hdhr') {
       playerState.signalInterval = setInterval(function() {
-        var overlay = document.getElementById('stats-overlay');
-        if (!overlay || !overlay.classList.contains('visible')) return;
+        var vjsP = playerState.vjsPlayer;
+        var overlay = vjsP ? vjsP.getChild('StatsOverlay') : null;
+        if (!overlay || !overlay.isVisible()) return;
         if (!playerState.currentStreamID) return;
         api.get('/api/play/' + playerState.currentStreamID + '/signal')
           .then(function(resp) { return resp.ok ? resp.json() : null; })
@@ -3860,223 +4002,130 @@
     html += '<div>' + lines.join('<br>') + '</div>';
     if (right.length) html += '<div>' + right.join('<br>') + '</div>';
     html += '</div>';
-    overlay.innerHTML = html;
+    overlay.updateContent(html);
   }
 
   function bindPlayerControls(videoEl, streamID, seekPath) {
     if (!seekPath) seekPath = '/api/play/' + streamID + '/seek';
-    var playPauseBtn = document.getElementById('play-pause-btn');
-    var statsBtn = document.getElementById('stats-btn');
-    var stopBtn = document.getElementById('stop-btn');
-    var recordBtn = document.getElementById('record-btn');
-    var volBtn = document.getElementById('vol-btn');
-    var fsBtn = document.getElementById('fs-btn');
-    var playerTime = document.getElementById('player-time');
-    var seekRow = document.getElementById('player-seek-row');
-    var seekPlayed = document.getElementById('seek-played');
-    var seekBuffered = document.getElementById('seek-buffered');
-    var seekThumb = document.getElementById('seek-thumb');
-    var statusEl = document.getElementById('player-status');
     var spinner = document.getElementById('player-spinner');
     var wrapper = document.getElementById('player-wrapper');
-    var floatBar = document.getElementById('player-float-bar');
-    var ctrlBar = document.getElementById('player-ctrl-bar');
+    var vjsPlayer = playerState.vjsPlayer || null;
 
-    if (wrapper) {
-      wrapper.addEventListener('mouseenter', function() {
-        if (floatBar) floatBar.style.opacity = '1';
-        if (ctrlBar) ctrlBar.style.opacity = '1';
+    // Set up video.js player for non-HLS/DASH delivery modes (MSE, WebRTC, Stream)
+    // HLS and DASH players already create a vjsPlayer in their start() method
+    if (typeof videojs !== 'undefined' && !vjsPlayer) {
+      if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
+      vjsPlayer = videojs(videoEl, {
+        controls: true,
+        autoplay: true,
+        fluid: false,
+        responsive: true,
+        preload: 'auto',
+        playbackRates: [0.5, 1, 1.5, 2]
       });
-      wrapper.addEventListener('mouseleave', function() {
-        if (floatBar) floatBar.style.opacity = '0';
-        if (ctrlBar) ctrlBar.style.opacity = '0';
-      });
+      playerState.vjsPlayer = vjsPlayer;
     }
 
-    videoEl.addEventListener('waiting', function() {
-      if (spinner) spinner.style.display = 'flex';
-      if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Buffering'; }
-    });
-    videoEl.addEventListener('playing', function() {
-      if (spinner) spinner.style.display = 'none';
-      if (statusEl) { statusEl.style.color = '#4caf50'; statusEl.textContent = 'Playing'; }
-      if (playPauseBtn) playPauseBtn.textContent = '\u23F8';
-      playerState.retryCount = 0;
-    });
-    videoEl.addEventListener('seeked', function() {
-      if (spinner) spinner.style.display = 'none';
-    });
-    videoEl.addEventListener('pause', function() {
-      if (playPauseBtn) playPauseBtn.textContent = '\u25B6';
-      if (statusEl) { statusEl.style.color = '#ffa726'; statusEl.textContent = 'Paused'; }
-    });
-    videoEl.addEventListener('error', function() {
-      if (statusEl) { statusEl.style.color = '#ff6b6b'; statusEl.textContent = 'Error'; }
-      handleRetry();
-    });
-
-    videoEl.addEventListener('click', function(e) {
-      if (e.target !== videoEl) return;
-      if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
-    });
-
-    if (playPauseBtn) {
-      playPauseBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (videoEl.paused) { videoEl.play().catch(function() {}); }
-        else { videoEl.pause(); }
-      });
-    }
-
-    if (volBtn) {
-      volBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        videoEl.muted = !videoEl.muted;
-        volBtn.textContent = videoEl.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
-      });
-    }
-
-    if (fsBtn) {
-      fsBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (document.fullscreenElement) document.exitFullscreen();
-        else if (wrapper) wrapper.requestFullscreen().catch(function() {});
-      });
-    }
-
-    var savedVol = parseFloat(localStorage.getItem('mediahub_volume') || '0.5');
-    videoEl.volume = savedVol;
-    videoEl.addEventListener('volumechange', function() {
-      localStorage.setItem('mediahub_volume', String(videoEl.volume));
-    });
-
-    if (seekRow) {
-      seekRow.addEventListener('mouseenter', function() {
-        var track = seekRow.querySelector('.player-seek-track');
-        if (track) track.style.height = '6px';
-        if (seekThumb) seekThumb.style.opacity = '1';
-      });
-      seekRow.addEventListener('mouseleave', function() {
-        var track = seekRow.querySelector('.player-seek-track');
-        if (track) track.style.height = '4px';
-        if (seekThumb) seekThumb.style.opacity = '0';
-      });
-      seekRow.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var rect = seekRow.getBoundingClientRect();
-        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        if (seekPlayed) seekPlayed.style.width = (pct * 100) + '%';
-        if (seekThumb) { seekThumb.style.left = (pct * 100) + '%'; seekThumb.style.opacity = '1'; }
-        var dur = videoEl.duration;
-        if (dur && isFinite(dur) && dur > 0) {
-          videoEl.currentTime = pct * dur;
-          api.post(seekPath, { position_ms: Math.round(pct * dur * 1000) }).catch(function() {});
-        }
-      });
-    }
-
-    var kbHelpBtn = document.getElementById('kb-help-btn');
-    if (kbHelpBtn) {
-      kbHelpBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var helpEl = document.getElementById('kb-help-overlay');
-        if (helpEl) helpEl.classList.toggle('visible');
-      });
-    }
-    var kbHelpEl = document.getElementById('kb-help-overlay');
-    if (kbHelpEl) {
-      kbHelpEl.addEventListener('click', function(e) {
-        if (e.target === kbHelpEl) kbHelpEl.classList.remove('visible');
-      });
-    }
-
-    // Audio track selector
-    var audioTrackBtn = document.getElementById('audio-track-btn');
-    var audioTrackMenu = document.getElementById('audio-track-menu');
-    if (audioTrackBtn && audioTrackMenu) {
-      var audioMenuOpen = false;
-      var closeAudioMenu = function() {
-        audioTrackMenu.style.display = 'none';
-        audioMenuOpen = false;
-      };
-      audioTrackBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (audioMenuOpen) { closeAudioMenu(); return; }
-        audioTrackMenu.style.display = 'block';
-        audioMenuOpen = true;
-      });
-      audioTrackMenu.addEventListener('click', function(e) { e.stopPropagation(); });
-      document.addEventListener('click', function() { if (audioMenuOpen) closeAudioMenu(); });
-
-      var realStreamID = streamID;
-      if (realStreamID && realStreamID.indexOf('rec:') === 0) realStreamID = null;
-      if (realStreamID) {
-        // Small delay to let the session start before fetching tracks
-        setTimeout(function() {
-          api.get('/api/play/' + realStreamID + '/tracks')
-            .then(function(resp) { return resp.ok ? resp.json() : null; })
-            .then(function(data) {
-              if (!data || !data.audio_tracks || data.audio_tracks.length <= 1) return;
-              audioTrackBtn.style.display = '';
-              var tracks = data.audio_tracks;
-              var html = '';
-              for (var ti = 0; ti < tracks.length; ti++) {
-                var t = tracks[ti];
-                var langName = t.language ? t.language.toUpperCase() : '';
-                var label = langName || ('Track ' + (ti + 1));
-                if (t.is_ad) label += ' (AD)';
-                var chLabel = '';
-                if (t.channels === 1) chLabel = 'Mono';
-                else if (t.channels === 2) chLabel = 'Stereo';
-                else if (t.channels === 6) chLabel = '5.1';
-                else if (t.channels === 8) chLabel = '7.1';
-                else if (t.channels > 0) chLabel = t.channels + 'ch';
-                var codecLabel = (t.codec || '').toUpperCase();
-                var meta = [chLabel, codecLabel].filter(Boolean).join(' / ');
-                var activeCls = t.is_active ? ' audio-track-active' : '';
-                html += '<div class="audio-track-item' + activeCls + '" data-index="' + t.index + '" style="padding:6px 12px;cursor:pointer;display:flex;align-items:center;gap:4px;font-size:13px;color:#fff;white-space:nowrap">' +
-                  '<span class="audio-track-dot" style="width:8px;height:8px;border-radius:50%;margin-right:6px;flex-shrink:0;' + (t.is_active ? 'background:#3b82f6' : 'background:transparent') + '"></span>' +
-                  '<span style="flex:1">' + label + '</span>' +
-                  (meta ? '<span style="color:rgba(255,255,255,0.5);font-size:11px;margin-left:8px">' + meta + '</span>' : '') +
-                  '</div>';
-              }
-              audioTrackMenu.innerHTML = html;
-
-              audioTrackMenu.querySelectorAll('.audio-track-item').forEach(function(item) {
-                item.addEventListener('mouseenter', function() { item.style.background = 'rgba(255,255,255,0.1)'; });
-                item.addEventListener('mouseleave', function() {
-                  item.style.background = item.classList.contains('audio-track-active') ? 'rgba(59,130,246,0.15)' : '';
-                });
-                if (item.classList.contains('audio-track-active')) {
-                  item.style.background = 'rgba(59,130,246,0.15)';
-                }
-                item.addEventListener('click', function(e) {
-                  e.stopPropagation();
-                  var idx = parseInt(item.getAttribute('data-index'), 10);
-                  api.post('/api/play/' + realStreamID + '/tracks/audio', { track: idx })
-                    .then(function(resp) {
-                      if (resp.ok) {
-                        audioTrackMenu.querySelectorAll('.audio-track-item').forEach(function(el) {
-                          var isThis = parseInt(el.getAttribute('data-index'), 10) === idx;
-                          el.classList.toggle('audio-track-active', isThis);
-                          el.style.background = isThis ? 'rgba(59,130,246,0.15)' : '';
-                          var dot = el.querySelector('.audio-track-dot');
-                          if (dot) dot.style.background = isThis ? '#3b82f6' : 'transparent';
-                        });
-                        closeAudioMenu();
-                      } else {
-                        resp.json().then(function(d) { toast('Failed to switch audio: ' + (d.error || 'unknown'), 'error'); }).catch(function() {});
-                      }
-                    })
-                    .catch(function() { toast('Failed to switch audio track', 'error'); });
-                });
-              });
-            })
-            .catch(function() {});
-        }, 500);
+    // Add video.js components if we have a player instance
+    if (vjsPlayer) {
+      // Add title bar overlay
+      vjsPlayer.addChild('TitleBar');
+      var titleBar = vjsPlayer.getChild('TitleBar');
+      if (titleBar) {
+        titleBar.setTitle(playerState._streamName || streamID);
+        titleBar.setStatus('Buffering...', '#ffa726');
       }
+
+      // Add stats overlay
+      vjsPlayer.addChild('StatsOverlay');
+
+      // Add keyboard help overlay
+      vjsPlayer.addChild('KbHelpOverlay');
+
+      // Add custom buttons to control bar
+      var controlBar = vjsPlayer.getChild('controlBar');
+      if (controlBar) {
+        controlBar.addChild('RecordButton', { streamID: streamID });
+        controlBar.addChild('StatsButton');
+        controlBar.addChild('HelpButton');
+        // Add delivery switcher
+        showDeliverySwitcher(playerState.delivery, streamID);
+        // Only show close button in overlay mode
+        if (document.getElementById('player-overlay')) {
+          controlBar.addChild('CloseButton');
+        }
+      }
+
+      // Status updates via video.js events
+      vjsPlayer.on('playing', function() {
+        if (spinner) spinner.style.display = 'none';
+        if (titleBar) titleBar.setStatus('Playing', '#34d399');
+        playerState.retryCount = 0;
+      });
+      vjsPlayer.on('waiting', function() {
+        if (spinner) spinner.style.display = 'flex';
+        if (titleBar) titleBar.setStatus('Buffering...', '#ffa726');
+      });
+      vjsPlayer.on('seeked', function() {
+        if (spinner) spinner.style.display = 'none';
+      });
+      vjsPlayer.on('pause', function() {
+        if (titleBar) titleBar.setStatus('Paused', '#ffa726');
+      });
+      vjsPlayer.on('error', function() {
+        if (titleBar) titleBar.setStatus('Error', '#ff6b6b');
+        handleRetry();
+      });
+
+      // Volume persistence
+      var savedVol = parseFloat(localStorage.getItem('mediahub_volume') || '0.5');
+      vjsPlayer.volume(savedVol);
+      vjsPlayer.on('volumechange', function() {
+        localStorage.setItem('mediahub_volume', String(vjsPlayer.volume()));
+      });
+
+      // Probe duration for VOD
+      var probeDurSec = (playerState.probeInfo && playerState.probeInfo.duration_ms) ? playerState.probeInfo.duration_ms / 1000 : 0;
+      if (probeDurSec > 0) {
+        vjsPlayer.ready(function() {
+          vjsPlayer.duration(probeDurSec);
+        });
+      }
+    } else {
+      // Fallback for when video.js is not available
+      videoEl.addEventListener('waiting', function() { if (spinner) spinner.style.display = 'flex'; });
+      videoEl.addEventListener('playing', function() { if (spinner) spinner.style.display = 'none'; playerState.retryCount = 0; });
+      videoEl.addEventListener('seeked', function() { if (spinner) spinner.style.display = 'none'; });
+      videoEl.addEventListener('error', function() { handleRetry(); });
+      var savedVol = parseFloat(localStorage.getItem('mediahub_volume') || '0.5');
+      videoEl.volume = savedVol;
+      videoEl.addEventListener('volumechange', function() {
+        localStorage.setItem('mediahub_volume', String(videoEl.volume));
+      });
     }
 
+    // Audio track selector — fetch tracks and add MenuButton
+    var realStreamID = streamID;
+    if (realStreamID && realStreamID.indexOf('rec:') === 0) realStreamID = null;
+    if (realStreamID && vjsPlayer) {
+      setTimeout(function() {
+        api.get('/api/play/' + realStreamID + '/tracks')
+          .then(function(resp) { return resp.ok ? resp.json() : null; })
+          .then(function(data) {
+            if (!data || !data.audio_tracks || data.audio_tracks.length <= 1) return;
+            var controlBar = vjsPlayer.getChild('controlBar');
+            if (controlBar) {
+              controlBar.addChild('AudioTrackMenuButton', {
+                audioTracks: data.audio_tracks,
+                streamID: realStreamID
+              });
+            }
+          })
+          .catch(function() {});
+      }, 500);
+    }
+
+    // Keyboard shortcuts — use video.js player methods when available
     var playerKeyHandler = function(e) {
       if (!document.getElementById('player-wrapper')) {
         document.removeEventListener('keydown', playerKeyHandler);
@@ -4084,56 +4133,65 @@
       }
       var tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      var dur = videoEl.duration;
+
+      var p = vjsPlayer || null;
+      var dur = p ? p.duration() : videoEl.duration;
       var isVOD = dur && isFinite(dur) && dur > 0;
-      var helpOverlay = document.getElementById('kb-help-overlay');
       var key = e.key;
 
       if (key === ' ') {
         e.preventDefault();
-        if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause();
+        if (p) { if (p.paused()) p.play(); else p.pause(); }
+        else { if (videoEl.paused) videoEl.play().catch(function() {}); else videoEl.pause(); }
       } else if (key === 'f' || key === 'F') {
         e.preventDefault();
-        if (document.fullscreenElement) document.exitFullscreen();
-        else if (wrapper) wrapper.requestFullscreen().catch(function() {});
+        if (p) {
+          if (p.isFullscreen()) p.exitFullscreen();
+          else p.requestFullscreen();
+        } else {
+          if (document.fullscreenElement) document.exitFullscreen();
+          else if (wrapper) wrapper.requestFullscreen().catch(function() {});
+        }
       } else if (key === 'm' || key === 'M') {
         e.preventDefault();
-        videoEl.muted = !videoEl.muted;
-        if (volBtn) volBtn.textContent = videoEl.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+        if (p) p.muted(!p.muted());
+        else videoEl.muted = !videoEl.muted;
       } else if (key === 'ArrowLeft') {
         if (isVOD) {
           e.preventDefault();
-          var newTime = Math.max(0, videoEl.currentTime - 10);
-          videoEl.currentTime = newTime;
+          var ct = p ? p.currentTime() : videoEl.currentTime;
+          var newTime = Math.max(0, ct - 10);
+          if (p) p.currentTime(newTime); else videoEl.currentTime = newTime;
           api.post(seekPath, { position_ms: Math.round(newTime * 1000) }).catch(function() {});
         }
       } else if (key === 'ArrowRight') {
         if (isVOD) {
           e.preventDefault();
-          var newTime = Math.min(dur, videoEl.currentTime + 10);
-          videoEl.currentTime = newTime;
+          var ct = p ? p.currentTime() : videoEl.currentTime;
+          var newTime = Math.min(dur, ct + 10);
+          if (p) p.currentTime(newTime); else videoEl.currentTime = newTime;
           api.post(seekPath, { position_ms: Math.round(newTime * 1000) }).catch(function() {});
         }
       } else if (key === 'ArrowUp') {
         e.preventDefault();
-        videoEl.volume = Math.min(1, videoEl.volume + 0.1);
-        videoEl.muted = false;
-        if (volBtn) volBtn.textContent = '\uD83D\uDD0A';
+        if (p) { p.volume(Math.min(1, p.volume() + 0.1)); p.muted(false); }
+        else { videoEl.volume = Math.min(1, videoEl.volume + 0.1); videoEl.muted = false; }
       } else if (key === 'ArrowDown') {
         e.preventDefault();
-        videoEl.volume = Math.max(0, videoEl.volume - 0.1);
-        if (volBtn) volBtn.textContent = videoEl.volume === 0 ? '\uD83D\uDD07' : '\uD83D\uDD0A';
-      } else if (key === 'i' || key === 'I') {
-        var statsEl = document.getElementById('stats-overlay');
-        if (statsEl) statsEl.classList.toggle('visible');
-      } else if (key === 's' || key === 'S') {
-        var statsEl = document.getElementById('stats-overlay');
-        if (statsEl) statsEl.classList.toggle('visible');
+        if (p) p.volume(Math.max(0, p.volume() - 0.1));
+        else videoEl.volume = Math.max(0, videoEl.volume - 0.1);
+      } else if (key === 'i' || key === 'I' || key === 's' || key === 'S') {
+        var statsOverlay = p ? p.getChild('StatsOverlay') : null;
+        if (statsOverlay) statsOverlay.toggle();
       } else if (key === '?') {
-        if (helpOverlay) helpOverlay.classList.toggle('visible');
+        var helpOverlay = p ? p.getChild('KbHelpOverlay') : null;
+        if (helpOverlay) helpOverlay.toggle();
       } else if (key === 'Escape') {
-        if (helpOverlay && helpOverlay.classList.contains('visible')) {
-          helpOverlay.classList.remove('visible');
+        var helpOverlay = p ? p.getChild('KbHelpOverlay') : null;
+        if (helpOverlay && helpOverlay.isVisible()) {
+          helpOverlay.hide();
+        } else if (p && p.isFullscreen()) {
+          p.exitFullscreen();
         } else if (document.fullscreenElement) {
           document.exitFullscreen();
         } else {
@@ -4143,74 +4201,19 @@
         e.preventDefault();
         var pct = parseInt(key, 10) / 10;
         var seekTo = pct * dur;
-        videoEl.currentTime = seekTo;
+        if (p) p.currentTime(seekTo); else videoEl.currentTime = seekTo;
         api.post(seekPath, { position_ms: Math.round(seekTo * 1000) }).catch(function() {});
       }
     };
     document.addEventListener('keydown', playerKeyHandler);
 
-    var ctrlTimer = setInterval(function() {
+    // Cleanup keyboard handler when player is removed
+    var cleanupTimer = setInterval(function() {
       if (!document.getElementById('player-wrapper')) {
-        clearInterval(ctrlTimer);
+        clearInterval(cleanupTimer);
         document.removeEventListener('keydown', playerKeyHandler);
-        return;
       }
-      var cur = videoEl.currentTime || 0;
-      var dur = videoEl.duration;
-      // Use probe duration for VOD when videoEl.duration is infinite/growing
-      var probeDurSec = (playerState.probeInfo && playerState.probeInfo.duration_ms) ? playerState.probeInfo.duration_ms / 1000 : 0;
-      var effectiveDur = isFinite(dur) && dur > 0 ? dur : 0;
-      if (probeDurSec > 0 && (!isFinite(dur) || dur <= 0 || effectiveDur < probeDurSec * 0.9)) {
-        effectiveDur = probeDurSec;
-      }
-      if (playerTime) playerTime.textContent = formatTime(cur) + ' / ' + formatTime(effectiveDur);
-      if (effectiveDur > 0) {
-        var pct = cur / effectiveDur;
-        if (seekPlayed) seekPlayed.style.width = (pct * 100) + '%';
-        if (seekThumb) seekThumb.style.left = (pct * 100) + '%';
-        var bufEnd = 0;
-        if (videoEl.buffered && videoEl.buffered.length > 0) bufEnd = videoEl.buffered.end(videoEl.buffered.length - 1);
-        if (seekBuffered) seekBuffered.style.width = ((bufEnd / effectiveDur) * 100) + '%';
-      }
-    }, 250);
-
-    if (statsBtn) {
-      statsBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var overlay = document.getElementById('stats-overlay');
-        if (overlay) overlay.classList.toggle('visible');
-      });
-    }
-
-    if (stopBtn) {
-      stopBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        closePlayerOverlay();
-      });
-    }
-
-    if (recordBtn) {
-      var recording = false;
-      recordBtn.addEventListener('click', async function(e) {
-        e.stopPropagation();
-        if (recording) {
-          await api.del('/api/play/' + streamID + '/record').catch(function() {});
-          recordBtn.textContent = '\u23FA';
-          recordBtn.style.color = '';
-          recording = false;
-          toast('Recording stopped');
-        } else {
-          var resp = await api.post('/api/play/' + streamID + '/record', { title: 'Manual Recording' }).catch(function() {});
-          if (resp && resp.ok) {
-            recordBtn.style.color = '#e53935';
-            recording = true;
-            toast('Recording started');
-          } else {
-            toast('Failed to start recording', 'error');
-          }
-        }
-      });
-    }
+    }, 1000);
   }
 
   function formatTime(sec) {

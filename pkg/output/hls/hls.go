@@ -335,7 +335,9 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if path == "/playlist.m3u8" || path == "playlist.m3u8" ||
 		path == "/index.m3u8" || path == "index.m3u8" {
-		// Serve master playlist (has CODECS attribute with correct codec strings)
+		// Serve master playlist (has CODECS attribute with correct codec strings).
+		// We generate index.m3u8 (via master_pl_name in HLSMuxer), but also accept
+		// playlist.m3u8 for backward compatibility with existing clients/bookmarks.
 		p.serveMasterPlaylist(w, r)
 		return
 	}

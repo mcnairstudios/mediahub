@@ -200,9 +200,7 @@ func (m *HLSMuxer) openFormatContext() error {
 	privOpts.Set("master_pl_name", "index.m3u8", astiav.OptionSearchFlags(0))
 	privOpts.Set("master_pl_publish_rate", "1", astiav.OptionSearchFlags(0))
 
-	dict := astiav.NewDictionary()
-	defer dict.Free()
-	if err := fc.WriteHeader(dict); err != nil {
+	if err := fc.WriteHeader(nil); err != nil {
 		fc.Free()
 		m.fc = nil
 		return fmt.Errorf("write header: %w", err)
