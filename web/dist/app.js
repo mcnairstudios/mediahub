@@ -3219,8 +3219,10 @@
       opts.html5 = {
         vhs: {
           xhr: {
-            beforeSend: function(xhr) {
-              xhr.setRequestHeader('Authorization', 'Bearer ' + api.token);
+            beforeRequest: function(options) {
+              options.headers = options.headers || {};
+              options.headers.Authorization = 'Bearer ' + api.token;
+              return options;
             }
           }
         }
