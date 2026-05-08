@@ -28,6 +28,13 @@ type MuxOpts struct {
 	AudioExtradata    []byte
 	AudioChannels     int
 	AudioSampleRate   int
+
+	// CopyVideoParams copies the video encoder's full codec parameters
+	// to the output stream, producing correctly formatted extradata.
+	// When set, this is used instead of manually setting codec fields.
+	CopyVideoParams func(cp *astiav.CodecParameters) error
+	// CopyAudioParams does the same for audio.
+	CopyAudioParams func(cp *astiav.CodecParameters) error
 }
 
 type FragmentedMuxer struct {
@@ -91,7 +98,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		}
 		tm, err := newTrackMuxer(opts.OutputDir, "video", opts.VideoCodecID,
 			opts.VideoExtradata, opts.VideoTimeBase, opts.VideoWidth, opts.VideoHeight,
-			0, 0, opts.VideoFrameRate, videoThresholdUs)
+			0, 0, opts.VideoFrameRate, videoThresholdUs, opts.CopyVideoParams)
 		if err != nil {
 			return nil, fmt.Errorf("avmux: video track: %w", err)
 		}
@@ -110,7 +117,7 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 		}
 		tm, err := newTrackMuxer(opts.OutputDir, "audio", audioCodecID,
 			opts.AudioExtradata, tb, 0, 0,
-			opts.AudioChannels, opts.AudioSampleRate, 0, int64(audioFragMs)*1000)
+			opts.AudioChannels, opts.AudioSampleRate, 0, int64(audioFragMs)*1000, opts.CopyAudioParams)
 		if err != nil {
 			if m.video != nil {
 				m.video.close()
@@ -125,7 +132,8 @@ func NewFragmentedMuxer(opts MuxOpts) (*FragmentedMuxer, error) {
 
 func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 	extradata []byte, timeBase astiav.Rational, width, height int,
-	channels, sampleRate, frameRate int, fragThresholdUs int64) (*trackMuxer, error) {
+	channels, sampleRate, frameRate int, fragThresholdUs int64,
+	copyParams func(cp *astiav.CodecParameters) error) (*trackMuxer, error) {
 
 	tm := &trackMuxer{
 		outputDir:       outputDir,
@@ -168,54 +176,73 @@ func newTrackMuxer(outputDir, prefix string, codecID astiav.CodecID,
 	tm.stream = s
 
 	cp := s.CodecParameters()
-	cp.SetCodecID(codecID)
-	if width > 0 && height > 0 {
-		cp.SetMediaType(astiav.MediaTypeVideo)
-		cp.SetWidth(width)
-		cp.SetHeight(height)
-		// Set profile/level for clean codec strings in fMP4 init segments
-		if codecID == astiav.CodecIDHevc {
-			cp.SetProfile(astiav.ProfileHevcMain)
-			if height >= 2160 {
-				cp.SetLevel(153) // 5.1
-			} else if height >= 1080 {
-				cp.SetLevel(120) // 4.0
-			} else {
-				cp.SetLevel(93) // 3.1
-			}
-		} else if codecID == astiav.CodecIDH264 {
-			cp.SetProfile(astiav.ProfileH264Main)
+
+	if copyParams != nil {
+		// Use encoder's ToCodecParameters — produces correct extradata
+		if err := copyParams(cp); err != nil {
+			tm.close()
+			return nil, fmt.Errorf("copy encoder params: %w", err)
+		}
+		// Set hvc1 tag for HEVC after ToCodecParameters
+		if cp.CodecID() == astiav.CodecIDHevc {
+			cp.SetCodecTag(0x31637668) // 'hvc1'
+		}
+		// Set AAC-LC profile after ToCodecParameters for correct mp4a.40.2
+		if cp.CodecID() == astiav.CodecIDAac {
+			cp.SetProfile(astiav.ProfileAacLow)
 		}
 	} else {
-		cp.SetMediaType(astiav.MediaTypeAudio)
-		if sampleRate > 0 {
-			cp.SetSampleRate(sampleRate)
+		// Fallback: manual codec parameter setup (copy mode)
+		cp.SetCodecID(codecID)
+		if width > 0 && height > 0 {
+			cp.SetMediaType(astiav.MediaTypeVideo)
+			cp.SetWidth(width)
+			cp.SetHeight(height)
+			// Set profile/level for clean codec strings in fMP4 init segments
+			if codecID == astiav.CodecIDHevc {
+				cp.SetProfile(astiav.ProfileHevcMain)
+				if height >= 2160 {
+					cp.SetLevel(153) // 5.1
+				} else if height >= 1080 {
+					cp.SetLevel(120) // 4.0
+				} else {
+					cp.SetLevel(93) // 3.1
+				}
+			} else if codecID == astiav.CodecIDH264 {
+				cp.SetProfile(astiav.ProfileH264Main)
+			}
+		} else {
+			cp.SetMediaType(astiav.MediaTypeAudio)
+			if sampleRate > 0 {
+				cp.SetSampleRate(sampleRate)
+			}
+			switch channels {
+			case 1:
+				cp.SetChannelLayout(astiav.ChannelLayoutMono)
+			case 2:
+				cp.SetChannelLayout(astiav.ChannelLayoutStereo)
+			case 6:
+				cp.SetChannelLayout(astiav.ChannelLayout5Point1)
+			case 8:
+				cp.SetChannelLayout(astiav.ChannelLayout7Point1)
+			}
+			if codecID == astiav.CodecIDAac {
+				cp.SetFrameSize(1024)
+				cp.SetProfile(astiav.ProfileAacLow) // mp4a.40.2
+			}
 		}
-		switch channels {
-		case 1:
-			cp.SetChannelLayout(astiav.ChannelLayoutMono)
-		case 2:
-			cp.SetChannelLayout(astiav.ChannelLayoutStereo)
-		case 6:
-			cp.SetChannelLayout(astiav.ChannelLayout5Point1)
-		case 8:
-			cp.SetChannelLayout(astiav.ChannelLayout7Point1)
-		}
-		if codecID == astiav.CodecIDAac {
-			cp.SetFrameSize(1024)
-			cp.SetProfile(astiav.ProfileAacLow) // mp4a.40.2
+
+		if len(extradata) > 0 {
+			if err := cp.SetExtraData(extradata); err != nil {
+				tm.close()
+				return nil, fmt.Errorf("set extradata: %w", err)
+			}
 		}
 	}
+
 	s.SetTimeBase(timeBase)
 	if frameRate > 0 {
 		s.SetAvgFrameRate(astiav.NewRational(frameRate, 1))
-	}
-
-	if len(extradata) > 0 {
-		if err := cp.SetExtraData(extradata); err != nil {
-			tm.close()
-			return nil, fmt.Errorf("set extradata: %w", err)
-		}
 	}
 
 	opts := astiav.NewDictionary()
@@ -338,7 +365,7 @@ func (m *FragmentedMuxer) Reset() error {
 		m.video.close()
 		tm, err := newTrackMuxer(m.video.outputDir, m.video.prefix, m.video.codecID,
 			m.video.extradata, m.video.timeBase, m.video.width, m.video.height,
-			0, 0, m.video.frameRate, m.video.fragThresholdUs)
+			0, 0, m.video.frameRate, m.video.fragThresholdUs, nil)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -357,7 +384,7 @@ func (m *FragmentedMuxer) Reset() error {
 		m.audio.close()
 		tm, err := newTrackMuxer(m.audio.outputDir, m.audio.prefix, m.audio.codecID,
 			m.audio.extradata, m.audio.timeBase, 0, 0,
-			m.audio.channels, m.audio.sampleRate, 0, m.audio.fragThresholdUs)
+			m.audio.channels, m.audio.sampleRate, 0, m.audio.fragThresholdUs, nil)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

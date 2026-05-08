@@ -74,8 +74,10 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	p.audioTB = astiav.NewRational(1, 48000)
 
 	muxOpts := mux.MuxOpts{
-		OutputDir:     segDir,
-		VideoTimeBase: p.videoTB,
+		OutputDir:       segDir,
+		VideoTimeBase:   p.videoTB,
+		CopyVideoParams: cfg.CopyVideoParams,
+		CopyAudioParams: cfg.CopyAudioParams,
 	}
 
 	if len(cfg.VideoExtradata) > 0 {

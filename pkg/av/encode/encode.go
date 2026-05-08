@@ -200,7 +200,13 @@ func NewVideoEncoder(opts EncodeOpts) (*Encoder, error) {
 	cc.SetTimeBase(astiav.NewRational(1, fps))
 	cc.SetFramerate(astiav.NewRational(fps, 1))
 
-	cc.SetFlags(astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader))
+	cc.SetFlags(cc.Flags().Add(astiav.CodecContextFlagGlobalHeader))
+
+	// Set profile for correct codec parameter output (hvcC/avcC formatting)
+	codecLower := strings.ToLower(opts.Codec)
+	if codecLower == "h265" || codecLower == "hevc" {
+		cc.SetProfile(astiav.ProfileHevcMain)
+	}
 
 	if enc.hwCtx != nil {
 		hwAccelKey := opts.HWAccel
@@ -340,8 +346,13 @@ func NewAudioEncoder(opts AudioEncodeOpts) (*Encoder, error) {
 		cc.SetChannelLayout(astiav.ChannelLayoutStereo)
 	}
 
-	cc.SetFlags(astiav.NewCodecContextFlags(astiav.CodecContextFlagGlobalHeader))
+	cc.SetFlags(cc.Flags().Add(astiav.CodecContextFlagGlobalHeader))
 	cc.SetTimeBase(astiav.NewRational(1, opts.SampleRate))
+
+	// Set AAC-LC profile for correct esds AudioSpecificConfig (mp4a.40.2)
+	if strings.ToLower(opts.Codec) == "aac" {
+		cc.SetProfile(astiav.ProfileAacLow)
+	}
 
 	if err := cc.Open(codec, nil); err != nil {
 		cc.Free()

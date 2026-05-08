@@ -3,7 +3,6 @@ package mux
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -51,7 +50,6 @@ type HLSMuxer struct {
 	lastAudioDTS int64
 	videoDTSInit bool
 	audioDTSInit bool
-	initPatched  bool
 }
 
 func NewHLSMuxer(opts HLSMuxOpts) (*HLSMuxer, error) {
@@ -169,6 +167,10 @@ func (m *HLSMuxer) openFormatContext() error {
 				}
 			}
 		}
+		// Set AAC-LC profile for correct mp4a.40.2 codec string
+		if cp.CodecID() == astiav.CodecIDAac {
+			cp.SetProfile(astiav.ProfileAacLow)
+		}
 		as.SetTimeBase(m.opts.AudioTimeBase)
 		m.audioIdx = as.Index()
 	}
@@ -201,9 +203,6 @@ func (m *HLSMuxer) openFormatContext() error {
 		return fmt.Errorf("write header: %w", err)
 	}
 
-	// Post-process fMP4 init segment to fix hvcC codec string for HLS.js/video.js.
-	// ffmpeg generates hvcC from Annex-B extradata with raw compat flags (0x60000000)
-	// which browsers reject. Patch the init.mp4 on disk to reverse the flag bits.
 	if m.videoIdx >= 0 {
 		m.videoOutTB = fc.Streams()[m.videoIdx].TimeBase()
 	}
@@ -279,20 +278,6 @@ func (m *HLSMuxer) WriteVideoPacket(pkt *astiav.Packet) error {
 
 	if err := m.fc.WriteInterleavedFrame(pkt); err != nil {
 		return fmt.Errorf("avmux: write video packet: %w", err)
-	}
-
-	// Patch init.mp4 after first write — ffmpeg flushes the init segment lazily
-	if !m.initPatched && m.opts.SegmentType == "fmp4" {
-		initPath := filepath.Join(m.opts.OutputDir, "init.mp4")
-		if info, err := os.Stat(initPath); err == nil && info.Size() > 0 {
-			m.initPatched = true
-			if m.opts.VideoCodecID == astiav.CodecIDHevc {
-				patchHvcCFlags(initPath)
-			}
-			if m.opts.AudioCodecID == astiav.CodecIDAac {
-				patchAACEsds(initPath, m.opts.AudioSampleRate, m.opts.AudioChannels)
-			}
-		}
 	}
 
 	return nil
@@ -372,174 +357,6 @@ func (m *HLSMuxer) Reset() error {
 	return m.openFormatContext()
 }
 
-// buildAACExtradata generates a 2-byte AudioSpecificConfig for AAC-LC.
-// This ensures the esds box contains AudioObjectType=2 (AAC-LC) so that
-// HLS.js generates mp4a.40.2 instead of mp4a.40.
-func buildAACExtradata(sampleRate, channels int) []byte {
-	// AudioSpecificConfig (ISO 14496-3):
-	// 5 bits: audioObjectType (2 = AAC-LC)
-	// 4 bits: samplingFrequencyIndex
-	// 4 bits: channelConfiguration
-	// 1 bit: frameLengthFlag (0)
-	// 1 bit: dependsOnCoreCoder (0)
-	// 1 bit: extensionFlag (0)
-	freqIdx := aacSampleRateIndex(sampleRate)
-	if channels <= 0 {
-		channels = 2
-	}
-	// Byte 0: objectType(5) | freqIdx(top 3 bits)
-	// Byte 1: freqIdx(bottom 1 bit) | channels(4) | 000
-	b0 := byte((2 << 3) | ((freqIdx >> 1) & 0x07))
-	b1 := byte(((freqIdx & 0x01) << 7) | ((channels & 0x0f) << 3))
-	return []byte{b0, b1}
-}
-
-// patchHvcCFlags patches the hvcC box in an fMP4 init segment to reverse
-// the general_profile_compatibility_flags bit order. ffmpeg writes MSB-first
-// flags (e.g. 0x60000000) but HLS.js/video.js reads them as a decimal
-// integer for the codec string, producing "60000000" instead of "6".
-// RFC 6381 expects reversed bits. This patches the file in-place.
-func patchHvcCFlags(initPath string) {
-	data, err := os.ReadFile(initPath)
-	if err != nil {
-		log.Printf("hls: patchHvcCFlags: read error: %v", err)
-		return
-	}
-	// Find "hvcC" box
-	needle := []byte("hvcC")
-	idx := -1
-	for i := 0; i <= len(data)-4; i++ {
-		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		log.Printf("hls: patchHvcCFlags: no hvcC box found in %s (%d bytes)", initPath, len(data))
-		return
-	}
-	hvcC := idx + 4 // start of hvcC payload
-	if hvcC+13 > len(data) || data[hvcC] != 1 {
-		log.Printf("hls: patchHvcCFlags: hvcC too short or bad version (len=%d, version=%d)", len(data)-hvcC, data[hvcC])
-		return
-	}
-	log.Printf("hls: patchHvcCFlags: found hvcC at offset %d, flags before: %02x%02x%02x%02x", idx, data[hvcC+2], data[hvcC+3], data[hvcC+4], data[hvcC+5])
-	// Reverse bits in bytes 2-5 (general_profile_compatibility_flags)
-	changed := false
-	for i := hvcC + 2; i <= hvcC+5; i++ {
-		b := data[i]
-		rev := ((b & 0x80) >> 7) | ((b & 0x40) >> 5) | ((b & 0x20) >> 3) | ((b & 0x10) >> 1) |
-			((b & 0x08) << 1) | ((b & 0x04) << 3) | ((b & 0x02) << 5) | ((b & 0x01) << 7)
-		if rev != b {
-			data[i] = rev
-			changed = true
-		}
-	}
-	if changed {
-		os.WriteFile(initPath, data, 0644) //nolint:errcheck
-		log.Printf("hls: patched hvcC compat flags in %s", filepath.Base(initPath))
-	}
-}
-
-// patchAACEsds patches the esds box in an fMP4 init segment to ensure
-// the AudioSpecificConfig contains AudioObjectType=2 (AAC-LC).
-// Without this, HLS.js/video.js generates "mp4a.40" instead of "mp4a.40.2".
-func patchAACEsds(initPath string, sampleRate, channels int) {
-	data, err := os.ReadFile(initPath)
-	if err != nil {
-		return
-	}
-	// Find "esds" box
-	needle := []byte("esds")
-	idx := -1
-	for i := 0; i <= len(data)-4; i++ {
-		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return
-	}
-	// The esds box contains nested descriptors. Find the DecoderSpecificInfo
-	// descriptor (tag 0x05) which contains the AudioSpecificConfig.
-	esds := data[idx+4:]
-	// Search for tag 0x05 in the esds payload
-	for i := 0; i < len(esds)-6; i++ {
-		if esds[i] == 0x05 {
-			// Skip length bytes (could be 1-4 bytes with 0x80 extension)
-			j := i + 1
-			for j < len(esds) && esds[j] == 0x80 {
-				j++
-			}
-			if j >= len(esds) {
-				break
-			}
-			configLen := int(esds[j])
-			j++
-			if configLen >= 2 && j+1 < len(esds) {
-				// AudioSpecificConfig: first 5 bits = AudioObjectType
-				aot := (esds[j] >> 3) & 0x1f
-				if aot == 0 || aot > 5 {
-					// Fix: write AAC-LC AudioSpecificConfig
-					freqIdx := aacSampleRateIndex(sampleRate)
-					if channels <= 0 {
-						channels = 2
-					}
-					esds[j] = byte((2 << 3) | ((freqIdx >> 1) & 0x07))
-					esds[j+1] = byte(((freqIdx & 0x01) << 7) | ((channels & 0x0f) << 3))
-					os.WriteFile(initPath, data, 0644) //nolint:errcheck
-					log.Printf("hls: patched AAC esds AudioObjectType in %s (was %d)", filepath.Base(initPath), aot)
-				}
-			}
-			break
-		}
-	}
-}
-
-// PatchInitSegment patches an fMP4 init segment in memory to fix codec
-// strings for browser compatibility. Reverses hvcC compat flag bits so
-// HLS.js/video.js generates "hvc1.1.6.L153.B0" instead of "hvc1.1.60000000.L153.B0".
-func PatchInitSegment(data []byte) []byte {
-	patched := make([]byte, len(data))
-	copy(patched, data)
-
-	// Fix hvcC general_profile_compatibility_flags
-	if idx := findBoxOffset(patched, "hvcC"); idx >= 0 {
-		hvcC := idx + 4
-		if hvcC+13 <= len(patched) && patched[hvcC] == 1 {
-			for i := hvcC + 2; i <= hvcC+5; i++ {
-				patched[i] = reverseByte(patched[i])
-			}
-		}
-	}
-	return patched
-}
-
-func findBoxOffset(data []byte, name string) int {
-	needle := []byte(name)
-	for i := 0; i <= len(data)-4; i++ {
-		if data[i] == needle[0] && data[i+1] == needle[1] && data[i+2] == needle[2] && data[i+3] == needle[3] {
-			return i
-		}
-	}
-	return -1
-}
-
-func reverseByte(b byte) byte {
-	return ((b & 0x80) >> 7) | ((b & 0x40) >> 5) | ((b & 0x20) >> 3) | ((b & 0x10) >> 1) |
-		((b & 0x08) << 1) | ((b & 0x04) << 3) | ((b & 0x02) << 5) | ((b & 0x01) << 7)
-}
-
-func aacSampleRateIndex(rate int) int {
-	rates := []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350}
-	for i, r := range rates {
-		if rate == r {
-			return i
-		}
-	}
-	return 3 // default to 48000
-}
 
 func (m *HLSMuxer) SegmentCount() int {
 	m.mu.Lock()

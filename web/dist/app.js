@@ -3039,7 +3039,6 @@
           if (vjsPlayer) { vjsPlayer.dispose(); vjsPlayer = null; }
           playerState.hlsInstance = null;
 
-          console.log('[HLS] videojs available:', typeof videojs !== 'undefined');
           if (typeof videojs !== 'undefined') {
             // Ensure the video element has an id for video.js
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
@@ -3070,7 +3069,6 @@
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
             vjsPlayer.ready(function() {
-              console.log('[HLS] video.js player ready');
               vjsPlayer.play().catch(function() {});
             });
 
@@ -3082,7 +3080,6 @@
 
             playerState.hlsInstance = vjsPlayer;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('[HLS] using native HLS (no video.js)');
             videoEl.src = url;
             videoEl.play().catch(function() {});
           } else {

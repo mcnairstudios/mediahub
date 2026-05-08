@@ -16,9 +16,7 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/mcnairstudios/mediahub/pkg/av"
-	"github.com/mcnairstudios/mediahub/pkg/av/bsf"
 	"github.com/mcnairstudios/mediahub/pkg/av/conv"
-	"github.com/mcnairstudios/mediahub/pkg/av/extradata"
 	"github.com/mcnairstudios/mediahub/pkg/av/mux"
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
@@ -34,11 +32,6 @@ type Plugin struct {
 	stopped    bool
 	mu         sync.Mutex
 	lastErr    error
-
-	// Deferred muxer creation: when encoder extradata isn't available at
-	// init time (e.g. VT H.265), defer muxer creation until the first
-	// keyframe provides extradata via BSF extraction.
-	deferredOpts *mux.HLSMuxOpts
 }
 
 func New(cfg output.PluginConfig) (*Plugin, error) {
@@ -172,78 +165,13 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 	p.generation.Store(1)
 
-	// Defer muxer creation if video extradata is missing (VT H.265 encoder
-	// doesn't provide extradata at init time — needs first keyframe).
-	needsDeferred := len(hlsOpts.VideoExtradata) == 0 &&
-		hlsOpts.VideoCodecID != astiav.CodecIDNone &&
-		(hlsOpts.VideoCodecID == astiav.CodecIDHevc || hlsOpts.VideoCodecID == astiav.CodecIDH264)
-
-	if needsDeferred {
-		saved := hlsOpts
-		p.deferredOpts = &saved
-		log.Printf("hls: deferring muxer creation until first keyframe provides extradata (codec=%s)", hlsOpts.VideoCodecID)
-	} else {
-		muxer, err := mux.NewHLSMuxer(hlsOpts)
-		if err != nil {
-			return nil, fmt.Errorf("hls: create muxer: %w", err)
-		}
-		p.muxer = muxer
-	}
-
-	return p, nil
-}
-
-func (p *Plugin) initDeferredMuxer(keyframeData []byte) error {
-	opts := p.deferredOpts
-	p.deferredOpts = nil
-
-	codecName := "hevc"
-	if opts.VideoCodecID == astiav.CodecIDH264 {
-		codecName = "h264"
-	}
-
-	// Try BSF extraction first (more reliable for Annex-B → hvcC/avcC conversion)
-	var converted []byte
-	ext, bsfErr := bsf.NewExtraDataExtractor(opts.VideoCodecID, p.videoTB)
-	if bsfErr == nil {
-		defer ext.Close()
-		pkt := astiav.AllocPacket()
-		if pkt != nil {
-			defer pkt.Free()
-			if err := pkt.FromData(keyframeData); err == nil {
-				pkt.SetPts(0)
-				pkt.SetDts(0)
-				pkt.SetFlags(astiav.NewPacketFlags(astiav.PacketFlagKey))
-				annexB, err := ext.ProcessPacket(pkt)
-				if err == nil && len(annexB) > 0 {
-					converted, _ = extradata.ToCodecData(codecName, annexB)
-				}
-			}
-		}
-	}
-
-	// Fallback: try direct extraction from keyframe data
-	if len(converted) == 0 {
-		var err error
-		converted, err = extradata.ToCodecData(codecName, keyframeData)
-		if err != nil {
-			return fmt.Errorf("extract extradata from keyframe: %w", err)
-		}
-	}
-
-	if len(converted) == 0 {
-		return fmt.Errorf("no extradata found in first %s keyframe", codecName)
-	}
-
-	opts.VideoExtradata = converted
-	log.Printf("hls: extracted extradata from first keyframe (%s, %d bytes), creating muxer", codecName, len(converted))
-
-	muxer, err := mux.NewHLSMuxer(*opts)
+	muxer, err := mux.NewHLSMuxer(hlsOpts)
 	if err != nil {
-		return fmt.Errorf("hls: create deferred muxer: %w", err)
+		return nil, fmt.Errorf("hls: create muxer: %w", err)
 	}
 	p.muxer = muxer
-	return nil
+
+	return p, nil
 }
 
 func (p *Plugin) Mode() output.DeliveryMode {
@@ -260,19 +188,7 @@ func (p *Plugin) PushVideo(data []byte, pts, dts, duration int64, keyframe bool)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped || !p.hasVideo {
-		return nil
-	}
-
-	// Deferred muxer creation: extract extradata from first keyframe
-	if p.deferredOpts != nil && keyframe {
-		if err := p.initDeferredMuxer(data); err != nil {
-			log.Printf("hls: deferred muxer init failed: %v", err)
-			return nil
-		}
-	}
-
-	if p.muxer == nil {
+	if p.stopped || !p.hasVideo || p.muxer == nil {
 		return nil
 	}
 
@@ -456,8 +372,6 @@ func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 
 ready:
-	log.Printf("hls: serve playlist (%d bytes)", len(data))
-
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -494,12 +408,6 @@ func (p *Plugin) serveSegment(w http.ResponseWriter, _ *http.Request, path strin
 	if err != nil {
 		http.NotFound(w, nil)
 		return
-	}
-
-	// Patch init.mp4 in memory before serving — fix hvcC compat flags
-	// and AAC esds so browsers get valid codec strings
-	if name == "init.mp4" {
-		data = mux.PatchInitSegment(data)
 	}
 
 	contentType := "video/mp2t"

@@ -72,81 +72,95 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	}
 
 	if hasVideo {
-		var videoCP *astiav.CodecParameters
-		var freeVideoCP bool
-		if cfg.VideoCodecParams != nil {
-			videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
-		} else {
-			var err error
-			videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
-			if err != nil {
-				ioCtx.Close()
-				fc.Free()
-				return nil, fmt.Errorf("record: video codec params: %w", err)
-			}
-			freeVideoCP = true
-		}
-
 		vs := fc.NewStream(nil)
 		if vs == nil {
-			if freeVideoCP {
-				videoCP.Free()
-			}
 			ioCtx.Close()
 			fc.Free()
 			return nil, errors.New("record: failed to allocate video stream")
 		}
-		if err := videoCP.Copy(vs.CodecParameters()); err != nil {
+
+		if cfg.CopyVideoParams != nil {
+			// Transcoding: use encoder's ToCodecParameters for correct extradata
+			if err := cfg.CopyVideoParams(vs.CodecParameters()); err != nil {
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: copy video encoder params: %w", err)
+			}
+		} else {
+			// Copy mode: use demuxer's codec parameters
+			var videoCP *astiav.CodecParameters
+			var freeVideoCP bool
+			if cfg.VideoCodecParams != nil {
+				videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
+			} else {
+				var err error
+				videoCP, err = conv.CodecParamsFromVideoProbe(cfg.Video)
+				if err != nil {
+					ioCtx.Close()
+					fc.Free()
+					return nil, fmt.Errorf("record: video codec params: %w", err)
+				}
+				freeVideoCP = true
+			}
+			if err := videoCP.Copy(vs.CodecParameters()); err != nil {
+				if freeVideoCP {
+					videoCP.Free()
+				}
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: copy video params: %w", err)
+			}
 			if freeVideoCP {
 				videoCP.Free()
 			}
-			ioCtx.Close()
-			fc.Free()
-			return nil, fmt.Errorf("record: copy video params: %w", err)
-		}
-		if freeVideoCP {
-			videoCP.Free()
 		}
 		vs.CodecParameters().SetCodecTag(0)
 		vs.SetTimeBase(astiav.NewRational(1, 90000))
 		p.videoStream = vs
 	}
 
-	if cfg.Audio != nil || cfg.AudioCodecParams != nil {
-		var audioCP *astiav.CodecParameters
-		var freeAudioCP bool
-		if cfg.AudioCodecParams != nil {
-			audioCP = cfg.AudioCodecParams.(*astiav.CodecParameters)
-		} else {
-			var err error
-			audioCP, err = conv.CodecParamsFromAudioProbe(cfg.Audio)
-			if err != nil {
-				ioCtx.Close()
-				fc.Free()
-				return nil, fmt.Errorf("record: audio codec params: %w", err)
-			}
-			freeAudioCP = true
-		}
-
+	if cfg.Audio != nil || cfg.AudioCodecParams != nil || cfg.CopyAudioParams != nil {
 		as := fc.NewStream(nil)
 		if as == nil {
-			if freeAudioCP {
-				audioCP.Free()
-			}
 			ioCtx.Close()
 			fc.Free()
 			return nil, errors.New("record: failed to allocate audio stream")
 		}
-		if err := audioCP.Copy(as.CodecParameters()); err != nil {
+
+		if cfg.CopyAudioParams != nil {
+			// Transcoding: use encoder's ToCodecParameters for correct extradata
+			if err := cfg.CopyAudioParams(as.CodecParameters()); err != nil {
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: copy audio encoder params: %w", err)
+			}
+		} else {
+			// Copy mode: use demuxer's codec parameters
+			var audioCP *astiav.CodecParameters
+			var freeAudioCP bool
+			if cfg.AudioCodecParams != nil {
+				audioCP = cfg.AudioCodecParams.(*astiav.CodecParameters)
+			} else {
+				var err error
+				audioCP, err = conv.CodecParamsFromAudioProbe(cfg.Audio)
+				if err != nil {
+					ioCtx.Close()
+					fc.Free()
+					return nil, fmt.Errorf("record: audio codec params: %w", err)
+				}
+				freeAudioCP = true
+			}
+			if err := audioCP.Copy(as.CodecParameters()); err != nil {
+				if freeAudioCP {
+					audioCP.Free()
+				}
+				ioCtx.Close()
+				fc.Free()
+				return nil, fmt.Errorf("record: copy audio params: %w", err)
+			}
 			if freeAudioCP {
 				audioCP.Free()
 			}
-			ioCtx.Close()
-			fc.Free()
-			return nil, fmt.Errorf("record: copy audio params: %w", err)
-		}
-		if freeAudioCP {
-			audioCP.Free()
 		}
 		as.CodecParameters().SetCodecTag(0)
 		if as.CodecParameters().CodecID() == astiav.CodecIDAac {

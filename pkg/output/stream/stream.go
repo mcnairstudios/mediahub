@@ -64,10 +64,25 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 
 	var videoStream, audioStream *astiav.Stream
 
-	if cfg.Video != nil || cfg.VideoCodecParams != nil {
+	if cfg.Video != nil || cfg.VideoCodecParams != nil || cfg.CopyVideoParams != nil {
 		var videoCP *astiav.CodecParameters
 		var freeVideoCP bool
-		if cfg.VideoCodecParams != nil {
+		if cfg.CopyVideoParams != nil {
+			// Transcoding: use encoder's ToCodecParameters for correct extradata
+			videoCP = astiav.AllocCodecParameters()
+			if videoCP == nil {
+				muxer.Close()
+				f.Close()
+				return nil, errors.New("stream: alloc video codec params")
+			}
+			freeVideoCP = true
+			if err := cfg.CopyVideoParams(videoCP); err != nil {
+				videoCP.Free()
+				muxer.Close()
+				f.Close()
+				return nil, fmt.Errorf("stream: copy video encoder params: %w", err)
+			}
+		} else if cfg.VideoCodecParams != nil {
 			videoCP = cfg.VideoCodecParams.(*astiav.CodecParameters)
 		} else {
 			var err error
@@ -95,10 +110,25 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 		p.videoIdx = videoStream.Index()
 	}
 
-	if cfg.Audio != nil || cfg.AudioCodecParams != nil {
+	if cfg.Audio != nil || cfg.AudioCodecParams != nil || cfg.CopyAudioParams != nil {
 		var audioCP *astiav.CodecParameters
 		var freeAudioCP bool
-		if cfg.AudioCodecParams != nil {
+		if cfg.CopyAudioParams != nil {
+			// Transcoding: use encoder's ToCodecParameters for correct extradata
+			audioCP = astiav.AllocCodecParameters()
+			if audioCP == nil {
+				muxer.Close()
+				f.Close()
+				return nil, errors.New("stream: alloc audio codec params")
+			}
+			freeAudioCP = true
+			if err := cfg.CopyAudioParams(audioCP); err != nil {
+				audioCP.Free()
+				muxer.Close()
+				f.Close()
+				return nil, fmt.Errorf("stream: copy audio encoder params: %w", err)
+			}
+		} else if cfg.AudioCodecParams != nil {
 			audioCP = cfg.AudioCodecParams.(*astiav.CodecParameters)
 		} else {
 			var err error

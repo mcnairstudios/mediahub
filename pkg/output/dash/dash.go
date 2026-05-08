@@ -94,8 +94,10 @@ func New(cfg output.PluginConfig) (*Plugin, error) {
 	p.audioTB = astiav.NewRational(1, audioTimescale)
 
 	muxOpts := mux.MuxOpts{
-		OutputDir:     segDir,
-		VideoTimeBase: p.videoTB,
+		OutputDir:       segDir,
+		VideoTimeBase:   p.videoTB,
+		CopyVideoParams: cfg.CopyVideoParams,
+		CopyAudioParams: cfg.CopyAudioParams,
 	}
 
 	// Determine if we have video configuration.
