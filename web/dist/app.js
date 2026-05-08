@@ -665,16 +665,20 @@
   registerVjsComponents();
 
   // Global VHS XHR hook — injects auth token into all HLS/DASH segment requests.
-  // Must be set before any video.js player is created. Reads api.token at request
-  // time so token changes (login/refresh) are picked up automatically.
-  if (typeof videojs !== 'undefined' && videojs.Vhs) {
-    videojs.Vhs.xhr.beforeRequest = function(options) {
-      options.headers = options.headers || {};
-      if (api.token) {
-        options.headers['Authorization'] = 'Bearer ' + api.token;
-      }
-      return options;
-    };
+  // video.js 10 lazy-initializes VHS, so we use the 'setup' hook and wait for
+  // 'vhs-ready' before setting the global beforeRequest interceptor.
+  if (typeof videojs !== 'undefined') {
+    videojs.hook('setup', function(player) {
+      player.on('vhs-ready', function() {
+        videojs.Vhs.xhr.beforeRequest = function(options) {
+          options.headers = options.headers || {};
+          if (api.token) {
+            options.headers['Authorization'] = 'Bearer ' + api.token;
+          }
+          return options;
+        };
+      });
+    });
   }
 
   function toast(msg, type) {
@@ -3218,6 +3222,30 @@
     });
   }
 
+  // Auth token injection for VHS XHR requests
+  function vjsXhrBeforeRequest(options) {
+    options.headers = options.headers || {};
+    if (api.token) {
+      options.headers['Authorization'] = 'Bearer ' + api.token;
+    }
+    return options;
+  }
+
+  // Set auth hook on player tech after VHS is ready (per-player)
+  function vjsSetAuthHook(player) {
+    player.ready(function() {
+      player.tech({ IWillNotUseThisInPlugins: true }).on('vhs-ready', function() {
+        player.tech({ IWillNotUseThisInPlugins: true }).vhs.xhr.beforeRequest = function(options) {
+          options.headers = options.headers || {};
+          if (api.token) {
+            options.headers['Authorization'] = 'Bearer ' + api.token;
+          }
+          return options;
+        };
+      });
+    });
+  }
+
   // Shared video.js player options with auth token injection
   function vjsBaseOptions() {
     var opts = {
@@ -3256,6 +3284,7 @@
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
             vjsPlayer = videojs(videoEl, vjsBaseOptions());
+            vjsSetAuthHook(vjsPlayer);
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
             vjsPlayer.ready(function() {
@@ -3684,6 +3713,7 @@
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
             vjsPlayer = videojs(videoEl, vjsBaseOptions());
+            vjsSetAuthHook(vjsPlayer);
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
             vjsPlayer.ready(function() {
@@ -4022,14 +4052,8 @@
     // HLS and DASH players already create a vjsPlayer in their start() method
     if (typeof videojs !== 'undefined' && !vjsPlayer) {
       if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
-      vjsPlayer = videojs(videoEl, {
-        controls: true,
-        autoplay: true,
-        fluid: false,
-        responsive: true,
-        preload: 'auto',
-        playbackRates: [0.5, 1, 1.5, 2]
-      });
+      vjsPlayer = videojs(videoEl, vjsBaseOptions());
+      vjsSetAuthHook(vjsPlayer);
       playerState.vjsPlayer = vjsPlayer;
     }
 
