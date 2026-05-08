@@ -248,7 +248,10 @@ func (p *Plugin) ResetForSeek() {
 	if p.stopped {
 		return
 	}
-	// HLS muxer cannot be reset mid-stream; segments continue.
+	p.generation.Add(1)
+	if p.muxer != nil {
+		p.muxer.Reset() //nolint:errcheck
+	}
 }
 
 func (p *Plugin) Stop() {

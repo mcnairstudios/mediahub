@@ -207,7 +207,7 @@ func TestABRMasterPlaylistContent(t *testing.T) {
 	// Write a fake playlist file in the first variant so WaitReady succeeds.
 	dirs := p.VariantOutputDirs()
 	require.True(t, len(dirs) >= 1)
-	_ = os.WriteFile(filepath.Join(dirs[0], "playlist.m3u8"), []byte("#EXTM3U\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dirs[0], "playlist.m3u8"), []byte("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n"), 0644)
 
 	req := httptest.NewRequest(http.MethodGet, "/master.m3u8", nil)
 	w := httptest.NewRecorder()
@@ -237,7 +237,7 @@ func TestABRPlaylistAliasesWork(t *testing.T) {
 
 	// Write a fake playlist so WaitReady succeeds.
 	dirs := p.VariantOutputDirs()
-	_ = os.WriteFile(filepath.Join(dirs[0], "playlist.m3u8"), []byte("#EXTM3U\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dirs[0], "playlist.m3u8"), []byte("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n"), 0644)
 
 	// /playlist.m3u8 should also serve the master playlist.
 	req := httptest.NewRequest(http.MethodGet, "/playlist.m3u8", nil)

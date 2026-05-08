@@ -263,7 +263,7 @@ func TestWaitReadySucceedsWhenPlaylistExists(t *testing.T) {
 	defer p.Stop()
 
 	segDir := filepath.Join(cfg.OutputDir, "segments")
-	require.NoError(t, os.WriteFile(filepath.Join(segDir, "playlist.m3u8"), []byte("#EXTM3U\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(segDir, "playlist.m3u8"), []byte("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n"), 0644))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
