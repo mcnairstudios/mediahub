@@ -294,7 +294,7 @@ func (p *Plugin) Generation() int64 {
 }
 
 func (p *Plugin) WaitReady(ctx context.Context) error {
-	playlistPath := filepath.Join(p.segDir, "playlist.m3u8")
+	masterPath := filepath.Join(p.segDir, "index.m3u8")
 
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -310,11 +310,11 @@ func (p *Plugin) WaitReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			data, err := os.ReadFile(playlistPath)
+			data, err := os.ReadFile(masterPath)
 			if err != nil {
 				continue
 			}
-			if strings.Contains(string(data), "#EXTINF:") {
+			if strings.Contains(string(data), "#EXT-X-STREAM-INF") {
 				return nil
 			}
 		}
@@ -333,8 +333,15 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	path := r.URL.Path
 
-	if path == "/playlist.m3u8" || path == "playlist.m3u8" {
-		p.servePlaylist(w, r)
+	if path == "/playlist.m3u8" || path == "playlist.m3u8" ||
+		path == "/index.m3u8" || path == "index.m3u8" {
+		// Serve master playlist (has CODECS attribute with correct codec strings)
+		p.serveMasterPlaylist(w, r)
+		return
+	}
+	if path == "/stream.m3u8" || path == "stream.m3u8" {
+		// Serve media playlist (has segments) — referenced by master playlist
+		p.serveMediaPlaylist(w, r)
 		return
 	}
 
@@ -346,8 +353,8 @@ func (p *Plugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
-	playlistPath := filepath.Join(p.segDir, "playlist.m3u8")
+func (p *Plugin) serveMasterPlaylist(w http.ResponseWriter, r *http.Request) {
+	masterPath := filepath.Join(p.segDir, "index.m3u8")
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -359,15 +366,14 @@ func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("hls: playlist not ready: %v", ctx.Err())
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		case <-ticker.C:
-			d, err := os.ReadFile(playlistPath)
+			d, err := os.ReadFile(masterPath)
 			if err != nil {
 				continue
 			}
-			if strings.Contains(string(d), "#EXTINF:") {
+			if strings.Contains(string(d), "#EXT-X-STREAM-INF") {
 				data = d
 				goto ready
 			}
@@ -375,6 +381,21 @@ func (p *Plugin) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 
 ready:
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write(data) //nolint:errcheck
+}
+
+func (p *Plugin) serveMediaPlaylist(w http.ResponseWriter, r *http.Request) {
+	playlistPath := filepath.Join(p.segDir, "stream.m3u8")
+
+	data, err := os.ReadFile(playlistPath)
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Access-Control-Allow-Origin", "*")

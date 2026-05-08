@@ -80,7 +80,7 @@ func NewHLSMuxer(opts HLSMuxOpts) (*HLSMuxer, error) {
 }
 
 func (m *HLSMuxer) openFormatContext() error {
-	playlistPath := filepath.Join(m.opts.OutputDir, "playlist.m3u8")
+	playlistPath := filepath.Join(m.opts.OutputDir, "stream.m3u8")
 
 	fc, err := astiav.AllocOutputFormatContext(nil, "hls", playlistPath)
 	if err != nil {
@@ -175,28 +175,33 @@ func (m *HLSMuxer) openFormatContext() error {
 		m.audioIdx = as.Index()
 	}
 
-	dict := astiav.NewDictionary()
-	defer dict.Free()
-	dict.Set("hls_time", strconv.Itoa(m.opts.SegmentDurationSec), 0)
+	// Set HLS muxer options via PrivateData — required for master_pl_name
+	privOpts := fc.PrivateData().Options()
+	privOpts.Set("hls_time", strconv.Itoa(m.opts.SegmentDurationSec), astiav.OptionSearchFlags(0))
 	if m.opts.IsLive {
-		// Live: sliding window playlist, delete old segments
-		dict.Set("hls_list_size", "6", 0)
-		dict.Set("hls_flags", "delete_segments", 0)
+		privOpts.Set("hls_list_size", "6", astiav.OptionSearchFlags(0))
+		privOpts.Set("hls_flags", "delete_segments+independent_segments", astiav.OptionSearchFlags(0))
 	} else {
-		// VOD: keep all segments, EVENT type tells HLS.js this is a growing
-		// VOD playlist (not live) so it shows duration and enables seeking
-		dict.Set("hls_list_size", "0", 0)
-		dict.Set("hls_playlist_type", "event", 0)
+		privOpts.Set("hls_list_size", "0", astiav.OptionSearchFlags(0))
+		privOpts.Set("hls_playlist_type", "event", astiav.OptionSearchFlags(0))
+		privOpts.Set("hls_flags", "independent_segments", astiav.OptionSearchFlags(0))
 	}
 
 	if m.opts.SegmentType == "fmp4" {
-		dict.Set("hls_segment_type", "fmp4", 0)
-		dict.Set("hls_fmp4_init_filename", "init.mp4", 0)
-		dict.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.m4s"), 0)
+		privOpts.Set("hls_segment_type", "fmp4", astiav.OptionSearchFlags(0))
+		privOpts.Set("hls_fmp4_init_filename", "init.mp4", astiav.OptionSearchFlags(0))
+		privOpts.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.m4s"), astiav.OptionSearchFlags(0))
 	} else {
-		dict.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.ts"), 0)
+		privOpts.Set("hls_segment_filename", filepath.Join(m.opts.OutputDir, "seg%d.ts"), astiav.OptionSearchFlags(0))
 	}
 
+	// Master playlist with CODECS attribute — video.js uses these codec
+	// strings directly instead of parsing the init segment
+	privOpts.Set("master_pl_name", "index.m3u8", astiav.OptionSearchFlags(0))
+	privOpts.Set("master_pl_publish_rate", "1", astiav.OptionSearchFlags(0))
+
+	dict := astiav.NewDictionary()
+	defer dict.Free()
 	if err := fc.WriteHeader(dict); err != nil {
 		fc.Free()
 		m.fc = nil
