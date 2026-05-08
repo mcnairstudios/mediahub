@@ -692,11 +692,49 @@ a:hover{color:var(--accent-hover)}
   .epg-scroll{max-height:calc(100vh - 220px)}
 }
 
-/* video.js — fill container, dark theme, native controls */
+/* video.js — fill container, dark theme, prototype-matched controls */
 .video-js{background:#000!important;width:100%!important;height:100%!important}
 .video-js .vjs-tech{position:absolute!important;top:0;left:0;width:100%!important;height:100%!important;object-fit:contain}
-.video-js .vjs-big-play-button{display:none!important}
-.video-js .vjs-control-bar{z-index:15;font-family:var(--font)}
+
+/* Big play button — circular, accent color */
+.video-js .vjs-big-play-button{
+  width:64px!important;height:64px!important;border-radius:50%!important;
+  background:var(--accent)!important;border:none!important;
+  line-height:64px!important;font-size:28px!important;
+  transition:transform .15s,background .15s;
+}
+.video-js:hover .vjs-big-play-button{transform:scale(1.1);background:var(--accent-hover)!important}
+.video-js .vjs-big-play-button .vjs-icon-placeholder::before{line-height:64px!important}
+
+/* Control bar — gradient overlay background */
+.video-js .vjs-control-bar{
+  z-index:15;font-family:var(--font);
+  background:linear-gradient(transparent,rgba(0,0,0,.85))!important;
+  height:40px;
+}
+
+/* Progress bar — accent color with hover expansion */
+.video-js .vjs-progress-control{height:4px;transition:height .15s}
+.video-js .vjs-progress-control:hover{height:8px}
+.video-js .vjs-progress-control .vjs-progress-holder{height:100%}
+.video-js .vjs-play-progress{background:var(--accent)!important}
+.video-js .vjs-play-progress::before{
+  color:var(--accent)!important;font-size:12px;top:-4px;
+}
+.video-js .vjs-load-progress{background:rgba(255,255,255,.2)!important}
+.video-js .vjs-load-progress div{background:rgba(255,255,255,.15)!important}
+.video-js .vjs-slider:hover .vjs-play-progress{background:var(--accent-hover)!important}
+
+/* Volume panel — expand on hover */
+.video-js .vjs-volume-panel{transition:width .2s}
+.video-js .vjs-volume-panel:hover,.video-js .vjs-volume-panel.vjs-hover{width:8em}
+.video-js .vjs-volume-bar.vjs-slider-horizontal .vjs-volume-level{background:var(--accent)!important}
+
+/* Time display styling */
+.video-js .vjs-current-time,.video-js .vjs-duration,.video-js .vjs-time-divider{
+  display:block!important;font-size:12px;padding:0 4px;
+}
+.video-js .vjs-remaining-time{display:none!important}
 
 /* Stats button in control bar */
 .vjs-stats-button .vjs-icon-placeholder::before{content:'';display:inline-block;width:1em;height:1em;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M18 20V10M12 20V4M6 20v-6'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M18 20V10M12 20V4M6 20v-6'/%3E%3C/svg%3E") center/contain no-repeat}

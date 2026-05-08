@@ -3064,7 +3064,7 @@
 
     modal.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video id="video-el" class="video-js vjs-default-skin vjs-big-play-centered" autoplay playsinline></video>' +
+        '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay muted playsinline></video-js>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
@@ -3111,7 +3111,7 @@
 
     pageEl.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video id="video-el" class="video-js vjs-default-skin vjs-big-play-centered" autoplay playsinline></video>' +
+        '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay muted playsinline></video-js>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
@@ -3221,21 +3221,32 @@
 
   // Shared video.js player options — cookie auth handles media requests automatically
   function vjsBaseOptions() {
-    var opts = {
+    return {
       controls: true,
       autoplay: true,
+      muted: true,
       fluid: false,
       responsive: true,
       preload: 'auto',
-      playbackRates: [0.5, 1, 1.5, 2]
-    };
-    opts.html5 = {
-      vhs: {
-        overrideNative: true,
-        withCredentials: true
+      playbackRates: [0.5, 1, 1.5, 2],
+      html5: {
+        vhs: {
+          overrideNative: true,
+          withCredentials: true
+        }
+      },
+      controlBar: {
+        volumePanel: { inline: true },
+        pictureInPictureToggle: true,
+        currentTimeDisplay: true,
+        timeDivider: true,
+        durationDisplay: true,
+        remainingTimeDisplay: false
+      },
+      userActions: {
+        hotkeys: true
       }
     };
-    return opts;
   }
 
   var HLSPlayer = {
