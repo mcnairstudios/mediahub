@@ -664,6 +664,19 @@
   // Register components when video.js is available
   registerVjsComponents();
 
+  // Global VHS XHR hook — injects auth token into all HLS/DASH segment requests.
+  // Must be set before any video.js player is created. Reads api.token at request
+  // time so token changes (login/refresh) are picked up automatically.
+  if (typeof videojs !== 'undefined' && videojs.Vhs) {
+    videojs.Vhs.xhr.beforeRequest = function(options) {
+      options.headers = options.headers || {};
+      if (api.token) {
+        options.headers['Authorization'] = 'Bearer ' + api.token;
+      }
+      return options;
+    };
+  }
+
   function toast(msg, type) {
     var el = document.getElementById('toast');
     if (!el) {
@@ -3215,19 +3228,11 @@
       preload: 'auto',
       playbackRates: [0.5, 1, 1.5, 2]
     };
-    if (api.token) {
-      opts.html5 = {
-        vhs: {
-          xhr: {
-            beforeRequest: function(options) {
-              options.headers = options.headers || {};
-              options.headers.Authorization = 'Bearer ' + api.token;
-              return options;
-            }
-          }
-        }
-      };
-    }
+    opts.html5 = {
+      vhs: {
+        overrideNative: true
+      }
+    };
     return opts;
   }
 
