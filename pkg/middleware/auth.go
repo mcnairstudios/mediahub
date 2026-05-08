@@ -25,6 +25,7 @@ func NewAuthMiddleware(authService auth.Service, activityService *activity.Servi
 
 func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. X-API-Key header (API keys)
 		if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
 			user, err := m.authService.ValidateAPIKey(r.Context(), apiKey)
 			if err != nil {
@@ -36,15 +37,35 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		header := r.Header.Get("Authorization")
-		if header == "" {
-			httputil.RespondError(w, http.StatusUnauthorized, "missing authorization header")
-			return
+		// Try to extract a JWT token from multiple sources, in priority order:
+		// 2. Authorization: Bearer header
+		// 3. mediahub_token cookie
+		// 4. api_key query parameter
+		// 5. token query parameter
+		token := ""
+		if header := r.Header.Get("Authorization"); header != "" {
+			if t, ok := parseBearerToken(header); ok {
+				token = t
+			}
+		}
+		if token == "" {
+			if c, err := r.Cookie("mediahub_token"); err == nil && c.Value != "" {
+				token = c.Value
+			}
+		}
+		if token == "" {
+			if t := r.URL.Query().Get("api_key"); t != "" {
+				token = t
+			}
+		}
+		if token == "" {
+			if t := r.URL.Query().Get("token"); t != "" {
+				token = t
+			}
 		}
 
-		token, ok := parseBearerToken(header)
-		if !ok {
-			httputil.RespondError(w, http.StatusUnauthorized, "invalid authorization header")
+		if token == "" {
+			httputil.RespondError(w, http.StatusUnauthorized, "missing authorization")
 			return
 		}
 

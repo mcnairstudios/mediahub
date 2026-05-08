@@ -12,6 +12,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/docs/openapi.json", s.handleOpenAPISpec)
 
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("POST /api/auth/refresh", s.handleRefreshToken)
 	s.mux.HandleFunc("GET /api/auth/google", s.handleGoogleAuth)
 	s.mux.HandleFunc("GET /api/auth/google/callback", s.handleGoogleCallback)

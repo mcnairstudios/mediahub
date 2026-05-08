@@ -664,22 +664,9 @@
   // Register components when video.js is available
   registerVjsComponents();
 
-  // Global VHS XHR hook — injects auth token into all HLS/DASH segment requests.
-  // video.js 10 lazy-initializes VHS, so we use the 'setup' hook and wait for
-  // 'vhs-ready' before setting the global beforeRequest interceptor.
-  if (typeof videojs !== 'undefined') {
-    videojs.hook('setup', function(player) {
-      player.on('vhs-ready', function() {
-        videojs.Vhs.xhr.beforeRequest = function(options) {
-          options.headers = options.headers || {};
-          if (api.token) {
-            options.headers['Authorization'] = 'Bearer ' + api.token;
-          }
-          return options;
-        };
-      });
-    });
-  }
+  // Cookie-based auth handles HLS/DASH segment requests automatically.
+  // No videojs.hook or beforeRequest needed — withCredentials in vjsBaseOptions
+  // tells video.js to send cookies with all media requests.
 
   function toast(msg, type) {
     var el = document.getElementById('toast');
@@ -1003,6 +990,7 @@
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function() {
         closePlayerOverlay();
+        api.post('/api/auth/logout').catch(function() {});
         api.token = null;
         api.user = null;
         streamFavorites = {};
@@ -3231,22 +3219,7 @@
     return options;
   }
 
-  // Set auth hook on player tech after VHS is ready (per-player)
-  function vjsSetAuthHook(player) {
-    player.ready(function() {
-      player.tech({ IWillNotUseThisInPlugins: true }).on('vhs-ready', function() {
-        player.tech({ IWillNotUseThisInPlugins: true }).vhs.xhr.beforeRequest = function(options) {
-          options.headers = options.headers || {};
-          if (api.token) {
-            options.headers['Authorization'] = 'Bearer ' + api.token;
-          }
-          return options;
-        };
-      });
-    });
-  }
-
-  // Shared video.js player options with auth token injection
+  // Shared video.js player options — cookie auth handles media requests automatically
   function vjsBaseOptions() {
     var opts = {
       controls: true,
@@ -3258,7 +3231,8 @@
     };
     opts.html5 = {
       vhs: {
-        overrideNative: true
+        overrideNative: true,
+        withCredentials: true
       }
     };
     return opts;
@@ -3284,7 +3258,7 @@
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
             vjsPlayer = videojs(videoEl, vjsBaseOptions());
-            vjsSetAuthHook(vjsPlayer);
+
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
             vjsPlayer.ready(function() {
@@ -3713,7 +3687,7 @@
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
             vjsPlayer = videojs(videoEl, vjsBaseOptions());
-            vjsSetAuthHook(vjsPlayer);
+
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
             vjsPlayer.ready(function() {

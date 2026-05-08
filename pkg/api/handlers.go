@@ -50,6 +50,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "mediahub_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
 	resp := map[string]any{"access_token": token}
 
 	user, valErr := s.deps.AuthService.ValidateToken(r.Context(), token)
@@ -83,6 +91,14 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "mediahub_token",
+		Value:    newToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
 	resp := map[string]any{"access_token": newToken}
 
 	user, valErr := s.deps.AuthService.ValidateToken(r.Context(), newToken)
@@ -95,6 +111,18 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "mediahub_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleListStreams(w http.ResponseWriter, r *http.Request) {
