@@ -213,7 +213,7 @@ grep "SIGSEGV\|panic:" /tmp/mediahub.log
 
 - Listens on `:9090` (API + frontend)
 - Jellyfin emulation on `:8096`
-- Data directory: `/tmp/mediahub-data`
+- Data directory: `/Users/gavinmcnair/mediahub-data`
 - Session temp files: `$TMPDIR/mediahub-sessions/`
 - Log file: `/tmp/mediahub.log` (append mode, `GOTRACEBACK=all`)
 - Environment prefix: `MEDIAHUB_` (NOT `TVPROXY_`)

@@ -1,7 +1,7 @@
 BINARY = mediahub
 PID_FILE = /tmp/mediahub.pid
 LOG_FILE = /tmp/mediahub.log
-DATA_DIR = /tmp/mediahub-data
+DATA_DIR = /Users/gavinmcnair/mediahub-data
 RECORD_DIR = /tmp/mediahub-recordings
 LISTEN_ADDR = :9090
 BASE_URL = http://192.168.0.111
