@@ -76,42 +76,70 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	if log.GetLevel() <= zerolog.DebugLevel && len(resp.body) > 0 {
 		log.Debug().Str("sdp", string(resp.body)).Msg("sdp")
 	}
-	if resp.status != 200 {
-		result.err = fmt.Errorf("DESCRIBE returned %d", resp.status)
-		return result
-	}
 
-	controlURL := fmt.Sprintf("rtsp://%s/stream=1", host)
-	for _, line := range strings.Split(string(resp.body), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "a=control:") {
-			ctrl := strings.TrimPrefix(line, "a=control:")
-			if strings.HasPrefix(ctrl, "rtsp://") {
-				controlURL = ctrl
-			} else {
-				controlURL = fmt.Sprintf("rtsp://%s/%s", host, ctrl)
+	var controlURL, session string
+
+	if resp.status == 200 {
+		// Standard SAT>IP path: extract control URL from SDP
+		controlURL = fmt.Sprintf("rtsp://%s/stream=1", host)
+		for _, line := range strings.Split(string(resp.body), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "a=control:") {
+				ctrl := strings.TrimPrefix(line, "a=control:")
+				if strings.HasPrefix(ctrl, "rtsp://") {
+					controlURL = ctrl
+				} else {
+					controlURL = fmt.Sprintf("rtsp://%s/%s", host, ctrl)
+				}
 			}
 		}
-	}
 
-	session := resp.headers["session"]
-	setupHeaders := map[string]string{
-		"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
-	}
-	if session != "" {
-		setupHeaders["Session"] = session
-	}
-	resp, err = c.send("SETUP", controlURL, setupHeaders, nil)
-	if err != nil {
-		result.err = err
+		session = resp.headers["session"]
+		setupHeaders := map[string]string{
+			"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
+		}
+		if session != "" {
+			setupHeaders["Session"] = session
+		}
+		resp, err = c.send("SETUP", controlURL, setupHeaders, nil)
+		if err != nil {
+			result.err = err
+			return result
+		}
+		if resp.status != 200 {
+			result.err = fmt.Errorf("SETUP returned %d", resp.status)
+			return result
+		}
+		if s := resp.headers["session"]; s != "" {
+			session = strings.SplitN(s, ";", 2)[0]
+		}
+	} else if resp.status == 404 {
+		// Fallback for devices that don't support DESCRIBE (e.g. Astra Netstream 4SAT).
+		// Go straight to SETUP with the tuning parameters in the URL.
+		log.Debug().Msg("DESCRIBE returned 404, falling back to direct SETUP")
+		resp, err = c.send("SETUP", rtspURL, map[string]string{
+			"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
+		}, nil)
+		if err != nil {
+			result.err = err
+			return result
+		}
+		if resp.status != 200 {
+			result.err = fmt.Errorf("SETUP returned %d", resp.status)
+			return result
+		}
+		if s := resp.headers["session"]; s != "" {
+			session = strings.SplitN(s, ";", 2)[0]
+		}
+		// Build control URL from stream ID returned by the device
+		if streamID := resp.headers["com.ses.streamid"]; streamID != "" {
+			controlURL = fmt.Sprintf("rtsp://%s/stream=%s", host, streamID)
+		} else {
+			controlURL = rtspURL
+		}
+	} else {
+		result.err = fmt.Errorf("DESCRIBE returned %d", resp.status)
 		return result
-	}
-	if resp.status != 200 {
-		result.err = fmt.Errorf("SETUP returned %d", resp.status)
-		return result
-	}
-	if s := resp.headers["session"]; s != "" {
-		session = strings.SplitN(s, ";", 2)[0]
 	}
 
 	resp, err = c.send("PLAY", controlURL, map[string]string{

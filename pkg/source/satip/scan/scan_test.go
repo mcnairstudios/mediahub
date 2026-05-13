@@ -254,7 +254,16 @@ func TestTransponderRTSPURLSDTPids(t *testing.T) {
 func TestTransponderRTSPURLSatellite(t *testing.T) {
 	tp := Transponder{FreqMHz: 10714, System: "dvbs2", Modulation: "qpsk", SymbolRateKS: 22000, Polarization: "h"}
 	url := tp.RTSPURL("192.168.1.50:554", "0,16,17")
-	expected := "rtsp://192.168.1.50:554/?freq=10714&msys=dvbs2&mtype=qpsk&pids=0,16,17&pol=h&sr=22000"
+	expected := "rtsp://192.168.1.50:554/?freq=10714&msys=dvbs2&mtype=qpsk&pids=0,16,17&pol=h&sr=22000&src=1"
+	if url != expected {
+		t.Errorf("RTSPURL = %q, want %q", url, expected)
+	}
+}
+
+func TestTransponderRTSPURLSatelliteExplicitSource(t *testing.T) {
+	tp := Transponder{FreqMHz: 10714, System: "dvbs2", Modulation: "qpsk", SymbolRateKS: 22000, Polarization: "h", Source: 3}
+	url := tp.RTSPURL("192.168.1.50:554", "0,16,17")
+	expected := "rtsp://192.168.1.50:554/?freq=10714&msys=dvbs2&mtype=qpsk&pids=0,16,17&pol=h&sr=22000&src=3"
 	if url != expected {
 		t.Errorf("RTSPURL = %q, want %q", url, expected)
 	}
