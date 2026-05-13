@@ -48,6 +48,9 @@ func (t Transponder) RTSPURL(host, pids string) string {
 		}
 	case "dvbs", "dvbs2":
 		fmt.Fprintf(&b, "&pol=%s&sr=%d", t.Polarization, t.SymbolRateKS)
+		if t.FEC != "" {
+			fmt.Fprintf(&b, "&fec=%s", t.FEC)
+		}
 		src := t.Source
 		if src == 0 {
 			src = 1
