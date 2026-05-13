@@ -23,11 +23,11 @@ func Scan(host string, httpPort int, cfg Config) (*ScanResult, error) {
 		return &ScanResult{Host: host, NetworkName: networkName}, nil
 	}
 
-	cfg.Log.Info().Msg("scanning all muxes")
 	parallel := cfg.Parallel
 	if parallel < 1 {
-		parallel = 4
+		parallel = 1
 	}
+	cfg.Log.Info().Int("parallel", parallel).Int("muxes", len(muxes)).Msg("scanning all muxes")
 	results := scanParallel(host, muxes, parallel, cfg.Timeout, cfg.Log, cfg.OnMuxScanned)
 
 	var allChannels []Channel
