@@ -77,6 +77,14 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 		log.Debug().Str("sdp", string(resp.body)).Msg("sdp")
 	}
 
+	// Open a UDP socket for RTP data before SETUP.
+	clientPort, err := c.listenUDP()
+	if err != nil {
+		result.err = fmt.Errorf("listen UDP: %w", err)
+		return result
+	}
+	transport := fmt.Sprintf("RTP/AVP;unicast;client_port=%d-%d", clientPort, clientPort+1)
+
 	var controlURL, session string
 
 	if resp.status == 200 {
@@ -96,7 +104,7 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 
 		session = resp.headers["session"]
 		setupHeaders := map[string]string{
-			"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
+			"Transport": transport,
 		}
 		if session != "" {
 			setupHeaders["Session"] = session
@@ -118,7 +126,7 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 		// Go straight to SETUP with the tuning parameters in the URL.
 		log.Debug().Msg("DESCRIBE returned 404, falling back to direct SETUP")
 		resp, err = c.send("SETUP", rtspURL, map[string]string{
-			"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1",
+			"Transport": transport,
 		}, nil)
 		if err != nil {
 			result.err = err
@@ -157,12 +165,13 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 		return result
 	}
 
+	// Give the tuner a moment to lock and start streaming.
 	lockEnd := time.Now().Add(2 * time.Second)
+	c.udpConn.SetReadDeadline(lockEnd) //nolint:errcheck
+	buf := make([]byte, 2048)
 	for time.Now().Before(lockEnd) {
-		c.conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		c.readInterleaved() //nolint:errcheck
+		c.udpConn.Read(buf) //nolint:errcheck
 	}
-	c.conn.SetDeadline(time.Now().Add(timeout + 5*time.Second))
 
 	pr, pw := io.Pipe()
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
@@ -170,8 +179,9 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 
 	go func() {
 		defer pw.Close()
+		c.udpConn.SetReadDeadline(time.Now().Add(timeout + 5*time.Second)) //nolint:errcheck
 		for {
-			pkt, err := c.readInterleaved()
+			pkt, err := c.readUDPPacket()
 			if err != nil {
 				return
 			}

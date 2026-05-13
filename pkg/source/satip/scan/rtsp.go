@@ -18,9 +18,10 @@ type rtspResponse struct {
 }
 
 type rtspClient struct {
-	conn net.Conn
-	br   *bufio.Reader
-	cseq int
+	conn    net.Conn
+	br      *bufio.Reader
+	cseq    int
+	udpConn *net.UDPConn // RTP data socket for UDP transport
 }
 
 func dialRTSP(host string, timeout time.Duration) (*rtspClient, error) {
@@ -31,7 +32,63 @@ func dialRTSP(host string, timeout time.Duration) (*rtspClient, error) {
 	return &rtspClient{conn: conn, br: bufio.NewReader(conn)}, nil
 }
 
-func (c *rtspClient) close() { c.conn.Close() }
+func (c *rtspClient) close() {
+	if c.udpConn != nil {
+		c.udpConn.Close()
+	}
+	c.conn.Close()
+}
+
+// listenUDP opens a UDP socket on a random ephemeral port and stores it on
+// the client. Returns the even RTP port number chosen by the OS.
+func (c *rtspClient) listenUDP() (int, error) {
+	addr, err := net.ResolveUDPAddr("udp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return 0, err
+	}
+	c.udpConn = conn
+	port := conn.LocalAddr().(*net.UDPAddr).Port
+	// RTP convention: RTP on even port, RTCP on odd port.
+	// If the OS gave us an odd port, close and try to get an even one.
+	if port%2 != 0 {
+		conn.Close()
+		// Try a few times to get an even port.
+		for i := 0; i < 10; i++ {
+			conn2, err2 := net.ListenUDP("udp", addr)
+			if err2 != nil {
+				return 0, err2
+			}
+			port = conn2.LocalAddr().(*net.UDPAddr).Port
+			if port%2 == 0 {
+				c.udpConn = conn2
+				return port, nil
+			}
+			conn2.Close()
+		}
+		// Fall back to whatever we get — most devices don't care about even/odd.
+		conn3, err3 := net.ListenUDP("udp", addr)
+		if err3 != nil {
+			return 0, err3
+		}
+		c.udpConn = conn3
+		port = conn3.LocalAddr().(*net.UDPAddr).Port
+	}
+	return port, nil
+}
+
+// readUDPPacket reads a single RTP packet from the UDP socket.
+func (c *rtspClient) readUDPPacket() ([]byte, error) {
+	buf := make([]byte, 2048)
+	n, err := c.udpConn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
 
 func (c *rtspClient) teardown(controlURL, session string) {
 	c.cseq++
