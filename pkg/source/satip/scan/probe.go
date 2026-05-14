@@ -64,7 +64,12 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 		return result
 	}
 	defer c.close()
-	c.conn.SetDeadline(time.Now().Add(15 * time.Second))
+	// Set TCP deadline from parent context so hung RTSP operations don't block forever
+	if dl, ok := parentCtx.Deadline(); ok {
+		c.conn.SetDeadline(dl)
+	} else {
+		c.conn.SetDeadline(time.Now().Add(15 * time.Second))
+	}
 
 	rtspURL := tp.RTSPURL(host, pids)
 	resp, err := c.send("DESCRIBE", rtspURL, map[string]string{"Accept": "application/sdp"}, nil)
