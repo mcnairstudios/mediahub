@@ -459,8 +459,8 @@ func shouldNotRetry(err error) bool {
 	if strings.Contains(s, "i/o timeout") || strings.Contains(s, "no data") {
 		return true
 	}
-	// RTSP errors (404, 403, etc) — not transient
-	if strings.Contains(s, "returned 4") {
+	// SETUP rejected (403 forbidden) — permanent
+	if strings.Contains(s, "SETUP returned 403") {
 		return true
 	}
 	return false
@@ -498,9 +498,9 @@ func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.
 	}
 	close(jobs)
 
-	// Backoff schedule: 30s, 1m, 2m, 4m
-	backoffs := []time.Duration{30 * time.Second, 1 * time.Minute, 2 * time.Minute, 4 * time.Minute}
-	maxAttempts := len(backoffs) + 1 // first attempt + retries
+	// Backoff schedule: short delays for transient failures (PLAY 404, connection reset)
+	backoffs := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
+	maxAttempts := len(backoffs) + 1 // first attempt + 3 retries
 
 	var wg sync.WaitGroup
 	for w := 0; w < maxParallel; w++ {
