@@ -31,7 +31,9 @@ func Scan(host string, httpPort int, cfg Config) (*ScanResult, error) {
 			parallel = workerCount(caps)
 			cfg.Log.Info().Int("tuners", parallel).Msg("autodetected tuner count from device")
 		} else {
+			// Device doesn't expose desc.xml — default to 1 (safe for all devices)
 			parallel = 1
+			cfg.Log.Info().Err(err).Int("parallel", parallel).Msg("tuner autodetect failed, using default")
 		}
 	}
 	cfg.Log.Info().Int("parallel", parallel).Int("muxes", len(muxes)).Msg("scanning all muxes")

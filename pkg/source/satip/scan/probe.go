@@ -432,6 +432,16 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	return result
 }
 
+// isDeviceBusy returns true for errors indicating the device has no free tuners.
+// These should not be retried as they just add pressure.
+func isDeviceBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "503") || strings.Contains(s, "453")
+}
+
 // scanJob represents a mux to scan, with retry tracking.
 type scanJob struct {
 	idx     int
@@ -478,11 +488,13 @@ func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.
 				results[job.idx] = scanTransponder(ctx, host, job.tp, timeout, "all", log)
 				cancel()
 
-				if results[job.idx].err != nil && job.attempt+1 < maxAttempts {
-					log.Warn().Err(results[job.idx].err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
+				r := results[job.idx]
+				// Only retry transient errors (timeout, no data). Don't retry device-busy (503/453).
+				retryable := r.err != nil && job.attempt+1 < maxAttempts && !isDeviceBusy(r.err)
+				if retryable {
+					log.Warn().Err(r.err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
 					retries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
 				} else {
-					r := results[job.idx]
 					done := int(completed.Add(1))
 					if r.err != nil {
 						log.Error().Err(r.err).Str("mux", job.tp.String()).Int("done", done).Int("total", total).Msg("mux failed")
@@ -540,11 +552,12 @@ func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.
 					results[job.idx] = scanTransponder(ctx, host, job.tp, timeout, "all", log)
 					cancel()
 
-					if results[job.idx].err != nil && job.attempt+1 < maxAttempts {
-						log.Warn().Err(results[job.idx].err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
+					r := results[job.idx]
+					retryable := r.err != nil && job.attempt+1 < maxAttempts && !isDeviceBusy(r.err)
+					if retryable {
+						log.Warn().Err(r.err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
 						nextRetries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
 					} else {
-						r := results[job.idx]
 						done := int(completed.Add(1))
 						if r.err != nil {
 							log.Error().Err(r.err).Str("mux", job.tp.String()).Int("done", done).Int("total", total).Msg("mux failed")
