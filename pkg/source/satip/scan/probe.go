@@ -177,6 +177,13 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
+	// Safety: close pipe if parent context expires (prevents goroutine/demuxer hang)
+	go func() {
+		<-parentCtx.Done()
+		pr.CloseWithError(parentCtx.Err())
+		pw.CloseWithError(parentCtx.Err())
+	}()
+
 	go func() {
 		defer pw.Close()
 		c.udpConn.SetReadDeadline(time.Now().Add(timeout + 5*time.Second)) //nolint:errcheck
