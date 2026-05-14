@@ -432,14 +432,26 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	return result
 }
 
-// isDeviceBusy returns true for errors indicating the device has no free tuners.
-// These should not be retried as they just add pressure.
-func isDeviceBusy(err error) bool {
+// shouldNotRetry returns true for errors that won't resolve with a retry:
+// device busy (503/453), no signal (timeout/no data), or non-transient RTSP errors.
+func shouldNotRetry(err error) bool {
 	if err == nil {
 		return false
 	}
 	s := err.Error()
-	return strings.Contains(s, "503") || strings.Contains(s, "453")
+	// Device busy — retrying just adds pressure
+	if strings.Contains(s, "503") || strings.Contains(s, "453") {
+		return true
+	}
+	// Timeout / no data — no signal on this frequency, retrying won't help
+	if strings.Contains(s, "i/o timeout") || strings.Contains(s, "no data") {
+		return true
+	}
+	// RTSP errors (404, 403, etc) — not transient
+	if strings.Contains(s, "returned 4") {
+		return true
+	}
+	return false
 }
 
 // scanJob represents a mux to scan, with retry tracking.
@@ -490,7 +502,7 @@ func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.
 
 				r := results[job.idx]
 				// Only retry transient errors (timeout, no data). Don't retry device-busy (503/453).
-				retryable := r.err != nil && job.attempt+1 < maxAttempts && !isDeviceBusy(r.err)
+				retryable := r.err != nil && job.attempt+1 < maxAttempts && !shouldNotRetry(r.err)
 				if retryable {
 					log.Warn().Err(r.err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
 					retries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
@@ -553,7 +565,7 @@ func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.
 					cancel()
 
 					r := results[job.idx]
-					retryable := r.err != nil && job.attempt+1 < maxAttempts && !isDeviceBusy(r.err)
+					retryable := r.err != nil && job.attempt+1 < maxAttempts && !shouldNotRetry(r.err)
 					if retryable {
 						log.Warn().Err(r.err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
 						nextRetries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
