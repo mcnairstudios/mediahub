@@ -58,9 +58,9 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	cfg := scan.Config{
-		SeedTimeout:     10 * time.Second,
-		MuxTimeout:      15 * time.Second,
-		Timeout:         10 * time.Second,
+		SeedTimeout:     20 * time.Second,
+		MuxTimeout:      20 * time.Second,
+		Timeout:         15 * time.Second,
 		Parallel:        0, // autodetect from device tuner count
 		TransmitterFile: s.cfg.TransmitterFile,
 		DiSEqCSource:    s.cfg.DiSEqCSource,
