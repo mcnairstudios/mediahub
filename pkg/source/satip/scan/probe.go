@@ -166,7 +166,7 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	}
 
 	// Give the tuner a moment to lock and start streaming.
-	lockEnd := time.Now().Add(2 * time.Second)
+	lockEnd := time.Now().Add(500 * time.Millisecond)
 	c.udpConn.SetReadDeadline(lockEnd) //nolint:errcheck
 	buf := make([]byte, 2048)
 	for time.Now().Before(lockEnd) {
@@ -432,29 +432,144 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	return result
 }
 
-func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.Duration, log zerolog.Logger, progressFn func(done, total int)) []scanResult {
+// scanJob represents a mux to scan, with retry tracking.
+type scanJob struct {
+	idx     int
+	tp      Transponder
+	attempt int
+}
+
+func scanParallel(host string, tps []Transponder, maxParallel int, timeout time.Duration, pass int, log zerolog.Logger, progressFn func(MuxProgress)) []scanResult {
 	if maxParallel < 1 {
 		maxParallel = 1
 	}
-	sem := make(chan struct{}, maxParallel)
-	results := make([]scanResult, len(tps))
-	var wg sync.WaitGroup
-	var completed atomic.Int32
-	total := len(tps)
 
+	results := make([]scanResult, len(tps))
+	total := len(tps)
+	var completed atomic.Int32
+
+	// Per-mux timeout: enough for RTSP setup + data collection + teardown.
+	muxTimeout := timeout * 3
+	if muxTimeout < 30*time.Second {
+		muxTimeout = 30 * time.Second
+	}
+
+	// Work queue: tuners pull jobs, failed jobs get re-queued with backoff.
+	jobs := make(chan scanJob, len(tps))
+	retries := make(chan scanJob, len(tps))
+
+	// Seed the queue
 	for i, tp := range tps {
+		jobs <- scanJob{idx: i, tp: tp, attempt: 0}
+	}
+	close(jobs)
+
+	// Backoff schedule: 30s, 1m, 2m, 4m
+	backoffs := []time.Duration{30 * time.Second, 1 * time.Minute, 2 * time.Minute, 4 * time.Minute}
+	maxAttempts := len(backoffs) + 1 // first attempt + retries
+
+	var wg sync.WaitGroup
+	for w := 0; w < maxParallel; w++ {
 		wg.Add(1)
-		sem <- struct{}{}
-		go func(idx int, tp Transponder) {
+		go func() {
 			defer wg.Done()
-			defer func() { <-sem }()
-			results[idx] = scanTransponder(context.Background(), host, tp, timeout, "all", log)
-			done := int(completed.Add(1))
-			if progressFn != nil {
-				progressFn(done, total)
+			for job := range jobs {
+				ctx, cancel := context.WithTimeout(context.Background(), muxTimeout)
+				results[job.idx] = scanTransponder(ctx, host, job.tp, timeout, "all", log)
+				cancel()
+
+				if results[job.idx].err != nil && job.attempt+1 < maxAttempts {
+					log.Warn().Err(results[job.idx].err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
+					retries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
+				} else {
+					r := results[job.idx]
+					done := int(completed.Add(1))
+					if r.err != nil {
+						log.Error().Err(r.err).Str("mux", job.tp.String()).Int("done", done).Int("total", total).Msg("mux failed")
+					} else {
+						log.Info().Str("mux", job.tp.String()).Int("channels", len(r.channels)).Int("done", done).Int("total", total).Msg("mux scanned")
+					}
+					if progressFn != nil {
+						progressFn(MuxProgress{
+							Done:     done,
+							Total:    total,
+							Pass:     pass,
+							Mux:      job.tp,
+							Services: r.channels,
+							Error:    r.err,
+						})
+					}
+				}
 			}
-		}(i, tp)
+		}()
 	}
 	wg.Wait()
+	close(retries)
+
+	// Process retries with backoff
+	for len(retries) > 0 {
+		var batch []scanJob
+		for job := range retries {
+			batch = append(batch, job)
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		backoff := backoffs[0]
+		if batch[0].attempt-1 < len(backoffs) {
+			backoff = backoffs[batch[0].attempt-1]
+		}
+		log.Info().Int("retries", len(batch)).Dur("backoff", backoff).Msg("retrying failed muxes")
+		time.Sleep(backoff)
+
+		nextRetries := make(chan scanJob, len(batch))
+		jobs2 := make(chan scanJob, len(batch))
+		for _, job := range batch {
+			jobs2 <- job
+		}
+		close(jobs2)
+
+		var wg2 sync.WaitGroup
+		for w := 0; w < maxParallel; w++ {
+			wg2.Add(1)
+			go func() {
+				defer wg2.Done()
+				for job := range jobs2 {
+					ctx, cancel := context.WithTimeout(context.Background(), muxTimeout)
+					results[job.idx] = scanTransponder(ctx, host, job.tp, timeout, "all", log)
+					cancel()
+
+					if results[job.idx].err != nil && job.attempt+1 < maxAttempts {
+						log.Warn().Err(results[job.idx].err).Str("mux", job.tp.String()).Int("attempt", job.attempt+1).Msg("mux failed, will retry")
+						nextRetries <- scanJob{idx: job.idx, tp: job.tp, attempt: job.attempt + 1}
+					} else {
+						r := results[job.idx]
+						done := int(completed.Add(1))
+						if r.err != nil {
+							log.Error().Err(r.err).Str("mux", job.tp.String()).Int("done", done).Int("total", total).Msg("mux failed")
+						} else {
+							log.Info().Str("mux", job.tp.String()).Int("channels", len(r.channels)).Int("done", done).Int("total", total).Msg("mux scanned")
+						}
+						if progressFn != nil {
+							progressFn(MuxProgress{
+								Done:     done,
+								Total:    total,
+								Pass:     pass,
+								Mux:      job.tp,
+								Services: r.channels,
+								Error:    r.err,
+							})
+						}
+					}
+				}
+			}()
+		}
+		wg2.Wait()
+		close(nextRetries)
+
+		retries = nextRetries
+	}
+
 	return results
 }

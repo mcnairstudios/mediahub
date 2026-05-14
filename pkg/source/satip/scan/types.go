@@ -107,6 +107,16 @@ type ScanResult struct {
 	ErrorMuxes    []Transponder
 }
 
+// MuxProgress reports the result of scanning a single transponder.
+type MuxProgress struct {
+	Done     int
+	Total    int
+	Pass     int // 1 or 2
+	Mux      Transponder
+	Services []Channel
+	Error    error
+}
+
 type Config struct {
 	SeedTimeout     time.Duration
 	MuxTimeout      time.Duration
@@ -117,7 +127,7 @@ type Config struct {
 	TransmitterFile string
 	DiSEqCSource    int
 	Log             zerolog.Logger
-	OnMuxScanned    func(done, total int)
+	OnMuxScanned    func(MuxProgress)
 }
 
 func ServiceTypeName(t uint8) string {

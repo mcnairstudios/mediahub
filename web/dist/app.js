@@ -4786,7 +4786,6 @@
       '<div class="form-group"><label class="form-label">HTTP Port</label><input class="form-input" id="satip-port" type="number" value="8875" min="1" max="65535"></div>' +
       '<div class="form-group"><label class="form-label">System</label><select class="form-input" id="satip-system"><option value="">Loading...</option></select></div>' +
       '<div class="form-group"><label class="form-label">Transmitter</label><select class="form-input" id="satip-transmitter" disabled><option value="">-- Select System First --</option></select></div>' +
-      '<div class="form-group"><label class="form-label">Max Streams (0 = unlimited)</label><input class="form-input" id="satip-maxstreams" type="number" value="0" min="0"></div>' +
       '<div class="form-group"><label class="form-label">Source Profile</label><select class="form-input" id="satip-profile"><option value="">None</option></select></div>' +
       '<div class="form-group"><label class="form-label">EPG Source</label><select class="form-input" id="satip-epg-source"><option value="">None (no auto-match)</option></select></div>' +
       '<div class="form-group"><label class="form-label"><input type="checkbox" id="satip-enabled" checked> Enabled</label></div>' +
@@ -5138,7 +5137,6 @@
       var host = document.getElementById('satip-host').value.trim();
       var port = parseInt(document.getElementById('satip-port').value) || 8875;
       var transmitter = document.getElementById('satip-transmitter').value;
-      var maxStreams = parseInt(document.getElementById('satip-maxstreams').value) || 0;
       var enabled = document.getElementById('satip-enabled').checked;
       var satipProfileId = document.getElementById('satip-profile').value;
       var satipEpgSourceId = document.getElementById('satip-epg-source').value;
@@ -5146,7 +5144,7 @@
       try {
         var payload = {
           name: name, host: host, http_port: port,
-          transmitter_file: transmitter, max_streams: maxStreams, is_enabled: enabled,
+          transmitter_file: transmitter, is_enabled: enabled,
           source_profile_id: satipProfileId || '', epg_source_id: satipEpgSourceId || ''
         };
         var r;
@@ -5717,37 +5715,62 @@
           detail.style.display = 'block';
           detail.innerHTML = '<div style="color:var(--text-secondary)">Starting scan...</div>' +
             '<div style="margin-top:8px;background:var(--border);border-radius:4px;height:6px;overflow:hidden">' +
-            '<div id="satip-progress-' + id + '" style="background:var(--primary);height:100%;width:0%;transition:width 0.5s"></div></div>' +
+            '<div id="satip-progress-' + id + '" style="background:var(--primary);height:100%;width:0%;transition:width 0.3s"></div></div>' +
             '<div id="satip-status-' + id + '" style="font-size:12px;color:var(--text-secondary);margin-top:4px"></div>';
           this.disabled = true;
           try {
             await api.post('/api/sources/satip/' + id + '/scan');
-            var pollInterval = setInterval(async function() {
-              try {
-                var sr = await api.get('/api/sources/satip/' + id + '/status');
-                var status = await sr.json();
+            var es = new EventSource('/api/sources/satip/' + id + '/scan/events', {withCredentials: true});
+            es.addEventListener('progress', function(e) {
+              var d = JSON.parse(e.data);
+              var bar = document.getElementById('satip-progress-' + id);
+              var label = document.getElementById('satip-status-' + id);
+              if (!bar || !label) { es.close(); return; }
+              var pct = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
+              bar.style.width = pct + '%';
+              label.textContent = 'Scanning mux ' + d.done + '/' + d.total + ' \u2014 ' + d.services_so_far + ' services found';
+            });
+            es.addEventListener('summary', function(e) {
+              var d = JSON.parse(e.data);
+              var bar = document.getElementById('satip-progress-' + id);
+              var label = document.getElementById('satip-status-' + id);
+              if (bar) bar.style.width = '100%';
+              if (label) label.textContent = d.message || 'Scan complete';
+              es.close();
+              btn.disabled = false;
+              setTimeout(function() { renderSources(el); }, 1000);
+            });
+            es.addEventListener('error', function() {
+              if (es.readyState === EventSource.CLOSED) {
+                api.get('/api/sources/satip/' + id + '/status').then(function(r) {
+                  return r.json();
+                }).then(function(status) {
+                  var bar = document.getElementById('satip-progress-' + id);
+                  var label = document.getElementById('satip-status-' + id);
+                  if (status.state === 'done') {
+                    if (bar) bar.style.width = '100%';
+                    if (label) label.textContent = status.message || 'Scan complete';
+                    btn.disabled = false;
+                    setTimeout(function() { renderSources(el); }, 1000);
+                  } else if (status.state === 'error') {
+                    if (bar) { bar.style.width = '100%'; bar.style.background = 'var(--danger)'; }
+                    if (label) { label.textContent = status.message || 'Scan failed'; label.style.color = 'var(--danger)'; }
+                    btn.disabled = false;
+                  }
+                }).catch(function() { btn.disabled = false; });
+              }
+            });
+            es.addEventListener('status', function(e) {
+              var d = JSON.parse(e.data);
+              if (d.state === 'error') {
                 var bar = document.getElementById('satip-progress-' + id);
                 var label = document.getElementById('satip-status-' + id);
-                if (!bar || !label) { clearInterval(pollInterval); return; }
-                if (status.state === 'done') {
-                  bar.style.width = '100%';
-                  label.textContent = status.message || 'Scan complete';
-                  clearInterval(pollInterval);
-                  btn.disabled = false;
-                  setTimeout(function() { renderSources(el); }, 1000);
-                } else if (status.state === 'error') {
-                  bar.style.width = '100%';
-                  bar.style.background = 'var(--danger)';
-                  label.textContent = status.message || 'Scan failed';
-                  label.style.color = 'var(--danger)';
-                  clearInterval(pollInterval);
-                  btn.disabled = false;
-                } else {
-                  bar.style.width = (status.progress || 10) + '%';
-                  label.textContent = status.message || 'Scanning...';
-                }
-              } catch(e) { clearInterval(pollInterval); btn.disabled = false; }
-            }, 3000);
+                if (bar) { bar.style.width = '100%'; bar.style.background = 'var(--danger)'; }
+                if (label) { label.textContent = d.message || 'Scan failed'; label.style.color = 'var(--danger)'; }
+                es.close();
+                btn.disabled = false;
+              }
+            });
           } catch(e) {
             detail.innerHTML = '<div style="color:var(--danger)">Failed to start scan</div>';
             this.disabled = false;
@@ -5886,7 +5909,6 @@
             } else {
               loadSystems();
             }
-            document.getElementById('satip-maxstreams').value = config.max_streams || '0';
             document.getElementById('satip-profile').value = config.source_profile_id || '';
             document.getElementById('satip-epg-source').value = config.epg_source_id || '';
             document.getElementById('satip-enabled').checked = entry.is_enabled;

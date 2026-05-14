@@ -108,11 +108,14 @@ func discoverMuxes(host string, caps map[string]int, seedTimeout, muxTimeout tim
 				prevScanned[k] = true
 				var t time.Duration
 				var signalOnly bool
-				if strings.HasSuffix(tp.System, "2") {
+				if discoveryComplete {
+					// NIT already found — just check for signal quickly
+					t = 5 * time.Second
+					signalOnly = true
+				} else if strings.HasSuffix(tp.System, "2") {
 					t = timeout
 				} else {
 					t = seedTimeout
-					signalOnly = discoveryComplete
 				}
 				pending = append([]workItem{{tp, t, signalOnly}}, pending...)
 			}
@@ -157,6 +160,13 @@ func discoverMuxes(host string, caps map[string]int, seedTimeout, muxTimeout tim
 				}
 				if r.nitComplete {
 					discoveryComplete = true
+					// Shorten remaining pending seeds to signal-only checks
+					for i := range pending {
+						if !pending[i].signalOnly {
+							pending[i].signalOnly = true
+							pending[i].timeout = 5 * time.Second
+						}
+					}
 				}
 				for _, m := range r.nitMuxes {
 					enqueue(m, muxTimeout)

@@ -58,16 +58,16 @@ func (s *Source) Refresh(ctx context.Context) error {
 	}
 
 	cfg := scan.Config{
-		SeedTimeout:     60 * time.Second,
-		MuxTimeout:      60 * time.Second,
-		Timeout:         60 * time.Second,
-		Parallel:        s.cfg.MaxStreams,
+		SeedTimeout:     10 * time.Second,
+		MuxTimeout:      15 * time.Second,
+		Timeout:         10 * time.Second,
+		Parallel:        0, // autodetect from device tuner count
 		TransmitterFile: s.cfg.TransmitterFile,
 		DiSEqCSource:    s.cfg.DiSEqCSource,
 		Log:             log.With().Str("source", s.cfg.ID).Logger(),
-		OnMuxScanned: func(done, total int) {
+		OnMuxScanned: func(p scan.MuxProgress) {
 			if s.cfg.OnScanProgress != nil {
-				s.cfg.OnScanProgress(done, total, 0)
+				s.cfg.OnScanProgress(p.Done, p.Total, len(p.Services))
 			}
 		},
 	}

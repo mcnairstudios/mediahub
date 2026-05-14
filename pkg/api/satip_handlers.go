@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,7 +22,52 @@ import (
 var (
 	satipScanMu     sync.RWMutex
 	satipScanStatus = make(map[string]source.RefreshStatus)
+	satipScanEvents = &scanBus{subs: make(map[string][]chan []byte)}
 )
+
+// scanBus is a per-source-ID pub/sub for SSE scan events.
+type scanBus struct {
+	mu   sync.RWMutex
+	subs map[string][]chan []byte
+}
+
+func (b *scanBus) subscribe(id string) chan []byte {
+	ch := make(chan []byte, 64)
+	b.mu.Lock()
+	b.subs[id] = append(b.subs[id], ch)
+	b.mu.Unlock()
+	return ch
+}
+
+func (b *scanBus) unsubscribe(id string, ch chan []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	subs := b.subs[id]
+	for i, s := range subs {
+		if s == ch {
+			b.subs[id] = append(subs[:i], subs[i+1:]...)
+			break
+		}
+	}
+	close(ch)
+}
+
+func (b *scanBus) publish(id, eventType string, data interface{}) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, payload))
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, ch := range b.subs[id] {
+		select {
+		case ch <- msg:
+		default: // drop if subscriber is slow
+		}
+	}
+}
 
 func (s *Server) handleCreateSatIPSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -180,47 +226,69 @@ func (s *Server) handleSatIPScan(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondError(w, http.StatusConflict, "scan already in progress")
 		return
 	}
-	satipScanStatus[id] = source.RefreshStatus{State: source.StateScanning, Message: "Starting scan..."}
+	startStatus := source.RefreshStatus{State: source.StateScanning, Message: "Starting scan..."}
+	satipScanStatus[id] = startStatus
 	satipScanMu.Unlock()
+	satipScanEvents.publish(id, "status", startStatus)
 
 	go func() {
 		src, err := s.deps.SourceReg.Create(context.Background(), source.TypeSATIP, id)
 		if err != nil {
+			errStatus := source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			satipScanMu.Lock()
-			satipScanStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
+			satipScanStatus[id] = errStatus
 			satipScanMu.Unlock()
+			satipScanEvents.publish(id, "error", errStatus)
 			return
 		}
 
 		type progressSetter interface {
 			SetScanProgress(fn func(done, total, channels int))
 		}
+		servicesSoFar := 0
 		if ps, ok := src.(progressSetter); ok {
 			ps.SetScanProgress(func(done, total, channels int) {
-				satipScanMu.Lock()
-				satipScanStatus[id] = source.RefreshStatus{
-					State:   "scanning",
-					Message: fmt.Sprintf("Scanning mux %d/%d", done, total),
+				servicesSoFar += channels
+				status := source.RefreshStatus{
+					State:    "scanning",
+					Message:  fmt.Sprintf("Scanning mux %d/%d", done, total),
+					Total:    total,
+					Progress: done,
 				}
+				satipScanMu.Lock()
+				satipScanStatus[id] = status
 				satipScanMu.Unlock()
+				satipScanEvents.publish(id, "progress", map[string]interface{}{
+					"done":            done,
+					"total":           total,
+					"services_so_far": servicesSoFar,
+				})
 			})
 		}
 
 		if err := src.Refresh(context.Background()); err != nil {
+			errStatus := source.RefreshStatus{State: source.StateError, Message: err.Error()}
 			satipScanMu.Lock()
-			satipScanStatus[id] = source.RefreshStatus{State: source.StateError, Message: err.Error()}
+			satipScanStatus[id] = errStatus
 			satipScanMu.Unlock()
+			satipScanEvents.publish(id, "error", errStatus)
 			log.Printf("satip scan failed for %s: %v", id, err)
 			return
 		}
 
 		info := src.Info(context.Background())
-		satipScanMu.Lock()
-		satipScanStatus[id] = source.RefreshStatus{
+		doneStatus := source.RefreshStatus{
 			State:   source.StateDone,
 			Message: fmt.Sprintf("Scan complete. %d streams found.", info.StreamCount),
 		}
+		satipScanMu.Lock()
+		satipScanStatus[id] = doneStatus
 		satipScanMu.Unlock()
+		satipScanEvents.publish(id, "summary", map[string]interface{}{
+			"state":          "done",
+			"total_services": info.StreamCount,
+			"message":        doneStatus.Message,
+		})
 		log.Printf("satip scan completed for %s: %d streams", id, info.StreamCount)
 	}()
 
@@ -244,6 +312,54 @@ func (s *Server) handleSatIPScanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.RespondJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleSatIPScanEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.RespondError(w, http.StatusBadRequest, "source ID required")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httputil.RespondError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// Send current status immediately (for reconnects / late joiners)
+	satipScanMu.RLock()
+	current, exists := satipScanStatus[id]
+	satipScanMu.RUnlock()
+	if exists {
+		payload, _ := json.Marshal(current)
+		fmt.Fprintf(w, "event: status\ndata: %s\n\n", payload)
+		flusher.Flush()
+		// If scan already finished, send and close
+		if current.State == source.StateDone || current.State == source.StateError {
+			return
+		}
+	}
+
+	ch := satipScanEvents.subscribe(id)
+	defer satipScanEvents.unsubscribe(id, ch)
+
+	for {
+		select {
+		case msg, open := <-ch:
+			if !open {
+				return
+			}
+			w.Write(msg)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
 
 func dvbTablesDir() string {

@@ -112,6 +112,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("DELETE /api/sources/satip/{id}", s.adminOnly(s.handleDeleteSatIPSource))
 	s.mux.Handle("POST /api/sources/satip/{id}/scan", s.adminOnly(s.handleSatIPScan))
 	s.mux.Handle("GET /api/sources/satip/{id}/status", s.authenticated(s.handleSatIPScanStatus))
+	s.mux.Handle("GET /api/sources/satip/{id}/scan/events", s.authenticated(s.handleSatIPScanEvents))
 	s.mux.Handle("POST /api/sources/satip/{id}/clear", s.adminOnly(s.handleSatIPClear))
 	s.mux.Handle("POST /api/sources/trailers", s.adminOnly(s.handleCreateTrailersSource))
 	s.mux.Handle("PUT /api/sources/trailers/{id}", s.adminOnly(s.handleUpdateTrailersSource))
