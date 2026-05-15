@@ -16,6 +16,12 @@ func resolveDVBTablesDir() string {
 	if v := os.Getenv("MEDIAHUB_DVB_TABLES_DIR"); v != "" {
 		return v
 	}
+	// Check working directory (project-local dvb/ folder)
+	if info, err := os.Stat("dvb"); err == nil && info.IsDir() {
+		if abs, err := filepath.Abs("dvb"); err == nil {
+			return abs
+		}
+	}
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		homeDir := filepath.Join(home, "dvb")

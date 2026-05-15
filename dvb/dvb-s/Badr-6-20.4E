@@ -1,0 +1,11 @@
+# Channel table for Badr-6-20.4E
+# Source: http://en.kingofsat.net/sat-badr6
+
+[CHANNEL]
+	DELIVERY_SYSTEM = DVBS
+	FREQUENCY = 4116000
+	POLARIZATION = LEFT
+	SYMBOL_RATE = 3330000
+	INNER_FEC = 3/4
+	INVERSION = AUTO
+

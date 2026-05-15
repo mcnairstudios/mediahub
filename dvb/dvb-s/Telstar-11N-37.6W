@@ -1,0 +1,13 @@
+# Channel table for Telstar-11N-37.6W
+# Source: http://www.lyngsat.com/Telstar-11N.html
+
+[Reuters Live]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 11723000
+	POLARIZATION = VERTICAL
+	SYMBOL_RATE = 17250000
+	MODULATION = PSK/8
+	INNER_FEC = 3/5
+	STREAM_ID = 1
+	INVERSION = AUTO
+

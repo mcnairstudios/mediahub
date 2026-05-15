@@ -1,0 +1,12 @@
+# Channel table for Horizons-3e-169.0E
+# Source: http://www.lyngsat.com/Horizons-3e.html
+
+[American Forces Network]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 4172000
+	POLARIZATION = LEFT
+	SYMBOL_RATE = 11000000
+	MODULATION = QPSK
+	INNER_FEC = 1/2
+	INVERSION = AUTO
+

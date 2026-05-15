@@ -1,0 +1,13 @@
+# Channel table for Anik-F1R-107.3W
+# Source: http://www.lyngsat.com/Anik-F1R.html
+
+[Legislative Assembly TV Nunavut]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 4164000
+	POLARIZATION = VERTICAL
+	SYMBOL_RATE = 1936000
+	MODULATION = PSK/8
+	INNER_FEC = 5/6
+	STREAM_ID = 1
+	INVERSION = AUTO
+

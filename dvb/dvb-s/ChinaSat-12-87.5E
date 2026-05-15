@@ -1,0 +1,12 @@
+# Channel table for ChinaSat-12-87.5E
+# Source: http://www.lyngsat.com/ChinaSat-12.html
+
+[Voice of Strait]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 4035000
+	POLARIZATION = HORIZONTAL
+	SYMBOL_RATE = 1073000
+	MODULATION = QPSK
+	INNER_FEC = 3/4
+	INVERSION = AUTO
+

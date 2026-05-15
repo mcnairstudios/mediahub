@@ -1,0 +1,12 @@
+# Channel table for Eutelsat-8-West-D-8.0W
+# Source: http://en.kingofsat.net/sat-e8westd
+
+[CHANNEL]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 12505800
+	POLARIZATION = VERTICAL
+	SYMBOL_RATE = 4250000
+	MODULATION = QPSK
+	INNER_FEC = 1/4
+	INVERSION = AUTO
+

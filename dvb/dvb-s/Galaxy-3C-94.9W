@@ -1,0 +1,12 @@
+# Channel table for Galaxy-3C-94.9W
+# Source: http://www.lyngsat.com/Galaxy-3C.html
+
+[Once]
+	DELIVERY_SYSTEM = DVBS2
+	FREQUENCY = 12121000
+	POLARIZATION = HORIZONTAL
+	SYMBOL_RATE = 2653000
+	MODULATION = PSK/8
+	INNER_FEC = 5/6
+	INVERSION = AUTO
+
