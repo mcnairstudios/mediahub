@@ -191,7 +191,10 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 
 	go func() {
 		defer pw.Close()
-		c.udpConn.SetReadDeadline(time.Now().Add(timeout + 5*time.Second)) //nolint:errcheck
+		// Short initial deadline to detect signal quickly.
+		// If no valid TS data arrives in 3s, there's no signal — exit fast.
+		c.udpConn.SetReadDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
+		gotTS := false
 		for {
 			pkt, err := c.readUDPPacket()
 			if err != nil {
@@ -202,6 +205,11 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 				continue
 			}
 			if len(payload)%188 == 0 && payload[0] == 0x47 {
+				if !gotTS {
+					// First TS data — extend deadline for full collection
+					gotTS = true
+					c.udpConn.SetReadDeadline(time.Now().Add(timeout)) //nolint:errcheck
+				}
 				pw.Write(payload) //nolint
 			}
 		}
@@ -229,7 +237,15 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 			if errors.Is(err, context.DeadlineExceeded) ||
 				errors.Is(err, context.Canceled) ||
 				errors.Is(err, io.EOF) ||
-				errors.Is(err, io.ErrClosedPipe) {
+				errors.Is(err, io.ErrClosedPipe) ||
+				errors.Is(err, astits.ErrNoMorePackets) {
+				break
+			}
+			// Catch wrapped pipe/read errors (astits wraps EOF in its own errors)
+			errStr := err.Error()
+			if strings.Contains(errStr, "closed pipe") ||
+				strings.Contains(errStr, "EOF") ||
+				strings.Contains(errStr, "no more packets") {
 				break
 			}
 			continue
