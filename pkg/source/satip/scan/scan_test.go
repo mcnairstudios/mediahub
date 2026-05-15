@@ -286,8 +286,9 @@ func TestMuxKey(t *testing.T) {
 		{Transponder{FreqMHz: 474, System: "dvbt"}, "474/dvbt"},
 		{Transponder{FreqMHz: 474, System: "dvbt2", PLPID: 0}, "474/dvbt2/0"},
 		{Transponder{FreqMHz: 474, System: "dvbt2", PLPID: 3}, "474/dvbt2/3"},
-		{Transponder{FreqMHz: 10714, System: "dvbs2"}, "10714/dvbs2"},
-		{Transponder{FreqMHz: 114, System: "dvbc"}, "114/dvbc"},
+		{Transponder{FreqMHz: 10714, System: "dvbs2", Polarization: "h"}, "10714/dvbs2/h"},
+		{Transponder{FreqMHz: 10714, System: "dvbs2", Polarization: "v"}, "10714/dvbs2/v"},
+		{Transponder{FreqMHz: 114, System: "dvbc"}, "114/dvbc/"},
 	}
 	for _, tt := range tests {
 		got := tt.tp.MuxKey()

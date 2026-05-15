@@ -35,7 +35,8 @@ func muxKey(t Transponder) string {
 	if t.System == "dvbt" {
 		return fmt.Sprintf("%.0f/%s", t.FreqMHz, t.System)
 	}
-	return fmt.Sprintf("%g/%s", t.FreqMHz, t.System)
+	// DVB-S/S2/C: include polarization — same freq with H and V are different transponders
+	return fmt.Sprintf("%g/%s/%s", t.FreqMHz, t.System, t.Polarization)
 }
 
 type workItem struct {

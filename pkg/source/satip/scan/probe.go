@@ -192,8 +192,9 @@ func scanTransponder(parentCtx context.Context, host string, tp Transponder, tim
 	go func() {
 		defer pw.Close()
 		// Short initial deadline to detect signal quickly.
-		// If no valid TS data arrives in 3s, there's no signal — exit fast.
-		c.udpConn.SetReadDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
+		// If no valid TS data arrives in 4s, there's no signal — exit fast.
+		// 4s allows for DVB-S2 8PSK tuner lock (~2-3s on some devices).
+		c.udpConn.SetReadDeadline(time.Now().Add(4 * time.Second)) //nolint:errcheck
 		gotTS := false
 		for {
 			pkt, err := c.readUDPPacket()
