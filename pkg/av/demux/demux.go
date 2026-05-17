@@ -21,6 +21,7 @@ type DemuxOpts struct {
 	Follow           bool
 	FormatHint       string
 	SATIPHTTPMode    bool
+	SATIPHTTPPort    int
 	UserAgent        string
 	RTSPLatency      int
 	AudioPassthrough bool
@@ -94,8 +95,13 @@ func NewDemuxer(url string, opts DemuxOpts) (*Demuxer, error) {
 		return nil, fmt.Errorf("demux: URL is empty")
 	}
 
-	if opts.SATIPHTTPMode && strings.HasPrefix(url, "rtsp://") {
-		url = convertRTSPtoHTTP(url)
+	isSATIPURL := strings.HasPrefix(url, "rtsp://") && strings.Contains(url, "freq=") && strings.Contains(url, "msys=")
+	if (opts.SATIPHTTPMode || isSATIPURL) && strings.HasPrefix(url, "rtsp://") {
+		httpPort := opts.SATIPHTTPPort
+		if httpPort == 0 {
+			httpPort = 80
+		}
+		url = convertRTSPtoHTTP(url, httpPort)
 	}
 
 	fc := astiav.AllocFormatContext()
@@ -656,20 +662,21 @@ func metadataValue(d *astiav.Dictionary, key string) string {
 	return entry.Value()
 }
 
-func convertRTSPtoHTTP(url string) string {
-	url = strings.Replace(url, "rtsp://", "http://", 1)
-	if strings.Contains(url, ":554/") {
-		url = strings.Replace(url, ":554/", ":8875/", 1)
-	} else if strings.Contains(url, ":554") {
-		url = strings.Replace(url, ":554", ":8875", 1)
+func convertRTSPtoHTTP(rawURL string, httpPort int) string {
+	rawURL = strings.Replace(rawURL, "rtsp://", "http://", 1)
+	portStr := fmt.Sprintf(":%d", httpPort)
+	if strings.Contains(rawURL, ":554/") {
+		rawURL = strings.Replace(rawURL, ":554/", portStr+"/", 1)
+	} else if strings.Contains(rawURL, ":554") {
+		rawURL = strings.Replace(rawURL, ":554", portStr, 1)
 	} else {
-		afterScheme := strings.TrimPrefix(url, "http://")
+		afterScheme := strings.TrimPrefix(rawURL, "http://")
 		slashIdx := strings.Index(afterScheme, "/")
 		if slashIdx >= 0 {
-			url = "http://" + afterScheme[:slashIdx] + ":8875" + afterScheme[slashIdx:]
+			rawURL = "http://" + afterScheme[:slashIdx] + portStr + afterScheme[slashIdx:]
 		} else {
-			url = "http://" + afterScheme + ":8875"
+			rawURL = "http://" + afterScheme + portStr
 		}
 	}
-	return url
+	return rawURL
 }

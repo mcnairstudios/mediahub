@@ -90,18 +90,19 @@ func TestToNanoseconds(t *testing.T) {
 func TestConvertRTSPtoHTTP(t *testing.T) {
 	tests := []struct {
 		input string
+		port  int
 		want  string
 	}{
-		{"rtsp://192.168.1.1:554/stream", "http://192.168.1.1:8875/stream"},
-		{"rtsp://192.168.1.1:554", "http://192.168.1.1:8875"},
-		{"rtsp://192.168.1.1/stream", "http://192.168.1.1:8875/stream"},
-		{"rtsp://192.168.1.1", "http://192.168.1.1:8875"},
+		{"rtsp://192.168.1.1:554/stream", 8875, "http://192.168.1.1:8875/stream"},
+		{"rtsp://192.168.1.1:554", 8875, "http://192.168.1.1:8875"},
+		{"rtsp://192.168.1.1/stream", 80, "http://192.168.1.1:80/stream"},
+		{"rtsp://192.168.1.1", 80, "http://192.168.1.1:80"},
 	}
 
 	for _, tc := range tests {
-		got := convertRTSPtoHTTP(tc.input)
+		got := convertRTSPtoHTTP(tc.input, tc.port)
 		if got != tc.want {
-			t.Errorf("convertRTSPtoHTTP(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Errorf("convertRTSPtoHTTP(%q, %d) = %q, want %q", tc.input, tc.port, got, tc.want)
 		}
 	}
 }
