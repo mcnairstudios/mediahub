@@ -3974,7 +3974,6 @@
     if (typeof videojs !== 'undefined' && !vjsPlayer) {
       if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
       vjsPlayer = videojs(videoEl, vjsBaseOptions());
-      vjsSetAuthHook(vjsPlayer);
       playerState.vjsPlayer = vjsPlayer;
     }
 
