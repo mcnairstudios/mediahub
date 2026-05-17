@@ -558,6 +558,7 @@ func (s *Server) handlePlaybackServe(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	sess.Touch()
 
 	var wantMode output.DeliveryMode
 	prefix := "/api/play/" + streamID + "/"
@@ -1099,6 +1100,7 @@ func (s *Server) handleStreamServe(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	sess.Touch()
 
 	var filePath string
 	plugins := sess.FanOut.Plugins()

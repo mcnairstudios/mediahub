@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/av/demux"
@@ -30,16 +31,17 @@ type Session struct {
 	demuxer   *demux.Demuxer
 	probeInfo *media.ProbeResult
 
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	done     chan struct{}
-	stopOnce sync.Once
-	seekFunc func(posMs int64)
-	recorded bool
-	closers  []io.Closer
-	err      error
-	finished bool
+	mu         sync.Mutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stopOnce   sync.Once
+	seekFunc   func(posMs int64)
+	recorded   bool
+	closers    []io.Closer
+	err        error
+	finished   bool
+	lastActive int64 // unix timestamp of last viewer activity (atomic)
 
 	// WebRTC SDP negotiation: pipeline deferred until WHEP offer arrives
 	onSDPOffer       func(sdp string) (negotiatedCodec string, err error)
@@ -47,7 +49,7 @@ type Session struct {
 }
 
 func newSession(ctx context.Context, cancel context.CancelFunc, streamID, streamURL, streamName, outputDir string) *Session {
-	return &Session{
+	s := &Session{
 		ID:         generateID(),
 		StreamID:   streamID,
 		StreamURL:  streamURL,
@@ -59,6 +61,25 @@ func newSession(ctx context.Context, cancel context.CancelFunc, streamID, stream
 		cancel:     cancel,
 		done:       make(chan struct{}),
 	}
+	s.Touch()
+	return s
+}
+
+// Touch updates the last activity timestamp. Call this on every viewer request
+// (playlist fetch, segment fetch, WHEP poll, etc).
+func (s *Session) Touch() {
+	atomic.StoreInt64(&s.lastActive, time.Now().Unix())
+}
+
+// LastActive returns the time of the last viewer activity.
+func (s *Session) LastActive() time.Time {
+	ts := atomic.LoadInt64(&s.lastActive)
+	return time.Unix(ts, 0)
+}
+
+// IdleDuration returns how long since the last viewer activity.
+func (s *Session) IdleDuration() time.Duration {
+	return time.Since(s.LastActive())
 }
 
 func (s *Session) Context() context.Context {

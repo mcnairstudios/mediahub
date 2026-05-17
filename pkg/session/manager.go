@@ -3,10 +3,14 @@ package session
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/mcnairstudios/mediahub/pkg/output"
 )
+
+const idleTimeout = 30 * time.Second
 
 var errSessionNotFound = errors.New("session not found")
 
@@ -14,12 +18,49 @@ type Manager struct {
 	sessions  map[string]*Session
 	mu        sync.RWMutex
 	outputDir string
+	stopCh    chan struct{}
 }
 
 func NewManager(outputDir string) *Manager {
-	return &Manager{
+	m := &Manager{
 		sessions:  make(map[string]*Session),
 		outputDir: outputDir,
+		stopCh:    make(chan struct{}),
+	}
+	go m.reapIdle()
+	return m
+}
+
+// reapIdle periodically checks for sessions with no viewer activity
+// and stops them to free resources.
+func (m *Manager) reapIdle() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			m.mu.RLock()
+			var idle []string
+			for id, s := range m.sessions {
+				if s.IdleDuration() > idleTimeout && !s.IsRecorded() {
+					idle = append(idle, id)
+				}
+			}
+			m.mu.RUnlock()
+
+			for _, id := range idle {
+				m.mu.Lock()
+				s, ok := m.sessions[id]
+				if ok && s.IdleDuration() > idleTimeout {
+					delete(m.sessions, id)
+					log.Printf("session idle timeout: %s (%s)", id, s.StreamName)
+					go s.Stop()
+				}
+				m.mu.Unlock()
+			}
+		case <-m.stopCh:
+			return
+		}
 	}
 }
 
@@ -62,6 +103,12 @@ func (m *Manager) Stop(streamID string) {
 }
 
 func (m *Manager) StopAll() {
+	select {
+	case <-m.stopCh:
+	default:
+		close(m.stopCh)
+	}
+
 	m.mu.Lock()
 	sessions := m.sessions
 	m.sessions = make(map[string]*Session)
