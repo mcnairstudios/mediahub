@@ -369,295 +369,231 @@
     var Component = videojs.getComponent('Component');
 
     // --- Stats Button ---
-    var StatsButton = function(player, options) {
-      Button.call(this, player, options);
-      this.controlText('Toggle Stats');
-    };
-    StatsButton.prototype = Object.create(Button.prototype);
-    StatsButton.prototype.constructor = StatsButton;
-    StatsButton.prototype.handleClick = function() {
-      var overlay = this.player().getChild('StatsOverlay');
-      if (overlay) overlay.toggle();
-    };
-    StatsButton.prototype.buildCSSClass = function() {
-      return 'vjs-stats-button ' + Button.prototype.buildCSSClass.call(this);
-    };
+    class StatsButton extends Button {
+      constructor(player, options) { super(player, options); this.controlText('Toggle Stats'); }
+      handleClick() { var overlay = this.player().getChild('StatsOverlay'); if (overlay) overlay.toggle(); }
+      buildCSSClass() { return 'vjs-stats-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('StatsButton', StatsButton);
 
     // --- Stats Overlay ---
-    var StatsOverlay = function(player, options) {
-      Component.call(this, player, options);
-      this.addClass('vjs-stats-overlay');
-      this._visible = false;
-    };
-    StatsOverlay.prototype = Object.create(Component.prototype);
-    StatsOverlay.prototype.constructor = StatsOverlay;
-    StatsOverlay.prototype.createEl = function() {
-      return videojs.dom.createEl('div', { className: 'vjs-stats-overlay' });
-    };
-    StatsOverlay.prototype.toggle = function() {
-      this._visible = !this._visible;
-      if (this._visible) {
-        this.addClass('vjs-stats-visible');
-      } else {
-        this.removeClass('vjs-stats-visible');
-      }
-    };
-    StatsOverlay.prototype.show = function() {
-      this._visible = true;
-      this.addClass('vjs-stats-visible');
-    };
-    StatsOverlay.prototype.hide = function() {
-      this._visible = false;
-      this.removeClass('vjs-stats-visible');
-    };
-    StatsOverlay.prototype.isVisible = function() {
-      return this._visible;
-    };
-    StatsOverlay.prototype.updateContent = function(html) {
-      this.el().innerHTML = html;
-    };
+    class StatsOverlay extends Component {
+      constructor(player, options) { super(player, options); this.addClass('vjs-stats-overlay'); this._visible = false; }
+      createEl() { return videojs.dom.createEl('div', { className: 'vjs-stats-overlay' }); }
+      toggle() { this._visible = !this._visible; this._visible ? this.addClass('vjs-stats-visible') : this.removeClass('vjs-stats-visible'); }
+      show() { this._visible = true; this.addClass('vjs-stats-visible'); }
+      hide() { this._visible = false; this.removeClass('vjs-stats-visible'); }
+      isVisible() { return this._visible; }
+      updateContent(html) { this.el().innerHTML = html; }
+    }
     videojs.registerComponent('StatsOverlay', StatsOverlay);
 
     // --- Keyboard Help Overlay ---
-    var KbHelpOverlay = function(player, options) {
-      Component.call(this, player, options);
-      this.addClass('vjs-kb-help-overlay');
-      this._visible = false;
-      var self = this;
-      this.on('click', function(e) {
-        if (e.target === self.el()) self.hide();
-      });
-    };
-    KbHelpOverlay.prototype = Object.create(Component.prototype);
-    KbHelpOverlay.prototype.constructor = KbHelpOverlay;
-    KbHelpOverlay.prototype.createEl = function() {
-      var el = videojs.dom.createEl('div', { className: 'vjs-kb-help-overlay' });
-      el.innerHTML =
-        '<div class="vjs-kb-help-inner">' +
-          '<div class="vjs-kb-help-title">Keyboard Shortcuts</div>' +
-          '<div class="vjs-kb-help-grid">' +
-            '<div class="vjs-kb-help-section">Playback</div>' +
-            '<span class="vjs-kb-help-key">Space</span><span class="vjs-kb-help-desc">Play / Pause</span>' +
-            '<span class="vjs-kb-help-key">M</span><span class="vjs-kb-help-desc">Toggle mute</span>' +
-            '<span class="vjs-kb-help-key">\u2191</span><span class="vjs-kb-help-desc">Volume up 10%</span>' +
-            '<span class="vjs-kb-help-key">\u2193</span><span class="vjs-kb-help-desc">Volume down 10%</span>' +
-            '<div class="vjs-kb-help-section">Seeking (VOD only)</div>' +
-            '<span class="vjs-kb-help-key">\u2190</span><span class="vjs-kb-help-desc">Seek back 10 seconds</span>' +
-            '<span class="vjs-kb-help-key">\u2192</span><span class="vjs-kb-help-desc">Seek forward 10 seconds</span>' +
-            '<span class="vjs-kb-help-key">0 - 9</span><span class="vjs-kb-help-desc">Seek to 0% - 90% of duration</span>' +
-            '<div class="vjs-kb-help-section">Display</div>' +
-            '<span class="vjs-kb-help-key">F</span><span class="vjs-kb-help-desc">Toggle fullscreen</span>' +
-            '<span class="vjs-kb-help-key">I</span><span class="vjs-kb-help-desc">Toggle stats overlay</span>' +
-            '<span class="vjs-kb-help-key">?</span><span class="vjs-kb-help-desc">Show / hide this help</span>' +
-            '<span class="vjs-kb-help-key">Esc</span><span class="vjs-kb-help-desc">Exit fullscreen or close player</span>' +
-          '</div>' +
-        '</div>';
-      return el;
-    };
-    KbHelpOverlay.prototype.toggle = function() {
-      this._visible = !this._visible;
-      if (this._visible) this.addClass('vjs-help-visible');
-      else this.removeClass('vjs-help-visible');
-    };
-    KbHelpOverlay.prototype.show = function() { this._visible = true; this.addClass('vjs-help-visible'); };
-    KbHelpOverlay.prototype.hide = function() { this._visible = false; this.removeClass('vjs-help-visible'); };
-    KbHelpOverlay.prototype.isVisible = function() { return this._visible; };
+    class KbHelpOverlay extends Component {
+      constructor(player, options) {
+        super(player, options);
+        this.addClass('vjs-kb-help-overlay');
+        this._visible = false;
+        this.on('click', (e) => { if (e.target === this.el()) this.hide(); });
+      }
+      createEl() {
+        var el = videojs.dom.createEl('div', { className: 'vjs-kb-help-overlay' });
+        el.innerHTML =
+          '<div class="vjs-kb-help-inner">' +
+            '<div class="vjs-kb-help-title">Keyboard Shortcuts</div>' +
+            '<div class="vjs-kb-help-grid">' +
+              '<div class="vjs-kb-help-section">Playback</div>' +
+              '<span class="vjs-kb-help-key">Space</span><span class="vjs-kb-help-desc">Play / Pause</span>' +
+              '<span class="vjs-kb-help-key">M</span><span class="vjs-kb-help-desc">Toggle mute</span>' +
+              '<span class="vjs-kb-help-key">\u2191</span><span class="vjs-kb-help-desc">Volume up 10%</span>' +
+              '<span class="vjs-kb-help-key">\u2193</span><span class="vjs-kb-help-desc">Volume down 10%</span>' +
+              '<div class="vjs-kb-help-section">Seeking (VOD only)</div>' +
+              '<span class="vjs-kb-help-key">\u2190</span><span class="vjs-kb-help-desc">Seek back 10 seconds</span>' +
+              '<span class="vjs-kb-help-key">\u2192</span><span class="vjs-kb-help-desc">Seek forward 10 seconds</span>' +
+              '<span class="vjs-kb-help-key">0 - 9</span><span class="vjs-kb-help-desc">Seek to 0% - 90% of duration</span>' +
+              '<div class="vjs-kb-help-section">Display</div>' +
+              '<span class="vjs-kb-help-key">F</span><span class="vjs-kb-help-desc">Toggle fullscreen</span>' +
+              '<span class="vjs-kb-help-key">I</span><span class="vjs-kb-help-desc">Toggle stats overlay</span>' +
+              '<span class="vjs-kb-help-key">?</span><span class="vjs-kb-help-desc">Show / hide this help</span>' +
+              '<span class="vjs-kb-help-key">Esc</span><span class="vjs-kb-help-desc">Exit fullscreen or close player</span>' +
+            '</div>' +
+          '</div>';
+        return el;
+      }
+      toggle() { this._visible = !this._visible; this._visible ? this.addClass('vjs-help-visible') : this.removeClass('vjs-help-visible'); }
+      show() { this._visible = true; this.addClass('vjs-help-visible'); }
+      hide() { this._visible = false; this.removeClass('vjs-help-visible'); }
+      isVisible() { return this._visible; }
+    }
     videojs.registerComponent('KbHelpOverlay', KbHelpOverlay);
 
     // --- Help Button ---
-    var HelpButton = function(player, options) {
-      Button.call(this, player, options);
-      this.controlText('Keyboard Shortcuts');
-    };
-    HelpButton.prototype = Object.create(Button.prototype);
-    HelpButton.prototype.constructor = HelpButton;
-    HelpButton.prototype.handleClick = function() {
-      var overlay = this.player().getChild('KbHelpOverlay');
-      if (overlay) overlay.toggle();
-    };
-    HelpButton.prototype.buildCSSClass = function() {
-      return 'vjs-help-button ' + Button.prototype.buildCSSClass.call(this);
-    };
+    class HelpButton extends Button {
+      constructor(player, options) { super(player, options); this.controlText('Keyboard Shortcuts'); }
+      handleClick() { var overlay = this.player().getChild('KbHelpOverlay'); if (overlay) overlay.toggle(); }
+      buildCSSClass() { return 'vjs-help-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('HelpButton', HelpButton);
 
     // --- Record Button ---
-    var RecordButton = function(player, options) {
-      Button.call(this, player, options);
-      this.controlText('Record');
-      this._recording = false;
-      this._streamID = options.streamID || null;
-    };
-    RecordButton.prototype = Object.create(Button.prototype);
-    RecordButton.prototype.constructor = RecordButton;
-    RecordButton.prototype.handleClick = function() {
-      var self = this;
-      if (!this._streamID) return;
-      if (this._recording) {
-        api.del('/api/play/' + this._streamID + '/record').catch(function() {});
-        this.removeClass('vjs-recording');
+    class RecordButton extends Button {
+      constructor(player, options) {
+        super(player, options);
+        this.controlText('Record');
         this._recording = false;
-        toast('Recording stopped');
-      } else {
-        api.post('/api/play/' + this._streamID + '/record', { title: 'Manual Recording' })
-          .then(function(resp) {
-            if (resp && resp.ok) {
-              self.addClass('vjs-recording');
-              self._recording = true;
-              toast('Recording started');
-            } else {
-              toast('Failed to start recording', 'error');
-            }
-          })
-          .catch(function() { toast('Failed to start recording', 'error'); });
+        this._streamID = options.streamID || null;
       }
-    };
-    RecordButton.prototype.buildCSSClass = function() {
-      return 'vjs-record-button ' + Button.prototype.buildCSSClass.call(this);
-    };
+      handleClick() {
+        if (!this._streamID) return;
+        if (this._recording) {
+          api.del('/api/play/' + this._streamID + '/record').catch(function() {});
+          this.removeClass('vjs-recording');
+          this._recording = false;
+          toast('Recording stopped');
+        } else {
+          var self = this;
+          api.post('/api/play/' + this._streamID + '/record', { title: 'Manual Recording' })
+            .then(function(resp) {
+              if (resp && resp.ok) { self.addClass('vjs-recording'); self._recording = true; toast('Recording started'); }
+              else { toast('Failed to start recording', 'error'); }
+            })
+            .catch(function() { toast('Failed to start recording', 'error'); });
+        }
+      }
+      buildCSSClass() { return 'vjs-record-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('RecordButton', RecordButton);
 
     // --- Close Button ---
-    var CloseButton = function(player, options) {
-      Button.call(this, player, options);
-      this.controlText('Close');
-    };
-    CloseButton.prototype = Object.create(Button.prototype);
-    CloseButton.prototype.constructor = CloseButton;
-    CloseButton.prototype.handleClick = function() {
-      closePlayerOverlay();
-    };
-    CloseButton.prototype.buildCSSClass = function() {
-      return 'vjs-close-button ' + Button.prototype.buildCSSClass.call(this);
-    };
+    class CloseButton extends Button {
+      constructor(player, options) { super(player, options); this.controlText('Close'); }
+      handleClick() { closePlayerOverlay(); }
+      buildCSSClass() { return 'vjs-close-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('CloseButton', CloseButton);
 
     // --- Title Bar (top overlay with stream name and status) ---
-    var TitleBar = function(player, options) {
-      Component.call(this, player, options);
-      this.addClass('vjs-title-bar');
-      this._titleEl = this.el().querySelector('.vjs-title-text');
-      this._statusEl = this.el().querySelector('.vjs-status-badge');
-    };
-    TitleBar.prototype = Object.create(Component.prototype);
-    TitleBar.prototype.constructor = TitleBar;
-    TitleBar.prototype.createEl = function() {
-      var el = videojs.dom.createEl('div', { className: 'vjs-title-bar' });
-      el.innerHTML = '<span class="vjs-title-text"></span><span class="vjs-status-badge">Idle</span>';
-      return el;
-    };
-    TitleBar.prototype.setTitle = function(text) {
-      var t = this.el().querySelector('.vjs-title-text');
-      if (t) t.textContent = text;
-    };
-    TitleBar.prototype.setStatus = function(text, color) {
-      var s = this.el().querySelector('.vjs-status-badge');
-      if (s) { s.textContent = text; if (color) s.style.color = color; }
-    };
+    class TitleBar extends Component {
+      constructor(player, options) {
+        super(player, options);
+        this.addClass('vjs-title-bar');
+        this._titleEl = this.el().querySelector('.vjs-title-text');
+        this._statusEl = this.el().querySelector('.vjs-status-badge');
+      }
+      createEl() {
+        var el = videojs.dom.createEl('div', { className: 'vjs-title-bar' });
+        el.innerHTML = '<span class="vjs-title-text"></span><span class="vjs-status-badge">Idle</span>';
+        return el;
+      }
+      setTitle(text) {
+        var t = this.el().querySelector('.vjs-title-text');
+        if (t) t.textContent = text;
+      }
+      setStatus(text, color) {
+        var s = this.el().querySelector('.vjs-status-badge');
+        if (s) { s.textContent = text; if (color) s.style.color = color; }
+      }
+    }
     videojs.registerComponent('TitleBar', TitleBar);
 
     // --- Delivery Menu Button ---
-    var DeliveryMenuButton = function(player, options) {
-      this._deliveryItems = options.deliveryItems || [];
-      this._currentDelivery = options.currentDelivery || '';
-      this._streamID = options.streamID || '';
-      MenuButton.call(this, player, options);
-      this.controlText('Delivery Mode');
-      this.addClass('vjs-delivery-button');
-    };
-    DeliveryMenuButton.prototype = Object.create(MenuButton.prototype);
-    DeliveryMenuButton.prototype.constructor = DeliveryMenuButton;
-    DeliveryMenuButton.prototype.createItems = function() {
-      var items = [];
-      var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
-      var self = this;
-      for (var i = 0; i < this._deliveryItems.length; i++) {
-        var mode = this._deliveryItems[i];
-        var item = new MenuItem(this.player(), {
-          label: labels[mode] || mode,
-          selectable: true,
-          selected: mode === this._currentDelivery
-        });
-        item._deliveryMode = mode;
-        item.on('click', (function(m) {
-          return function() {
-            if (m === playerState.delivery) return;
-            playerState.deliveryOverride = m;
-            if (playerState.activePlayer) playerState.activePlayer.stop();
-            if (playerState.currentStreamID) {
-              api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
-            }
-            initPlayer(self._streamID);
-          };
-        })(mode));
-        items.push(item);
+    class DeliveryMenuButton extends MenuButton {
+      constructor(player, options) {
+        super(player, options);
+        this._deliveryItems = options.deliveryItems || [];
+        this._currentDelivery = options.currentDelivery || '';
+        this._streamID = options.streamID || '';
+        this.controlText('Delivery Mode');
+        this.addClass('vjs-delivery-button');
       }
-      return items;
-    };
-    DeliveryMenuButton.prototype.buildCSSClass = function() {
-      return 'vjs-delivery-button ' + MenuButton.prototype.buildCSSClass.call(this);
-    };
+      createItems() {
+        var items = [];
+        var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
+        var self = this;
+        for (var i = 0; i < this._deliveryItems.length; i++) {
+          var mode = this._deliveryItems[i];
+          var item = new MenuItem(this.player(), {
+            label: labels[mode] || mode,
+            selectable: true,
+            selected: mode === this._currentDelivery
+          });
+          item._deliveryMode = mode;
+          item.on('click', (function(m) {
+            return function() {
+              if (m === playerState.delivery) return;
+              playerState.deliveryOverride = m;
+              if (playerState.activePlayer) playerState.activePlayer.stop();
+              if (playerState.currentStreamID) {
+                api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+              }
+              initPlayer(self._streamID);
+            };
+          })(mode));
+          items.push(item);
+        }
+        return items;
+      }
+      buildCSSClass() { return 'vjs-delivery-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('DeliveryMenuButton', DeliveryMenuButton);
 
     // --- Audio Track Menu Button ---
-    var AudioTrackMenuButton = function(player, options) {
-      this._tracks = options.audioTracks || [];
-      this._streamID = options.streamID || '';
-      MenuButton.call(this, player, options);
-      this.controlText('Audio Tracks');
-      this.addClass('vjs-audio-track-button');
-      if (this._tracks.length < 2) this.hide();
-    };
-    AudioTrackMenuButton.prototype = Object.create(MenuButton.prototype);
-    AudioTrackMenuButton.prototype.constructor = AudioTrackMenuButton;
-    AudioTrackMenuButton.prototype.createItems = function() {
-      var items = [];
-      var self = this;
-      for (var i = 0; i < this._tracks.length; i++) {
-        var t = this._tracks[i];
-        var langName = t.language ? t.language.toUpperCase() : '';
-        var label = langName || ('Track ' + (i + 1));
-        if (t.is_ad) label += ' (AD)';
-        var chLabel = '';
-        if (t.channels === 1) chLabel = 'Mono';
-        else if (t.channels === 2) chLabel = 'Stereo';
-        else if (t.channels === 6) chLabel = '5.1';
-        else if (t.channels === 8) chLabel = '7.1';
-        else if (t.channels > 0) chLabel = t.channels + 'ch';
-        var codecLabel = (t.codec || '').toUpperCase();
-        var meta = [chLabel, codecLabel].filter(Boolean).join(' / ');
-        if (meta) label += ' (' + meta + ')';
-        var item = new MenuItem(this.player(), {
-          label: label,
-          selectable: true,
-          selected: !!t.is_active
-        });
-        item._trackIndex = t.index;
-        item.on('click', (function(idx, menuBtn) {
-          return function() {
-            api.post('/api/play/' + menuBtn._streamID + '/tracks/audio', { track: idx })
-              .then(function(resp) {
-                if (resp.ok) {
-                  var children = menuBtn.menu.children();
-                  for (var c = 0; c < children.length; c++) {
-                    if (children[c]._trackIndex !== undefined) {
-                      children[c].selected(children[c]._trackIndex === idx);
-                    }
-                  }
-                } else {
-                  resp.json().then(function(d) { toast('Failed to switch audio: ' + (d.error || 'unknown'), 'error'); }).catch(function() {});
-                }
-              })
-              .catch(function() { toast('Failed to switch audio track', 'error'); });
-          };
-        })(t.index, self));
-        items.push(item);
+    class AudioTrackMenuButton extends MenuButton {
+      constructor(player, options) {
+        super(player, options);
+        this._tracks = options.audioTracks || [];
+        this._streamID = options.streamID || '';
+        this.controlText('Audio Tracks');
+        this.addClass('vjs-audio-track-button');
+        if (this._tracks.length < 2) this.hide();
       }
-      return items;
-    };
-    AudioTrackMenuButton.prototype.buildCSSClass = function() {
-      return 'vjs-audio-track-button ' + MenuButton.prototype.buildCSSClass.call(this);
-    };
+      createItems() {
+        var items = [];
+        var self = this;
+        for (var i = 0; i < this._tracks.length; i++) {
+          var t = this._tracks[i];
+          var langName = t.language ? t.language.toUpperCase() : '';
+          var label = langName || ('Track ' + (i + 1));
+          if (t.is_ad) label += ' (AD)';
+          var chLabel = '';
+          if (t.channels === 1) chLabel = 'Mono';
+          else if (t.channels === 2) chLabel = 'Stereo';
+          else if (t.channels === 6) chLabel = '5.1';
+          else if (t.channels === 8) chLabel = '7.1';
+          else if (t.channels > 0) chLabel = t.channels + 'ch';
+          var codecLabel = (t.codec || '').toUpperCase();
+          var meta = [chLabel, codecLabel].filter(Boolean).join(' / ');
+          if (meta) label += ' (' + meta + ')';
+          var item = new MenuItem(this.player(), {
+            label: label,
+            selectable: true,
+            selected: !!t.is_active
+          });
+          item._trackIndex = t.index;
+          item.on('click', (function(idx, menuBtn) {
+            return function() {
+              api.post('/api/play/' + menuBtn._streamID + '/tracks/audio', { track: idx })
+                .then(function(resp) {
+                  if (resp.ok) {
+                    var children = menuBtn.menu.children();
+                    for (var c = 0; c < children.length; c++) {
+                      if (children[c]._trackIndex !== undefined) {
+                        children[c].selected(children[c]._trackIndex === idx);
+                      }
+                    }
+                  } else {
+                    resp.json().then(function(d) { toast('Failed to switch audio: ' + (d.error || 'unknown'), 'error'); }).catch(function() {});
+                  }
+                })
+                .catch(function() { toast('Failed to switch audio track', 'error'); });
+            };
+          })(t.index, self));
+          items.push(item);
+        }
+        return items;
+      }
+      buildCSSClass() { return 'vjs-audio-track-button ' + super.buildCSSClass(); }
+    }
     videojs.registerComponent('AudioTrackMenuButton', AudioTrackMenuButton);
   }
 
