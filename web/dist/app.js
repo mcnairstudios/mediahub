@@ -3100,6 +3100,17 @@
       playerState.probeInfo = data.probe_info || {};
       playerState.deliverySwitchable = !!data.delivery_switchable;
       playerState.sourceType = data.source_type || null;
+      playerState.audioOnly = !playerState.probeInfo.video;
+
+      // Audio-only: switch to compact audio player mode
+      if (playerState.audioOnly) {
+        var wrapper = document.getElementById('player-wrapper');
+        if (wrapper) wrapper.classList.add('audio-only');
+        if (videoEl) {
+          videoEl.classList.add('vjs-audio');
+          videoEl.muted = false;
+        }
+      }
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
