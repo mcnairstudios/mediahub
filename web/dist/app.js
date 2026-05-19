@@ -4017,9 +4017,12 @@
 
     // Add video.js components if we have a player instance
     if (vjsPlayer) {
-      // Add title bar overlay
-      vjsPlayer.addChild('TitleBar');
+      // Add title bar overlay (only if not already present)
       var titleBar = vjsPlayer.getChild('TitleBar');
+      if (!titleBar) {
+        vjsPlayer.addChild('TitleBar');
+        titleBar = vjsPlayer.getChild('TitleBar');
+      }
       if (titleBar) {
         titleBar.setTitle(playerState._streamName || streamID);
         titleBar.setStatus('Buffering...', '#ffa726');
