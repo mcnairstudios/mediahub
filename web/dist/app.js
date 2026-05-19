@@ -3105,7 +3105,7 @@
       if (playerState.audioOnly) {
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
-        container.innerHTML = '<audio id="video-el" class="video-js vjs-default-skin" controls preload="auto"></audio>';
+        container.innerHTML = '<audio id="video-el" class="video-js vjs-default-skin" controls preload="auto" style="width:100%;height:50px"></audio>';
       } else {
         container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
       }
