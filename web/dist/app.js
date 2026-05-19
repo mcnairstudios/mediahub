@@ -1559,12 +1559,17 @@
 
       if (!streams) {
         var resp = await api.get('/api/streams?source_type=' + encodeURIComponent(sourceType) + '&source_id=' + encodeURIComponent(sourceId));
-        streams = await resp.json();
-        if (!Array.isArray(streams)) streams = [];
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify(streams));
-          sessionStorage.setItem(cacheKey + '_ts', String(Date.now()));
-        } catch (ex) {}
+        if (!resp.ok) { streams = []; }
+        else {
+          streams = await resp.json();
+          if (!Array.isArray(streams)) streams = [];
+          if (streams.length > 0) {
+            try {
+              sessionStorage.setItem(cacheKey, JSON.stringify(streams));
+              sessionStorage.setItem(cacheKey + '_ts', String(Date.now()));
+            } catch (ex) {}
+          }
+        }
       }
 
       if (isTvpStreams) {
