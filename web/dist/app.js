@@ -500,25 +500,26 @@
     class DeliveryMenuButton extends MenuButton {
       constructor(player, options) {
         super(player, options);
-        this._deliveryItems = options.deliveryItems || [];
-        this._currentDelivery = options.currentDelivery || '';
-        this._streamID = options.streamID || '';
         this.controlText('Delivery Mode');
         this.addClass('vjs-delivery-button');
       }
       createItems() {
+        var opts = this.options_ || {};
+        var deliveryItems = opts.deliveryItems || [];
+        var currentDelivery = opts.currentDelivery || '';
+        var streamID = opts.streamID || '';
         var items = [];
         var labels = { mse: 'MSE', hls: 'HLS', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
         var self = this;
-        for (var i = 0; i < this._deliveryItems.length; i++) {
-          var mode = this._deliveryItems[i];
+        for (var i = 0; i < deliveryItems.length; i++) {
+          var mode = deliveryItems[i];
           var item = new MenuItem(this.player(), {
             label: labels[mode] || mode,
             selectable: true,
-            selected: mode === this._currentDelivery
+            selected: mode === currentDelivery
           });
           item._deliveryMode = mode;
-          item.on('click', (function(m) {
+          item.on('click', (function(m, sid) {
             return function() {
               if (m === playerState.delivery) return;
               playerState.deliveryOverride = m;
@@ -526,9 +527,9 @@
               if (playerState.currentStreamID) {
                 api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
               }
-              initPlayer(self._streamID);
+              initPlayer(sid);
             };
-          })(mode));
+          })(mode, streamID));
           items.push(item);
         }
         return items;
@@ -541,17 +542,19 @@
     class AudioTrackMenuButton extends MenuButton {
       constructor(player, options) {
         super(player, options);
-        this._tracks = options.audioTracks || [];
-        this._streamID = options.streamID || '';
         this.controlText('Audio Tracks');
         this.addClass('vjs-audio-track-button');
-        if (this._tracks.length < 2) this.hide();
+        var tracks = (options && options.audioTracks) || [];
+        if (tracks.length < 2) this.hide();
       }
       createItems() {
+        var opts = this.options_ || {};
+        var tracks = opts.audioTracks || [];
+        var streamID = opts.streamID || '';
         var items = [];
         var self = this;
-        for (var i = 0; i < this._tracks.length; i++) {
-          var t = this._tracks[i];
+        for (var i = 0; i < tracks.length; i++) {
+          var t = tracks[i];
           var langName = t.language ? t.language.toUpperCase() : '';
           var label = langName || ('Track ' + (i + 1));
           if (t.is_ad) label += ' (AD)';
@@ -572,7 +575,7 @@
           item._trackIndex = t.index;
           item.on('click', (function(idx, menuBtn) {
             return function() {
-              api.post('/api/play/' + menuBtn._streamID + '/tracks/audio', { track: idx })
+              api.post('/api/play/' + streamID + '/tracks/audio', { track: idx })
                 .then(function(resp) {
                   if (resp.ok) {
                     var children = menuBtn.menu.children();
