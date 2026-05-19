@@ -3101,13 +3101,11 @@
       playerState.sourceType = data.source_type || null;
       playerState.audioOnly = !playerState.probeInfo.video;
 
-      // Create the appropriate player element
+      // Create the player element — use video-js for both, with audioOnlyMode for audio
+      container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
       if (playerState.audioOnly) {
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
-        container.innerHTML = '<audio id="video-el" class="video-js vjs-default-skin" controls preload="auto" style="width:100%;height:50px"></audio>';
-      } else {
-        container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
       }
       var videoEl = document.getElementById('video-el');
       if (!videoEl) return;
@@ -3995,16 +3993,7 @@
       if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
       var opts = vjsBaseOptions();
       if (playerState.audioOnly) {
-        opts.techOrder = ['html5'];
-        opts.controlBar = {
-          playToggle: true,
-          volumePanel: { inline: true },
-          currentTimeDisplay: true,
-          timeDivider: true,
-          durationDisplay: true,
-          progressControl: { seekBar: true },
-          remainingTimeDisplay: true
-        };
+        opts.audioOnlyMode = true;
       }
       vjsPlayer = videojs(videoEl, opts);
       playerState.vjsPlayer = vjsPlayer;
