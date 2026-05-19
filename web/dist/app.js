@@ -3057,7 +3057,7 @@
 
     pageEl.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay muted playsinline></video-js>' +
+        '<div id="player-el-container"></div>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
@@ -3236,7 +3236,12 @@
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
             vjsPlayer.ready(function() {
-              vjsPlayer.play().catch(function() {});
+              vjsPlayer.play().catch(function(e) {
+                if (e && e.name === 'NotAllowedError') {
+                  vjsPlayer.muted(true);
+                  vjsPlayer.play().catch(function() {});
+                }
+              });
             });
 
             vjsPlayer.on('error', function() {
@@ -3249,7 +3254,7 @@
             playerState.vjsPlayer = vjsPlayer;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
             videoEl.src = url;
-            videoEl.play().catch(function() {});
+            videoEl.play().catch(function(e) { if (e && e.name === 'NotAllowedError') { videoEl.muted = true; videoEl.play().catch(function(){}); } });
           } else {
             console.error('[HLS] no HLS support available');
           }
@@ -3670,7 +3675,12 @@
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
             vjsPlayer.ready(function() {
-              vjsPlayer.play().catch(function() {});
+              vjsPlayer.play().catch(function(e) {
+                if (e && e.name === 'NotAllowedError') {
+                  vjsPlayer.muted(true);
+                  vjsPlayer.play().catch(function() {});
+                }
+              });
             });
 
             vjsPlayer.on('error', function() {
