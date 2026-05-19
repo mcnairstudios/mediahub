@@ -3224,7 +3224,11 @@
           if (typeof videojs !== 'undefined') {
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
-            vjsPlayer = videojs(videoEl, vjsBaseOptions());
+            var hlsOpts = vjsBaseOptions();
+            if (playerState.audioOnly) {
+              hlsOpts.audioOnlyMode = true;
+            }
+            vjsPlayer = videojs(videoEl, hlsOpts);
 
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
@@ -3653,7 +3657,11 @@
           if (typeof videojs !== 'undefined') {
             if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
 
-            vjsPlayer = videojs(videoEl, vjsBaseOptions());
+            var dashOpts = vjsBaseOptions();
+            if (playerState.audioOnly) {
+              dashOpts.audioOnlyMode = true;
+            }
+            vjsPlayer = videojs(videoEl, dashOpts);
 
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
