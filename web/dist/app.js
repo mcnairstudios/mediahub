@@ -3994,6 +3994,8 @@
       var opts = vjsBaseOptions();
       if (playerState.audioOnly) {
         opts.audioOnlyMode = true;
+        // Let browser handle audio HLS natively — VHS reassembly causes audio gaps
+        opts.html5 = { vhs: { overrideNative: false, withCredentials: true } };
       }
       vjsPlayer = videojs(videoEl, opts);
       playerState.vjsPlayer = vjsPlayer;
