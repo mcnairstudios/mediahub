@@ -3108,6 +3108,8 @@
       if (playerState.audioOnly) {
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
+        var modal = document.querySelector('.player-overlay-modal');
+        if (modal) modal.classList.add('audio-modal');
       }
       var videoEl = document.getElementById('video-el');
       if (!videoEl) return;

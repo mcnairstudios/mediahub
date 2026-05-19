@@ -177,7 +177,7 @@ a:hover{color:var(--accent-hover)}
   .player-overlay-modal{width:100%;border-radius:0;margin:0}
 }
 .player-wrapper{position:relative;background:#000;border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px;aspect-ratio:16/9}
-.player-overlay-modal:has(.audio-only){max-width:450px;background:var(--bg-card);border-radius:12px}
+.player-overlay-modal.audio-modal{max-width:450px;background:var(--bg-card);border-radius:12px}
 .player-wrapper.audio-only{aspect-ratio:auto;border-radius:12px;overflow:hidden}
 .player-wrapper.audio-only .video-js.vjs-audio-only-mode{height:auto!important;padding-top:0!important;background:var(--bg-card)}
 .player-wrapper.audio-only .vjs-audio-only-mode .vjs-title-bar{display:block!important;position:relative;padding:14px 16px 10px;background:transparent;font-size:15px}
