@@ -3231,6 +3231,7 @@
               hlsOpts.audioOnlyMode = true;
             }
             vjsPlayer = videojs(videoEl, hlsOpts);
+            playerState.vjsPlayer = vjsPlayer;
 
             vjsPlayer.src({ src: url, type: 'application/x-mpegURL' });
 
@@ -3664,6 +3665,7 @@
               dashOpts.audioOnlyMode = true;
             }
             vjsPlayer = videojs(videoEl, dashOpts);
+            playerState.vjsPlayer = vjsPlayer;
 
             vjsPlayer.src({ src: url, type: 'application/dash+xml' });
 
