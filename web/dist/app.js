@@ -764,9 +764,11 @@
         api.del('/api/play/' + this.currentStreamID).catch(function() {});
       }
       if (this.videoEl) {
-        this.videoEl.pause();
-        this.videoEl.removeAttribute('src');
-        this.videoEl.load();
+        try {
+          if (typeof this.videoEl.pause === 'function') this.videoEl.pause();
+          if (typeof this.videoEl.removeAttribute === 'function') this.videoEl.removeAttribute('src');
+          if (typeof this.videoEl.load === 'function') this.videoEl.load();
+        } catch (e) {}
       }
       this.currentStreamID = null;
       this.videoEl = null;
