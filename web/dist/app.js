@@ -3008,7 +3008,7 @@
 
     modal.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
-        '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay muted playsinline></video-js>' +
+        '<div id="player-el-container"></div>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
@@ -3066,9 +3066,8 @@
   }
 
   async function initPlayer(streamID) {
-    var videoEl = document.getElementById('video-el');
-    if (!videoEl) return;
-    playerState.videoEl = videoEl;
+    var container = document.getElementById('player-el-container');
+    if (!container) return;
 
     var spinner = document.getElementById('player-spinner');
     if (spinner) spinner.style.display = 'flex';
@@ -3102,15 +3101,17 @@
       playerState.sourceType = data.source_type || null;
       playerState.audioOnly = !playerState.probeInfo.video;
 
-      // Audio-only: switch to compact audio player mode
+      // Create the appropriate player element
       if (playerState.audioOnly) {
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
-        if (videoEl) {
-          videoEl.classList.add('vjs-audio');
-          videoEl.muted = false;
-        }
+        container.innerHTML = '<audio id="video-el" class="video-js vjs-default-skin" controls preload="auto"></audio>';
+      } else {
+        container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
       }
+      var videoEl = document.getElementById('video-el');
+      if (!videoEl) return;
+      playerState.videoEl = videoEl;
 
       if (delivery === 'hls') {
         var hlsUrl = endpoints.playlist || (isRecording
@@ -3179,7 +3180,7 @@
     return {
       controls: true,
       autoplay: true,
-      muted: true,
+      muted: false,
       fluid: false,
       responsive: true,
       preload: 'auto',
@@ -3992,7 +3993,20 @@
     // HLS and DASH players already create a vjsPlayer in their start() method
     if (typeof videojs !== 'undefined' && !vjsPlayer) {
       if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
-      vjsPlayer = videojs(videoEl, vjsBaseOptions());
+      var opts = vjsBaseOptions();
+      if (playerState.audioOnly) {
+        opts.techOrder = ['html5'];
+        opts.controlBar = {
+          playToggle: true,
+          volumePanel: { inline: true },
+          currentTimeDisplay: true,
+          timeDivider: true,
+          durationDisplay: true,
+          progressControl: { seekBar: true },
+          remainingTimeDisplay: true
+        };
+      }
+      vjsPlayer = videojs(videoEl, opts);
       playerState.vjsPlayer = vjsPlayer;
     }
 

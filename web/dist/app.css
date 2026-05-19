@@ -177,11 +177,7 @@ a:hover{color:var(--accent-hover)}
   .player-overlay-modal{width:100%;border-radius:0;margin:0}
 }
 .player-wrapper{position:relative;background:#000;border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px;aspect-ratio:16/9}
-.player-wrapper.audio-only{aspect-ratio:auto;height:80px;background:var(--bg-card);border:1px solid var(--border)}
-.player-wrapper.audio-only .video-js{height:80px!important}
-.player-wrapper.audio-only .vjs-tech{display:none}
-.player-wrapper.audio-only .vjs-poster{display:none}
-.player-wrapper.audio-only .vjs-title-bar{position:relative;padding:8px 12px;background:var(--bg-card);font-size:14px}
+.player-wrapper.audio-only{aspect-ratio:auto;background:var(--bg-card);border:1px solid var(--border)}
 .player-overlay-modal .player-wrapper{margin-bottom:0;border-radius:0}
 .player-wrapper video{width:100%;height:100%;display:block;object-fit:contain}
 .player-wrapper:fullscreen{border-radius:0}
