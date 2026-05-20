@@ -3421,6 +3421,8 @@
       }
 
       function startMSEInternal(vidEl, streamID, endpoints) {
+        // Resolve the raw <video> element — vidEl may be a video.js wrapper
+        vidEl = vidEl.querySelector ? (vidEl.querySelector('video') || vidEl) : vidEl;
         if (!('MediaSource' in window)) {
           toast('Browser does not support MSE playback', 'error');
           return;
