@@ -525,13 +525,20 @@
           item._deliveryMode = mode;
           item.on('click', (function(m, sid) {
             return function() {
-              if (m === playerState.delivery) return;
-              playerState.deliveryOverride = m;
-              if (playerState.activePlayer) playerState.activePlayer.stop();
-              if (playerState.currentStreamID) {
-                api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
-              }
-              initPlayer(sid);
+              try {
+                if (m === playerState.delivery) return;
+                playerState.deliveryOverride = m;
+                if (playerState.activePlayer) { try { playerState.activePlayer.stop(); } catch(e) {} }
+                if (playerState.vjsPlayer) { try { playerState.vjsPlayer.dispose(); } catch(e) {} playerState.vjsPlayer = null; }
+                if (playerState.currentStreamID) {
+                  api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+                }
+                playerState.currentStreamID = null;
+                // Re-create the player element
+                var container = document.getElementById('player-el-container');
+                if (container) container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
+                initPlayer(sid);
+              } catch(e) { console.error('delivery switch error:', e); }
             };
           })(mode, streamID));
           items.push(item);
