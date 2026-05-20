@@ -3804,7 +3804,9 @@
 
           pc.ontrack = function(e) {
             if (e.streams && e.streams[0]) {
-              videoEl.srcObject = e.streams[0];
+              // Use the raw <video>/<audio> element, not the video.js wrapper
+              var techEl = videoEl.querySelector ? (videoEl.querySelector('video') || videoEl.querySelector('audio') || videoEl) : videoEl;
+              techEl.srcObject = e.streams[0];
               e.streams[0].onremovetrack = function(evt) {
                 var stream = evt.target;
                 if (!stopped && stream.getTracks().length === 0) scheduleRetry();
@@ -3851,7 +3853,8 @@
             return pc.setRemoteDescription({type: 'answer', sdp: sdp});
           }).then(function() {
             if (!pc || stopped) return;
-            videoEl.play().catch(function(){});
+            var techEl = videoEl.querySelector ? (videoEl.querySelector('video') || videoEl.querySelector('audio') || videoEl) : videoEl;
+            techEl.play().catch(function(e) { if (e && e.name === 'NotAllowedError') { techEl.muted = true; techEl.play().catch(function(){}); } });
           }).catch(function(err) {
             if (!stopped) scheduleRetry();
           });
