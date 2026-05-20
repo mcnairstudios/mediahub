@@ -3173,6 +3173,17 @@
         toast('No supported player for delivery mode: ' + delivery, 'error');
         return;
       }
+      // For MSE/WebRTC: initialize video.js first so the raw <video> element exists
+      // HLS/DASH create their own video.js instance in start()
+      if (delivery !== 'hls' && delivery !== 'dash' && typeof videojs !== 'undefined') {
+        if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
+        var earlyOpts = vjsBaseOptions();
+        if (playerState.audioOnly) earlyOpts.audioOnlyMode = true;
+        var earlyPlayer = videojs(videoEl, earlyOpts);
+        playerState.vjsPlayer = earlyPlayer;
+        // Now resolve the raw video element for MSE/WebRTC
+        videoEl = earlyPlayer.tech({ IWillNotUseThisInPlugins: true }).el();
+      }
       var instance = plugin.create(videoEl);
       playerState.activePlayer = instance;
       instance.start(endpoints, streamID);
