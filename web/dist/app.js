@@ -787,6 +787,8 @@
       this.retryCount = 0;
       this.hlsUrl = null;
       this.delivery = null;
+      this.deliveryOverride = null;
+      this.audioOnly = false;
       this._streamName = null;
     }
   };
