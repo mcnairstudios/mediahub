@@ -227,18 +227,25 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 		// Defer pipeline start until WHEP offer arrives with browser SDP.
 		// Register callback that parses SDP, picks best codec, starts pipeline.
 		sess.SetOnSDPOffer(func(sdp string) (string, error) {
-			browserCodecs := hwcaps.ParseSDPVideoCodecs(sdp)
-			log.Printf("webrtc: SDP negotiation browser=%v", browserCodecs)
+			hasVideo := cachedProbe != nil && cachedProbe.Video != nil
+			negotiated := ""
+			if hasVideo {
+				browserCodecs := hwcaps.ParseSDPVideoCodecs(sdp)
+				log.Printf("webrtc: SDP negotiation browser=%v", browserCodecs)
 
-			// Re-resolve with browser's allowed video codecs
-			sdpInput := codecInput
-			sdpInput.DeliveryConstraints.AllowedVideoCodecs = browserCodecs
-			sdpResolved := codec.Resolve(sdpInput)
-			negotiated := sdpResolved.VideoCodec
-			log.Printf("webrtc: negotiated codec=%s", negotiated)
+				// Re-resolve with browser's allowed video codecs
+				sdpInput := codecInput
+				sdpInput.DeliveryConstraints.AllowedVideoCodecs = browserCodecs
+				sdpResolved := codec.Resolve(sdpInput)
+				negotiated = sdpResolved.VideoCodec
+				log.Printf("webrtc: negotiated codec=%s", negotiated)
 
-			decision.VideoCodec = media.VideoCodec(negotiated)
-			decision.NeedsTranscode = true
+				decision.VideoCodec = media.VideoCodec(negotiated)
+				decision.NeedsTranscode = true
+			} else {
+				log.Printf("webrtc: audio-only stream, skipping video negotiation")
+				decision.NeedsTranscode = false
+			}
 
 			pipeCfg := buildPipeCfg(negotiated)
 			pr, err := runner(sess, pipeCfg)
@@ -311,7 +318,11 @@ func StartPlayback(ctx context.Context, deps PlaybackDeps, streamID string, port
 	if isWebRTC {
 		// WebRTC: pipeline deferred — use placeholder probe info for plugin creation.
 		// Actual codec will be set after SDP negotiation.
-		pluginCfg.Video = &media.VideoInfo{Codec: resolved.VideoCodec, Width: 1920, Height: 1080}
+		// Only set video if the source actually has video (probe or cached info).
+		hasVideo := (info != nil && info.Video != nil) || (cachedProbe != nil && cachedProbe.Video != nil)
+		if hasVideo {
+			pluginCfg.Video = &media.VideoInfo{Codec: resolved.VideoCodec, Width: 1920, Height: 1080}
+		}
 		pluginCfg.Audio = &media.AudioTrack{Codec: resolved.AudioCodec, Channels: 2, SampleRate: 48000}
 	} else {
 		// Non-WebRTC: pipeline already ran — populate from pipeline result
