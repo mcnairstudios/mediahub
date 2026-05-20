@@ -482,7 +482,11 @@
       }
       createEl() {
         var el = videojs.dom.createEl('div', { className: 'vjs-title-bar' });
-        el.innerHTML = '<span class="vjs-title-text"></span><span class="vjs-status-badge">Idle</span>';
+        el.innerHTML = '<span class="vjs-title-text"></span><span class="vjs-status-badge">Idle</span><button class="vjs-title-close" title="Close">\u2715</button>';
+        el.querySelector('.vjs-title-close').addEventListener('click', function(e) {
+          e.stopPropagation();
+          closePlayerOverlay();
+        });
         return el;
       }
       setTitle(text) {
@@ -3109,7 +3113,38 @@
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
         var modal = document.querySelector('.player-overlay-modal');
-        if (modal) modal.classList.add('audio-modal');
+        if (modal) {
+          modal.classList.add('audio-modal');
+          // Make audio modal draggable
+          modal.style.cursor = 'grab';
+          var dragState = { dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 };
+          modal.addEventListener('mousedown', function(e) {
+            if (e.target.closest('button, .vjs-control-bar, .vjs-volume-panel')) return;
+            dragState.dragging = true;
+            dragState.startX = e.clientX;
+            dragState.startY = e.clientY;
+            var rect = modal.getBoundingClientRect();
+            dragState.origX = rect.left;
+            dragState.origY = rect.top;
+            modal.style.cursor = 'grabbing';
+            e.preventDefault();
+          });
+          document.addEventListener('mousemove', function(e) {
+            if (!dragState.dragging) return;
+            var dx = e.clientX - dragState.startX;
+            var dy = e.clientY - dragState.startY;
+            modal.style.position = 'fixed';
+            modal.style.left = (dragState.origX + dx) + 'px';
+            modal.style.top = (dragState.origY + dy) + 'px';
+            modal.style.margin = '0';
+          });
+          document.addEventListener('mouseup', function() {
+            if (dragState.dragging) {
+              dragState.dragging = false;
+              modal.style.cursor = 'grab';
+            }
+          });
+        }
       }
       var videoEl = document.getElementById('video-el');
       if (!videoEl) return;
