@@ -3021,13 +3021,41 @@
     var modal = document.createElement('div');
     modal.className = 'player-overlay-modal';
 
+    var modes = ['hls', 'mse', 'dash', 'webrtc', 'stream'];
+    var modeLabels = { hls: 'HLS', mse: 'MSE', dash: 'DASH', webrtc: 'WebRTC', stream: 'Direct' };
+    var transportBtns = modes.map(function(m) {
+      return '<button class="transport-btn" data-mode="' + m + '">' + modeLabels[m] + '</button>';
+    }).join('');
     modal.innerHTML =
       '<div class="player-wrapper" id="player-wrapper">' +
         '<div id="player-el-container"></div>' +
         '<div class="player-spinner" id="player-spinner">' +
           '<div class="spinner-ring"></div>' +
         '</div>' +
-      '</div>';
+      '</div>' +
+      '<div class="transport-bar" id="transport-bar">' + transportBtns + '</div>';
+
+    modal.querySelector('.transport-bar').addEventListener('click', function(e) {
+      var btn = e.target.closest('.transport-btn');
+      if (!btn) return;
+      var mode = btn.dataset.mode;
+      if (mode === playerState.delivery) return;
+      // Clean up current player
+      try {
+        if (playerState.activePlayer) { try { playerState.activePlayer.stop(); } catch(ex) {} }
+        if (playerState.vjsPlayer) { try { playerState.vjsPlayer.dispose(); } catch(ex) {} playerState.vjsPlayer = null; }
+        if (playerState.currentStreamID) {
+          api.del('/api/play/' + playerState.currentStreamID).catch(function() {});
+        }
+        playerState.currentStreamID = null;
+        playerState.activePlayer = null;
+      } catch(ex) {}
+      // Reset container
+      var cont = document.getElementById('player-el-container');
+      if (cont) cont.innerHTML = '';
+      playerState.deliveryOverride = mode;
+      initPlayer(streamID);
+    });
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
@@ -3110,6 +3138,13 @@
       var delivery = data.delivery || 'hls';
       var endpoints = data.endpoints || {};
       playerState.delivery = delivery;
+      // Update transport bar active button
+      var tbar = document.getElementById('transport-bar');
+      if (tbar) {
+        tbar.querySelectorAll('.transport-btn').forEach(function(b) {
+          b.classList.toggle('active', b.dataset.mode === delivery);
+        });
+      }
       playerState.decision = data.decision || {};
       playerState.probeInfo = data.probe_info || {};
       playerState.deliverySwitchable = !!data.delivery_switchable;
@@ -4112,8 +4147,7 @@
         controlBar.addChild('RecordButton', { streamID: streamID });
         controlBar.addChild('StatsButton');
         controlBar.addChild('HelpButton');
-        // Add delivery switcher
-        showDeliverySwitcher(playerState.delivery, streamID);
+        // Delivery switcher is now in the standalone transport bar
         // Only show close button in overlay mode
         if (document.getElementById('player-overlay')) {
           controlBar.addChild('CloseButton');
