@@ -3151,8 +3151,14 @@
       playerState.sourceType = data.source_type || null;
       playerState.audioOnly = !playerState.probeInfo.video;
 
-      // Create the player element — use video-js for both, with audioOnlyMode for audio
-      container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
+      // Create the player element
+      // MSE/Direct/Stream need a raw <video> tag (MediaSource doesn't work on <video-js>)
+      // HLS/DASH/WebRTC use <video-js> which video.js wraps
+      if (delivery === 'mse' || delivery === 'stream') {
+        container.innerHTML = '<video id="video-el" controls autoplay playsinline style="width:100%;height:100%"></video>';
+      } else {
+        container.innerHTML = '<video-js id="video-el" class="vjs-default-skin vjs-big-play-centered" controls autoplay playsinline></video-js>';
+      }
       if (playerState.audioOnly) {
         var wrapper = document.getElementById('player-wrapper');
         if (wrapper) wrapper.classList.add('audio-only');
