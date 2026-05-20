@@ -4085,10 +4085,8 @@
         controlBar.addChild('RecordButton', { streamID: streamID });
         controlBar.addChild('StatsButton');
         controlBar.addChild('HelpButton');
-        // Add delivery switcher (only if server says switching is available)
-        if (playerState.deliverySwitchable) {
-          showDeliverySwitcher(playerState.delivery, streamID);
-        }
+        // Add delivery switcher
+        showDeliverySwitcher(playerState.delivery, streamID);
         // Only show close button in overlay mode
         if (document.getElementById('player-overlay')) {
           controlBar.addChild('CloseButton');
