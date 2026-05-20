@@ -191,6 +191,7 @@ a:hover{color:var(--accent-hover)}
 .player-wrapper.audio-only .vjs-stats-button{display:none!important}
 .player-wrapper.audio-only .vjs-help-button{display:none!important}
 .player-wrapper.audio-only .vjs-close-button{display:none!important}
+.player-wrapper.audio-only .vjs-delivery-button{display:none!important}
 .vjs-title-close{background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:0 2px;margin-left:12px;line-height:1}
 .vjs-title-close:hover{color:var(--text-primary)}
 .player-wrapper:not(.audio-only) .vjs-title-close{display:none}
