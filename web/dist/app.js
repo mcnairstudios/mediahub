@@ -3208,16 +3208,15 @@
         toast('No supported player for delivery mode: ' + delivery, 'error');
         return;
       }
-      // For MSE/WebRTC/Stream: initialize video.js first so controls exist,
-      // then pass the raw <video> element to the player plugin.
-      // HLS/DASH create their own video.js instance in start().
-      if (delivery !== 'hls' && delivery !== 'dash' && typeof videojs !== 'undefined') {
+      // For WebRTC only: initialize video.js first so the raw <video> exists.
+      // HLS/DASH create their own video.js in start().
+      // MSE/Direct/Stream work with the <video-js> element directly (it acts as <video>).
+      if (delivery === 'webrtc' && typeof videojs !== 'undefined') {
         if (!videoEl.id) videoEl.id = 'mediahub-vjs-' + Date.now();
         var earlyOpts = vjsBaseOptions();
         if (playerState.audioOnly) earlyOpts.audioOnlyMode = true;
         var earlyPlayer = videojs(videoEl, earlyOpts);
         playerState.vjsPlayer = earlyPlayer;
-        // Get the raw <video> element that video.js created
         videoEl = document.querySelector('#' + earlyPlayer.id() + ' .vjs-tech') || videoEl;
       }
       var instance = plugin.create(videoEl);
@@ -3477,8 +3476,6 @@
       }
 
       function startMSEInternal(vidEl, streamID, endpoints) {
-        // Resolve the raw <video> element — vidEl may be a video.js wrapper
-        vidEl = vidEl.querySelector ? (vidEl.querySelector('video') || vidEl) : vidEl;
         if (!('MediaSource' in window)) {
           toast('Browser does not support MSE playback', 'error');
           return;
