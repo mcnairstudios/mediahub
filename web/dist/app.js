@@ -3527,16 +3527,17 @@
                 mseState.appendQueues[track].push(new Uint8Array(buf));
                 processQueue(track);
                 seq++;
-                if (track === 'video' && seq === 2 && !mseState.playStarted) {
+                if (((track === 'video') || (track === 'audio' && !mseState.videoSB)) && seq === 2 && !mseState.playStarted) {
                   mseState.playStarted = true;
                   var playTimer = null;
                   var tryPlay = function() {
                     playTimer = null;
                     if (!mseState || mseState.stopped || !vidEl.parentNode) return;
                     try {
-                      if (mseState.videoSB && mseState.videoSB.buffered.length > 0) {
-                        var end = mseState.videoSB.buffered.end(mseState.videoSB.buffered.length - 1);
-                        vidEl.currentTime = Math.max(end - 1, mseState.videoSB.buffered.start(0));
+                      var activeSB = mseState.videoSB || mseState.audioSB;
+                      if (activeSB && activeSB.buffered.length > 0) {
+                        var end = activeSB.buffered.end(activeSB.buffered.length - 1);
+                        vidEl.currentTime = Math.max(end - 1, activeSB.buffered.start(0));
                         vidEl.play().catch(function() {
                           if (!mseState || mseState.stopped || !vidEl.parentNode) return;
                           playTimer = setTimeout(tryPlay, 300);
